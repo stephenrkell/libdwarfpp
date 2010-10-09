@@ -5,9 +5,9 @@
  * Copyright (c) 2008--9, Stephen Kell.
  */
 
-#include "lib.hpp"
-#include "adt.hpp"
-#include "encap.hpp" // re-use some formatting logic in encap, for convenience
+#include "dwarfpp/lib.hpp"
+#include "dwarfpp/adt.hpp"
+#include "dwarfpp/encap.hpp" // re-use some formatting logic in encap, for convenience
 	// FIXME: flip the above around, so that the formatting logic is in here!
 
 #include <sstream>

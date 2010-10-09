@@ -140,10 +140,11 @@ namespace dwarf {
 			std::deque<position> path_from_root(Dwarf_Off);
             // override find() to be more efficient than the ADT version
 		    abstract_dieset::iterator find(dwarf::lib::Dwarf_Off off)
-            { if (this->find(off) != this->end())
+            { auto found_iter = this->map_find(off);
+              if (found_iter != this->map_end())
               { 
                 std::deque<position> path;
-                this->build_path_from_root(path, this->map_find(off));
+                this->build_path_from_root(path, found_iter);
               	return abstract_dieset::iterator(*this, off, path);
               }
               else return this->end(); }

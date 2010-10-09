@@ -5,7 +5,7 @@
  * Copyright (c) 2008--9, Stephen Kell.
  */
 
-#include "spec.hpp"
+#include "dwarfpp/spec.hpp"
 #include <vector>
 
 namespace dwarf

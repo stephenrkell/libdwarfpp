@@ -198,7 +198,8 @@ namespace dwarf { namespace tool {
 	}
 
     std::string cxx_compiler::cxx_declarator_from_type_die(boost::shared_ptr<spec::type_die> p_d, 
-        boost::optional<const std::string&> infix_typedef_name 
+        boost::optional<const std::string&> infix_typedef_name,
+        bool use_friendly_names /*= true*/ 
          /*= boost::optional<const std::string&>()*/)
     {
 /* Following is an aborted attempt to avoid typecasing. */
@@ -221,9 +222,10 @@ namespace dwarf { namespace tool {
 	    std::string name_prefix;
 	    switch (p_d->get_tag())
         {
-    	    // return the friendly compiler-determined name if possible
+    	    // return the friendly compiler-determined name or not, depending on argument
     	    case DW_TAG_base_type:
-	            return name_for(boost::dynamic_pointer_cast<spec::base_type_die>(p_d));
+	            return local_name_for(boost::dynamic_pointer_cast<spec::base_type_die>(p_d),
+                	use_friendly_names);
             case DW_TAG_typedef:
         	    return *p_d->get_name();
             case DW_TAG_pointer_type: {

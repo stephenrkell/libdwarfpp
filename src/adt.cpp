@@ -473,10 +473,6 @@ namespace dwarf
             if (this->get_byte_size()) return *this->get_byte_size();
             else return boost::optional<Dwarf_Unsigned>();
 		}
-        bool type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
-        {
-        	return false;
-        }
         boost::shared_ptr<type_die> type_die::get_concrete_type() const
         {
         	// by default, our concrete self is our self
@@ -615,6 +611,64 @@ namespace dwarf
             }
             return true;
 		}
+/* from spec::member_die */        
+		boost::optional<Dwarf_Unsigned> 
+        member_die::byte_offset_in_enclosing_type() const
+        {
+        	auto nonconst_this = const_cast<member_die *>(this); // HACK: eliminate
+        
+        	auto enclosing_type_die = boost::dynamic_pointer_cast<type_die>(
+            	this->get_parent());
+            if (!enclosing_type_die) return boost::optional<Dwarf_Unsigned>();
+            
+			if (!this->get_data_member_location())
+			{
+				// if we don't have a location for this field,
+				// we tolerate it iff it's the first one in a struct/class
+				// OR contained in a union
+                // HACK: support class types (and others) here
+				if (
+				(  (enclosing_type_die->get_tag() == DW_TAG_structure_type ||
+					enclosing_type_die->get_tag() == DW_TAG_class_type)
+                 && /*static_cast<abstract_dieset::position>(*/nonconst_this->iterator_here().base()/*)*/ == 
+                 	/*static_cast<abstract_dieset::position>(*/
+                    	boost::dynamic_pointer_cast<structure_type_die>(enclosing_type_die)
+                 			->member_children_begin().base().base().base()/*)*/
+				) || enclosing_type_die->get_tag() == DW_TAG_union_type)
+				
+				{
+					return boost::optional<Dwarf_Unsigned>(0U);
+				}
+				else 
+				{
+					// error
+					std::cerr << "Warning: encountered DWARF type lacking member locations: "
+						<< *enclosing_type_die << std::endl;
+					return boost::optional<Dwarf_Unsigned>();
+				}
+			}
+			else if (this->get_data_member_location()->size() != 1)
+			{
+				// error
+				std::cerr << "Warning: encountered DWARF type with member locations I didn't understand: "
+					<< *enclosing_type_die << std::endl;
+				return boost::optional<Dwarf_Unsigned>();
+			}
+			else
+			{
+				return dwarf::lib::evaluator(
+					this->get_data_member_location()->at(0), 
+					this->get_ds().get_spec(),
+					std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, 0UL))).tos();
+			}
+        }
+/* from spec::inheritance_die */
+		boost::optional<Dwarf_Unsigned> 
+        inheritance_die::byte_offset_in_enclosing_type() const
+        {
+        	// FIXME
+            return boost::optional<Dwarf_Unsigned>();
+        }
     }
     namespace lib
     {
@@ -861,6 +915,51 @@ namespace dwarf
                 path_from_root.size() == 0) this->path_from_root = ds.find(off).path();
             canonicalize_position(); 
         }
+
+        bool 
+		file_toplevel_die::is_visible::operator()(
+			boost::shared_ptr<spec::basic_die> p) const
+        {
+            auto p_el = boost::dynamic_pointer_cast<program_element_die>(p);
+            if (!p_el) return true;
+            return !p_el->get_visibility() 
+                || *p_el->get_visibility() != DW_VIS_local;
+        }
+//                 bool operator()(Die_encap_base& d) const
+//                 {
+//                     try
+//                     {
+//                         Die_encap_is_program_element& el = 
+//                             dynamic_cast<Die_encap_is_program_element&>(d);
+//                         return !el.get_visibility() 
+//                             || *el.get_visibility() != DW_VIS_local;
+//                     } catch (std::bad_cast e) { return true; }
+//                 }
+
+        boost::shared_ptr<basic_die>
+        file_toplevel_die::visible_named_child(const std::string& name)
+        { 
+            is_visible visible;
+            for (auto i_cu = compile_unit_children_begin();
+                    i_cu != compile_unit_children_end(); i_cu++)
+            {
+                //std::cerr << "Looking for child named " << name << std::endl;
+                for (auto i = (*i_cu)->children_begin();
+                        i != (*i_cu)->children_end();
+                        i++)
+                {
+                    if (!(*i)->get_name()) continue;
+                    //std::cerr << "Testing candidate die at offset " << (*i)->get_offset() << std::endl;
+                    if ((*i)->get_name() 
+                        && *((*i)->get_name()) == name
+                        && visible(*i))
+                    { 
+                        return *i;
+                    }
+                }
+            }
+            return boost::shared_ptr<basic_die>();
+        }            
     }
     namespace lib
     {
@@ -1160,98 +1259,124 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
         {
         	assert(false);
         }
+        
+        // siblings-only traversal
+        abstract_dieset::siblings_policy abstract_dieset::siblings_policy_sg;
+        int abstract_dieset::siblings_policy::increment(position& pos,
+        	std::deque<abstract_dieset::position>& path)
+        {
+        	auto maybe_next_off = (*pos.p_ds)[pos.off]->next_sibling_offset();
+        	if (maybe_next_off)
+            {
+                pos.off = *maybe_next_off;
+                path.pop_back(); path.push_back((position){pos.p_ds, *maybe_next_off});
+            }
+            else 
+            {
+                /* That's it! Use end sentinel. */
+                pos.off = std::numeric_limits<Dwarf_Off>::max();
+                path = std::deque<position>();
+            }
+        	return 0;
+        }
+        int abstract_dieset::siblings_policy::decrement(position& pos,
+        	std::deque<abstract_dieset::position>& path) 
+        {
+        	assert(false);
+        }
     }
     namespace lib
     {
 
-	    boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
-        {
-		    // We have to explicitly loop through CU headers, 
-            // to set the CU context when getting dies.
-		    Dwarf_Unsigned cu_header_length;
-		    Dwarf_Half version_stamp;
-		    Dwarf_Unsigned abbrev_offset;
-		    Dwarf_Half address_size;
-		    Dwarf_Unsigned next_cu_header;
+		boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
+		{
+			// We have to explicitly loop through CU headers, 
+    		// to set the CU context when getting dies.
+			Dwarf_Unsigned cu_header_length;
+			Dwarf_Half version_stamp;
+			Dwarf_Unsigned abbrev_offset;
+			Dwarf_Half address_size;
+			Dwarf_Unsigned next_cu_header;
 
-		    int retval;
-		    p_ds->p_f->reset_cu_context();
+			int retval;
+			p_ds->p_f->reset_cu_context();
 
-		    retval = p_ds->p_f->next_cu_header(&cu_header_length, &version_stamp,
-			    &abbrev_offset, &address_size, &next_cu_header);
-		    if (retval != DW_DLV_OK)
-		    {
-			    std::cerr << "Warning: couldn't get first CU header! no debug information imported" << std::endl;
-                throw No_entry();
-		    }
+			retval = p_ds->p_f->next_cu_header(&cu_header_length, &version_stamp,
+				&abbrev_offset, &address_size, &next_cu_header);
+			if (retval != DW_DLV_OK)
+			{
+				std::cerr << "Warning: couldn't get first CU header! no debug information imported" << std::endl;
+        		throw No_entry();
+			}
 
-            switch (version_stamp)
-            {
-                case 2: p_spec = &dwarf::spec::dwarf3; break;
-                default: throw std::string("Unsupported DWARF version stamp!");
-            }
-            prev_version_stamp = version_stamp;
-            
-            return boost::make_shared<compile_unit_die>(*p_ds, 
-            	boost::make_shared<dwarf::lib::die>(*p_ds->p_f));
-       }
-       
-       Dwarf_Off file_toplevel_die::get_first_child_offset() const
-       {
-       	return const_cast<file_toplevel_die*>(this)->get_first_child()->get_offset();
-       }
-       Dwarf_Off file_toplevel_die::get_next_sibling_offset() const
-       {
-       		throw No_entry();
-       }
-	    boost::shared_ptr<spec::basic_die> compile_unit_die::get_next_sibling()
-        {
-        	int retval;
-            Dwarf_Half prev_version_stamp 
-            	= boost::dynamic_pointer_cast<file_toplevel_die>(p_ds->toplevel())
-                	->prev_version_stamp;
-		    Dwarf_Half version_stamp = prev_version_stamp;
-            Dwarf_Off next_cu_offset;
-            
-        	// first reset the CU context (pesky stateful API)
-            retval = p_ds->p_f->reset_cu_context();
-	        if (retval != DW_DLV_OK) // then it must be DW_DLV_ERROR
-            {
-                assert(retval == DW_DLV_ERROR);
-			    std::cerr << "Warning: couldn't get first CU header! no debug information imported" << std::endl;
-	            throw No_entry();
-            }
-            
-            // now find us
+    		switch (version_stamp)
+    		{
+        		case 2: p_spec = &dwarf::spec::dwarf3; break;
+        		default: throw std::string("Unsupported DWARF version stamp!");
+    		}
+    		prev_version_stamp = version_stamp;
+
+    		return boost::make_shared<compile_unit_die>(*p_ds, 
+        		boost::make_shared<dwarf::lib::die>(*p_ds->p_f));
+		}
+
+		Dwarf_Off file_toplevel_die::get_first_child_offset() const
+		{
+			return const_cast<file_toplevel_die*>(this)->get_first_child()->get_offset();
+		}
+		Dwarf_Off file_toplevel_die::get_next_sibling_offset() const
+		{
+			throw No_entry();
+		}
+		
+		boost::shared_ptr<spec::basic_die> compile_unit_die::get_next_sibling()
+		{
+			int retval;
+			Dwarf_Half prev_version_stamp 
+				= boost::dynamic_pointer_cast<file_toplevel_die>(p_ds->toplevel())
+					->prev_version_stamp;
+			Dwarf_Half version_stamp = prev_version_stamp;
+			Dwarf_Off next_cu_offset;
+
+			// first reset the CU context (pesky stateful API)
+			retval = p_ds->p_f->reset_cu_context();
+			if (retval != DW_DLV_OK) // then it must be DW_DLV_ERROR
+			{
+				assert(retval == DW_DLV_ERROR);
+				std::cerr << "Warning: couldn't get first CU header! no debug information imported" << std::endl;
+				throw No_entry();
+			}
+
+			// now find us
 			for (retval = p_ds->p_f->next_cu_header(/*&cu_header_length*/0, &version_stamp,
-			        /*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset);
+					/*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset);
 					retval != DW_DLV_NO_ENTRY; // termination condition (negated)
 					retval = p_ds->p_f->next_cu_header(/*&cu_header_length*/0, &version_stamp,
-						/*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset))
+									/*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset))
 			{
-                // only support like-versioned CUs for now
-	            assert(prev_version_stamp == version_stamp);
-                // now we can access the CU by constructing a lib::die under the current CU state
-                auto p_cu = boost::make_shared<die>(*p_ds->p_f);
-                Dwarf_Off off;
-                if ((p_cu->offset(&off), off) == this->get_offset()) // found us
-                {
-                	break;
-                }
-            }
-            
-            if (retval == DW_DLV_NO_ENTRY) // failed to find ourselves!
-            {
-            	assert(false);
-            }
-            
-            // now go one further
-            retval = p_ds->p_f->next_cu_header(/*&cu_header_length*/0, &version_stamp,
-						/*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset);
-            if (retval == DW_DLV_NO_ENTRY) throw No_entry();
+				// only support like-versioned CUs for now
+				assert(prev_version_stamp == version_stamp);
+				// now we can access the CU by constructing a lib::die under the current CU state
+				auto p_cu = boost::make_shared<die>(*p_ds->p_f);
+				Dwarf_Off off;
+				if ((p_cu->offset(&off), off) == this->get_offset()) // found us
+				{
+					break;
+				}
+			}
 
-            return boost::make_shared<compile_unit_die>(*p_ds, 
-            	boost::make_shared<dwarf::lib::die>(*p_ds->p_f));
-       }
-    }
-}
+			if (retval == DW_DLV_NO_ENTRY) // failed to find ourselves!
+			{
+				assert(false);
+			}
+
+			// now go one further
+			retval = p_ds->p_f->next_cu_header(/*&cu_header_length*/0, &version_stamp,
+					/*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset);
+			if (retval == DW_DLV_NO_ENTRY) throw No_entry();
+
+			return boost::make_shared<compile_unit_die>(*p_ds, 
+			boost::make_shared<dwarf::lib::die>(*p_ds->p_f));
+		} // end get_next_sibling()
+	} // end namespace lib
+} // end namespace dwarf

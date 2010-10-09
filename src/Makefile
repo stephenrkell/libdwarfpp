@@ -1,4 +1,5 @@
 CXXFLAGS += -std=gnu++0x -Wall -O0 -g3 -fno-eliminate-unused-debug-types -pg
+CXXFLAGS += -I../include
 
 SRC := $(wildcard *.cpp)
 DEPS := $(patsubst %.cpp,.%.d,$(SRC))

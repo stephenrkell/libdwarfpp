@@ -133,7 +133,7 @@ dwarf3_tags = [ \
 ("array_type", ( type_attrs + [("type", False)], ["subrange_type"], ["is_type"] ) ), \
 ("class_type", ( type_attrs + [], [ "member", "access_declaration" ] + member_types, ["is_type", "has_named_children"] ) ), \
 ("entry_point", ( [], [] , ["base"] ) ), \
-("enumeration_type", ( type_attrs + [], ["enumerator"] , ["is_type", "has_named_children"] ) ), \
+("enumeration_type", ( type_attrs + [("type", False)], ["enumerator"] , ["is_type", "has_named_children"] ) ), \
 ("formal_parameter", ( prog_el_attrs + [("type", False), ("location", False) ], [] , ["is_program_element"] ) ), \
 ("imported_declaration", ( decl_attrs + [], [], ["base"]  ) ), \
 ("label", ( decl_attrs + [], [], ["base"]  ) ), \
@@ -141,7 +141,7 @@ dwarf3_tags = [ \
 ("member", ( decl_attrs + [("type", False), ("data_member_location", False)], [], ["base"]  ) ), \
 ("pointer_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
 ("reference_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
-("compile_unit", ( [ ("language", True), ("low_pc", False), ("high_pc", False), ("ranges", False) ], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["has_named_children"]  ) ), \
+("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False) ], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["has_named_children"]  ) ), \
 ("string_type", ( type_attrs + [], [], ["is_type"]  ) ), \
 ("structure_type", ( prog_el_attrs + [("byte_size", False)], [ "member", "access_declaration" ] + member_types, ["is_type", "has_named_children"]  ) ), \
 ("subroutine_type", ( type_attrs + [("type", False)], [], ["is_type"]  ) ), \

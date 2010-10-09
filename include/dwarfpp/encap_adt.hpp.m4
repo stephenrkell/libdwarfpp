@@ -314,8 +314,12 @@ include(`encap_hdr_gen.inc')
                 {
                    	//std::cerr << "Looking in compile unit " << *(*cu)->get_name() << std::endl;
             	    if (path_pos == path_end) { found = this; break; }
+                    auto ret = (*cu)->named_child(*path_pos);
                     boost::optional<abstract::Die_abstract_base<Rep>&> found_under_cu 
-                     = (*cu)->named_child(*path_pos);
+                     = ret 
+                      ? boost::optional<abstract::Die_abstract_base<Rep>&>(
+                          *boost::dynamic_pointer_cast< abstract::Die_abstract_base<Rep> >(ret))
+                      : boost::optional<abstract::Die_abstract_base<Rep>&>();
                      
             	    Iter cur_plus_one = path_pos; cur_plus_one++;
             	    if (cur_plus_one == path_end && found_under_cu
@@ -331,8 +335,12 @@ include(`encap_hdr_gen.inc')
                 	    if (!p_next_hop) continue;
                         else 
                         { 
+                            auto ret = p_next_hop->resolve(++path_pos, path_end);
                         	boost::optional<abstract::Die_abstract_base<Rep>&> found_recursive 
-                            	= p_next_hop->resolve(++path_pos, path_end);
+                              = ret 
+                              ? boost::optional<abstract::Die_abstract_base<Rep>&>(
+                                  *boost::dynamic_pointer_cast< abstract::Die_abstract_base<Rep> >(ret))
+                              : boost::optional<abstract::Die_abstract_base<Rep>&>();
                             if (found_recursive) { found = &*found_recursive; break; }
                             // else continue
                         }
@@ -340,7 +348,8 @@ include(`encap_hdr_gen.inc')
                 }
                 if (found) return *found; else return 0;
             }
-            virtual boost::optional<abstract::Die_abstract_base<Rep>&> 
+            virtual //boost::optional<abstract::Die_abstract_base<Rep>&> 
+			boost::shared_ptr<spec::basic_die>
             visible_named_child(const std::string& name)
             { 
             	is_visible visible;
@@ -357,11 +366,12 @@ include(`encap_hdr_gen.inc')
                     	    && *(dynamic_cast<Die_encap_base *>(*i)->get_name()) == name
                             && visible(*(dynamic_cast<Die_encap_base *>(*i))))
                         { 
-                            return *(dynamic_cast<Die_encap_base *>(*i));
+                            //return *(dynamic_cast<Die_encap_base *>(*i));
+							return (*i)->get_this();
                         }
                     }
 	            }
-			    return 0;
+			    return boost::shared_ptr<spec::basic_die>();
           	}            
             
             typedef selective_iterator<children_iterator, is_visible> visible_children_iterator;
@@ -429,8 +439,6 @@ include(`encap_hdr_gen.inc')
                 boost::optional<const std::string&> name)
             { 	return *(new Created(parent, name)); }
         };
-	}
-}    
 #undef stored_type_string
 #undef stored_type_flag
 #undef stored_type_unsigned
@@ -448,5 +456,73 @@ include(`encap_hdr_gen.inc')
 #undef define_getters_mandatory
 #undef define_getset_mandatory
 #undef define_iters
+
+#undef extra_decls_subprogram
+
+/* HACK: typedef nicer names, until I can be bothered removing the whole 
+ * Die_encap and Die_abstract stuff. */
+/****************************************************************/
+/* begin generated ADT includes                                 */
+/****************************************************************/
+#define forward_decl(t) typedef Die_encap_ ## t  t ## _die;
+#define declare_base(base) 
+#define base_fragment(base) 
+#define initialize_base(fragment)
+#define constructor(fragment, ...) 
+#define begin_class(fragment, base_inits, ...) 
+#define base_initializations(...)
+#define end_class(fragment) 
+#define stored_type_string std::string
+#define stored_type_flag bool
+#define stored_type_unsigned Dwarf_Unsigned
+#define stored_type_signed Dwarf_Signed
+#define stored_type_offset Dwarf_Off
+#define stored_type_half Dwarf_Half
+#define stored_type_ref Dwarf_Off
+#define stored_type_tag Dwarf_Half
+#define stored_type_loclist dwarf::encap::loclist
+#define stored_type_address Dwarf_Addr
+#define stored_type_refdie boost::shared_ptr<spec::basic_die> 
+#define stored_type_refdie_is_type boost::shared_ptr<spec::type_die> 
+#define stored_type_rangelist dwarf::encap::rangelist
+
+#define attr_optional(name, stored_t)
+#define super_attr_optional(name, stored_t) 
+#define attr_mandatory(name, stored_t) 
+
+#define super_attr_mandatory(name, stored_t)
+#define child_tag(arg) 
+
+#include "dwarf3-adt.h"
+
+#undef forward_decl
+#undef declare_base
+#undef base_fragment
+#undef initialize_base
+#undef constructor
+#undef begin_class
+#undef base_initializations
+#undef end_class
+#undef stored_type_string
+#undef stored_type_flag
+#undef stored_type_unsigned
+#undef stored_type_signed
+#undef stored_type_offset
+#undef stored_type_half
+#undef stored_type_ref
+#undef stored_type_tag
+#undef stored_type_loclist
+#undef stored_type_address
+#undef stored_type_refdie
+#undef stored_type_refdie_is_type
+#undef stored_type_rangelist
+#undef attr_optional
+#undef attr_mandatory
+#undef super_attr_optional
+#undef super_attr_mandatory
+#undef child_tag
+/* END generated ADT includes */
+	}
+}    
 
 #endif

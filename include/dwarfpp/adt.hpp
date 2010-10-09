@@ -132,6 +132,7 @@ namespace dwarf
 /****************************************************************/
 /* begin generated ADT includes                                 */
 /****************************************************************/
+#define forward_decl(t) class t ## _die;
 #define declare_base(base) base ## _die
 #define base_fragment(base) base ## _die(ds, p_d) {}
 #define initialize_base(fragment) virtual spec:: fragment ## _die(ds, p_d)
@@ -183,6 +184,8 @@ namespace dwarf
 // we *don't* inherit from virtual DIEs in the concrete realm
 // -- so we *do* need to repeat definitions of these attribute accessor functions
 
+#define child_tag(arg) 
+
 // compile_unit_die has an override for get_next_sibling()
 #define extra_decls_compile_unit \
 		boost::shared_ptr<spec::basic_die> get_next_sibling(); 
@@ -192,6 +195,7 @@ namespace dwarf
 #undef extra_decls_subprogram
 #undef extra_decls_compile_unit
 
+#undef forward_decl
 #undef declare_base
 #undef base_fragment
 #undef initialize_base
@@ -216,6 +220,7 @@ namespace dwarf
 #undef attr_mandatory
 #undef super_attr_optional
 #undef super_attr_mandatory
+#undef child_tag
 
 /****************************************************************/
 /* end generated ADT includes                                   */

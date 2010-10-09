@@ -49,3 +49,7 @@ clean:
 	$(MAKE) -C src clean
 	$(MAKE) -C examples clean
 	$(MAKE) -C tests clean
+
+.PHONY: lib
+lib: libs
+	mkdir -p lib && cd lib && ln -sf ../src/libdwarfpp.* .

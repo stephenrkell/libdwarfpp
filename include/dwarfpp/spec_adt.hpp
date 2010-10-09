@@ -7,6 +7,8 @@
 #include <map>
 #include <boost/shared_ptr.hpp>
 #include <boost/iterator_adaptors.hpp>
+#include <boost/iterator/filter_iterator.hpp>
+#include <boost/iterator/transform_iterator.hpp>
 #include <boost/make_shared.hpp>
 #include "lib.hpp"
 #include "expr.hpp"
@@ -23,6 +25,7 @@ namespace dwarf
         //class abstract_dieset;
         //class abstract_dieset::iterator;
         class compile_unit_die;
+        class program_element_die;
         struct basic_die;
         struct file_toplevel_die;
         std::ostream& operator<<(std::ostream& s, const basic_die& d);
@@ -62,6 +65,7 @@ namespace dwarf
                 	std::deque<position>& path) = 0;
 			};
             
+            // FIXME: remember what this is for....
             struct die_pred : public std::unary_function<spec::basic_die, bool>
             {
 				virtual bool operator()(const spec::basic_die& d) const = 0;
@@ -100,6 +104,18 @@ namespace dwarf
             //static bfs_policy bfs_policy_sg;
             // we *don't* create a bfs policy singleton because each BFS traversal
             // has to keep its own state (queue of nodes)
+            /* Sibling policy: for children iterators */
+            struct siblings_policy : policy 
+            {
+            	int increment(position& pos,
+                	std::deque<position>& path);
+                int decrement(position& pos,
+                	std::deque<position>& path);
+                
+                // always true
+                bool operator()(const spec::basic_die& d) const { return true; }
+            };
+            static siblings_policy siblings_policy_sg;
             
             struct basic_iterator_base 
             : public position
@@ -215,8 +231,6 @@ namespace dwarf
             { 	try { return this->get_next_sibling_offset(); } 
             	catch (No_entry) { return boost::optional<Dwarf_Off>(); } }
             
-            // FIXME: iterator pair //virtual std::pair< > get_children() = 0;
-            
             virtual boost::optional<std::string> get_name() const = 0;
             virtual const spec::abstract_def& get_spec() const = 0;
             
@@ -224,6 +238,7 @@ namespace dwarf
             { return const_cast<basic_die *>(this)->get_ds(); }
             virtual abstract_dieset& get_ds() = 0;
 
+            // recover a shared_ptr to this DIE, from a plain this ptr
             boost::shared_ptr<basic_die> get_this();
             boost::shared_ptr<basic_die> get_this() const;
 
@@ -235,15 +250,53 @@ namespace dwarf
                 this->get_ds().find(this->get_offset()).base().path_from_root, 
                 pol); }
 
+            // FIXME: iterator pair //virtual std::pair< > get_children() = 0;
+            
+            abstract_dieset::iterator children_begin() 
+            { 
+                if (first_child_offset()) 
+                {
+                    return this->get_first_child()->iterator_here(
+                        abstract_dieset::siblings_policy_sg);
+                }
+                else
+                {
+                	return this->get_ds().end();
+                }
+            }
+            abstract_dieset::iterator children_end() { return this->get_ds().end(); }
+
         protected: // public interface is to downcast
             virtual std::map<Dwarf_Half, encap::attribute_value> get_attrs() = 0;
             // not a const function because may create backrefs -----------^^^
 		public:
             boost::optional<std::vector<std::string> >
             ident_path_from_root() const;
+// 			std::vector<Dwarf_Off>
+//             offset_path_from_root() const
+// 			{   // FIXME: remove const_cast
+// 				std::vector<Dwarf_Off> ret;
+// 				auto p = const_cast<basic_die*>(this)->iterator_here().base().path_from_root;
+// 				for (auto i = p.begin(); i != p.end(); i++) ret.push_back(i->off);
+// 				return ret;
+// 			}
 
             boost::optional<std::vector<std::string> >
             ident_path_from_cu() const;
+// 			std::vector<Dwarf_Off>
+//             offset_path_from_cu() const
+// 			{   // FIXME: remove const_cast
+// 				std::vector<Dwarf_Off> ret;
+// 				auto p = const_cast<basic_die*>(this)->iterator_here().base().path_from_root;
+// 				for (auto i = p.begin()+1; i != p.end(); i++) ret.push_back(i->off);
+// 				return ret;
+// 			}
+// 
+// 			boost::shared_ptr<basic_die>
+// 			resolve_offset_path(const std::vector<Dwarf_Off>& path)
+// 			{
+// 				if (path.size() == 1) 
+// 			}
 
 			/* These, and other resolve()-style functions, are not const 
              * because they need to be able to return references to mutable
@@ -329,11 +382,6 @@ namespace dwarf
             scoped_resolve(const std::string& name);
         };
         
-        struct file_toplevel_die : public virtual with_named_children_die
-        {
-        	// FIXME: visible_resolve stuff goes here
-        };
-                
         class abstract_mutable_dieset : public abstract_dieset
         {
         public:
@@ -346,6 +394,7 @@ namespace dwarf
 /****************************************************************/
 /* begin generated ADT includes                                 */
 /****************************************************************/
+#define forward_decl(t) class t ## _die;
 #define declare_base(base) virtual base ## _die
 #define base_fragment(base) base ## _die(ds, p_d) {}
 #define initialize_base(fragment) fragment ## _die(ds, p_d)
@@ -384,6 +433,43 @@ namespace dwarf
 
 #define super_attr_mandatory(name, stored_t)
 
+template<Dwarf_Half Tag>
+struct has_tag : public std::unary_function<boost::shared_ptr<spec::basic_die>, bool>
+{
+	bool operator()(const boost::shared_ptr<spec::basic_die> arg) const
+    { 
+    	//std::cerr << "testing whether die at " << std::hex << arg->get_offset() << std::dec 
+        //	<< " has tag " << Tag << std::endl;
+    	return arg->get_tag() == Tag; 
+    }
+};
+//typedef std::unary_function<boost::shared_ptr<spec::basic_die>, boost::shared_ptr<spec:: arg ## _die > > type_of_dynamic_pointer_cast;
+#define child_tag(arg) \
+	typedef boost::shared_ptr<spec:: arg ## _die >(*type_of_dynamic_pointer_cast_ ## arg)(boost::shared_ptr<spec::basic_die> const&); \
+	typedef boost::filter_iterator<has_tag< DW_TAG_ ## arg >, spec::abstract_dieset::iterator> arg ## _basic_iterator; \
+	typedef boost::transform_iterator<type_of_dynamic_pointer_cast_ ## arg, arg ## _basic_iterator> arg ## _iterator; \
+    arg ## _iterator arg ## _children_begin() { return arg ## _iterator(arg ## _basic_iterator(children_begin(), children_end()), boost::dynamic_pointer_cast<spec:: arg ## _die> ); } \
+    arg ## _iterator arg ## _children_end() { return arg ## _iterator(arg ## _basic_iterator(children_end(), children_end()), boost::dynamic_pointer_cast<spec:: arg ## _die> ); }
+
+        struct file_toplevel_die : public virtual with_named_children_die
+        {
+            struct is_visible
+            {
+                bool operator()(boost::shared_ptr<spec::basic_die> p) const;
+
+//                 bool operator()(Die_encap_base& d) const
+            };
+
+            template <typename Iter>
+            boost::shared_ptr<basic_die>
+            visible_resolve(Iter path_pos, Iter path_end);
+            
+            virtual boost::shared_ptr<basic_die>
+            visible_named_child(const std::string& name);
+            
+            child_tag(compile_unit)
+        };
+                
 // define additional virtual dies first -- note that
 // some virtual DIEs are defined manually (above)
 begin_class(program_element, base_initializations(initialize_base(basic)), declare_base(basic))
@@ -422,22 +508,50 @@ end_class(type_chain)
         bool has_static_storage() const;
 #define extra_decls_array_type \
 		boost::optional<Dwarf_Unsigned> element_count() const; \
-        boost::optional<Dwarf_Unsigned> calculate_byte_size() const;
+        boost::optional<Dwarf_Unsigned> calculate_byte_size() const; \
+        bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_pointer_type \
 		boost::shared_ptr<type_die> get_concrete_type() const; \
-        boost::optional<Dwarf_Unsigned> calculate_byte_size() const;
+        boost::optional<Dwarf_Unsigned> calculate_byte_size() const; \
+        bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_reference_type \
 		boost::shared_ptr<type_die> get_concrete_type() const; \
-        boost::optional<Dwarf_Unsigned> calculate_byte_size() const;
+        boost::optional<Dwarf_Unsigned> calculate_byte_size() const; \
+        bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+#define extra_decls_base_type \
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+#define extra_decls_structure_type \
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+#define extra_decls_union_type \
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+#define extra_decls_class_type \
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+#define extra_decls_enumeration_type \
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+#define extra_decls_subroutine_type \
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+#define extra_decls_member \
+		boost::optional<Dwarf_Unsigned> byte_offset_in_enclosing_type() const;
+#define extra_decls_inheritance \
+		boost::optional<Dwarf_Unsigned> byte_offset_in_enclosing_type() const;
 
 #include "dwarf3-adt.h"
 
+#undef extra_decls_inheritance
+#undef extra_decls_member
+#undef extra_decls_subroutine_type
+#undef extra_decls_enumeration_type
+#undef extra_decls_class_type
+#undef extra_decls_union_type
+#undef extra_decls_structure_type
+#undef extra_decls_base_type
 #undef extra_decls_reference_type
 #undef extra_decls_pointer_type
 #undef extra_decls_array_type
 #undef extra_decls_variable
 #undef extra_decls_compile_unit
 
+#undef forward_decl
 #undef declare_base
 #undef base_fragment
 #undef initialize_base
@@ -462,6 +576,7 @@ end_class(type_chain)
 #undef attr_mandatory
 #undef super_attr_optional
 #undef super_attr_mandatory
+#undef child_tag
 
 /****************************************************************/
 /* end generated ADT includes                                   */
@@ -511,6 +626,40 @@ end_class(type_chain)
                     ->scoped_resolve(path_pos, path_end);
             }
 		}
+		
+        template <typename Iter>
+        boost::shared_ptr<basic_die>
+        file_toplevel_die::visible_resolve(Iter path_pos, Iter path_end)
+        {
+            is_visible visible;
+            boost::shared_ptr<basic_die> found;
+            for (auto i_cu = this->compile_unit_children_begin();
+                    i_cu != this->compile_unit_children_end(); i_cu++)
+            {
+                if (path_pos == path_end) { found = this->get_this(); break; }
+                auto found_under_cu = (*i_cu)->named_child(*path_pos);
+
+                Iter cur_plus_one = path_pos; cur_plus_one++;
+                if (cur_plus_one == path_end && found_under_cu
+                        && visible(found_under_cu))
+                { found = found_under_cu; break; }
+                else
+                {
+                    if (!found_under_cu || 
+                            !visible(found_under_cu)) continue;
+                    auto p_next_hop =
+                        boost::dynamic_pointer_cast<with_named_children_die>(found_under_cu);
+                    if (!p_next_hop) continue; // try next compile unit
+                    else 
+                    { 
+                        auto found_recursive = p_next_hop->resolve(++path_pos, path_end);
+                        if (found_recursive) { found = found_recursive; break; }
+                        // else continue
+                    }
+                }
+            }
+            if (found) return found; else return boost::shared_ptr<basic_die>();
+        }
     }
 }
 

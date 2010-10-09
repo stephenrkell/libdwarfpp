@@ -117,7 +117,7 @@ tags = [ \
 ("array_type", ( [("type", False)], ["subrange_type"], ["type"] ) ), \
 ("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["type", "with_named_children"] ) ), \
 ("entry_point", ( [], [] , ["basic"] ) ), \
-("enumeration_type", ( [], ["enumerator"] , ["type", "with_named_children"] ) ), \
+("enumeration_type", ( [("type", False)], ["enumerator"] , ["type", "with_named_children"] ) ), \
 ("formal_parameter", ( [("type", False), ("location", False) ], [] , ["program_element", "with_stack_location"] ) ), \
 ("imported_declaration", ( [], [], ["basic"]  ) ), \
 ("label", ( [], [], ["basic"]  ) ), \
@@ -125,7 +125,7 @@ tags = [ \
 ("member", ( [("type", False), ("data_member_location", False)], [], ["basic"]  ) ), \
 ("pointer_type", ( [], [], ["type_chain"]  ) ), \
 ("reference_type", ( [], [], ["type_chain"]  ) ), \
-("compile_unit", ( [ ("language", True), ("low_pc", False), ("high_pc", False), ("ranges", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_runtime_location"]  ) ), \
+("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_runtime_location"]  ) ), \
 ("string_type", ( [], [], ["type"]  ) ), \
 ("structure_type", ( [], [ "member", "access_declaration" ] + member_types, ["type", "with_named_children"]  ) ), \
 ("subroutine_type", ( [("type", False)], [], ["type"]  ) ), \

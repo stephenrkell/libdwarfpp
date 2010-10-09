@@ -17,10 +17,12 @@ using namespace dwarf::lib;
 namespace dwarf { namespace tool {
 typedef dwarf::abstract::Die_abstract_base<dwarf::encap::die> adie;
 
-static std::string name_for_subprogram(dwarf::tool::cxx_compiler& compiler,
-	adie& d);
+//static std::string name_for_subprogram(dwarf::tool::cxx_compiler& compiler,
+//	adie& d);
 static std::string name_for_type(dwarf::tool::cxx_compiler& compiler,
-	dwarf::encap::Die_encap_is_type& d, boost::optional<const std::string&> infix_typedef_name = boost::optional<const std::string&>());
+	dwarf::encap::Die_encap_is_type& d, 
+    boost::optional<const std::string&> infix_typedef_name = boost::optional<const std::string&>(),
+    bool use_friendly_names = true);
 static std::string name_for_argument(dwarf::tool::cxx_compiler& compiler,
 	adie& d, int argnum);
 static void emit_typedef(std::ostream& out, dwarf::tool::cxx_compiler& compiler, 
@@ -335,7 +337,7 @@ proto_for_specialization(base_type)
     if (!type_name_in_compiler) return; // FIXME: could define a C++ ADT!
 
     std::string our_name_for_this_type = name_for_type(compiler,
-    	dynamic_cast<encap::Die_encap_is_type&>(d));
+    	dynamic_cast<encap::Die_encap_is_type&>(d), 0 /* no infix */, false /* no friendly names*/);
 
     if (our_name_for_this_type != *type_name_in_compiler)
     {
@@ -590,8 +592,9 @@ proto_for_specialization(typedef)
 	assert(d.get_name());
     if (!d.get_type())
     {
-    	std::cerr << "Warning: assuming `int' for typeless typedef: " << d << std::endl;
-        out << "typedef int " << *d.get_name() << ";" << std::endl;
+    	//std::cerr << "Warning: assuming `int' for typeless typedef: " << d << std::endl;
+		std::cerr << "Warning: using `void' for typeless typedef: " << d << std::endl;		
+        out << "typedef void " << *d.get_name() << ";" << std::endl;
         return;
     }
     emit_typedef(out, compiler, *d.get_name(), dynamic_cast<encap::Die_encap_is_type&>(**d.get_type()));
@@ -779,23 +782,26 @@ namespace dwarf { namespace tool {
 //    std::vector<dwarf::encap::Die_encap_base*>& context)
 
 static std::string name_for_type(dwarf::tool::cxx_compiler& compiler,
-	encap::Die_encap_is_type& d, boost::optional<const std::string&> infix_typedef_name)
+	encap::Die_encap_is_type& d, 
+    boost::optional<const std::string&> infix_typedef_name /*= none*/,
+    bool use_friendly_names/*= true*/)
 {
 	return compiler.cxx_declarator_from_type_die(
     	boost::dynamic_pointer_cast<spec::type_die>(d.get_this()), 
-        infix_typedef_name);
+        infix_typedef_name,
+        use_friendly_names);
 }    
-static std::string name_for_subprogram(dwarf::tool::cxx_compiler& compiler,
-	adie& d)
-{
-    std::string our_name_for_this_subprogram = 
-        compiler.is_reserved(*d.get_name()) ? 
-                ("_dwarfhpp_" + *d.get_name())
-          : ( compiler.is_valid_cxx_ident(*d.get_name()) ? *d.get_name()
-              	: ("_dwarfhpp_" + compiler.make_valid_cxx_ident(*d.get_name())));
-
-	return our_name_for_this_subprogram;
-}    
+// static std::string name_for_subprogram(dwarf::tool::cxx_compiler& compiler,
+// 	adie& d)
+// {
+//     std::string our_name_for_this_subprogram = 
+//         compiler.is_reserved(*d.get_name()) ? 
+//                 ("_dwarfhpp_" + *d.get_name())
+//           : ( compiler.is_valid_cxx_ident(*d.get_name()) ? *d.get_name()
+//               	: ("_dwarfhpp_" + compiler.make_valid_cxx_ident(*d.get_name())));
+// 
+// 	return our_name_for_this_subprogram;
+// }    
 static std::string name_for_argument(dwarf::tool::cxx_compiler& compiler,
 	adie& d, int argnum)
 {

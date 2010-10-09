@@ -14,7 +14,7 @@ test-%-input: test-%-input.c
 	$(CC) -o "$@" $(CFLAGS) "$<"
 
 test-%: test-%.cpp test-%-input ../src/libdwarfpp.so
-	g++ -o "$@" "$<" $(CXXFLAGS) $(DWARFPP_CXXFLAGS) -ldwarfpp -lsrk31c++ -ldwarf -lelf -lc++fileno -lboost_regex
+	g++ -o "$@" "$<" $(CXXFLAGS) $(LDFLAGS) -ldwarfpp -lsrk31c++ -ldwarf -lelf -lc++fileno -lboost_regex
 
 exec-test-%: test-% test-%-input
 	gdb --eval-command run --args ./test-$* test-$*-input
