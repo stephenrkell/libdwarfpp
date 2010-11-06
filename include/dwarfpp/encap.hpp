@@ -53,7 +53,7 @@ namespace dwarf {
 	    // basic definitions for dealing with encap data
 	    class dieset 
          : private std::map<Dwarf_Off, boost::shared_ptr<dwarf::encap::die> >,
-           public virtual spec::abstract_dieset
+           public virtual spec::abstract_mutable_dieset
 	    {
 	        typedef std::map<Dwarf_Off, boost::shared_ptr<dwarf::encap::die> > super;
         	friend class file;
@@ -110,7 +110,33 @@ namespace dwarf {
             	//if (val.first > est_lowest_free_offset) est_lowest_free_offset = val.first + 1;
                 return this->super::insert(pos, val);
             }
-            template <class In> void insert (In first, In last) 
+            virtual 
+			boost::shared_ptr<dwarf::spec::basic_die> 
+			insert(
+				dwarf::lib::Dwarf_Off pos, 
+				boost::shared_ptr<dwarf::spec::basic_die> p_d)
+			{
+				/* We assume that the parent of the DIE is correctly set up. */
+				
+				/* We may only insert encap::die pointers into this dieset. */
+				
+				/* Note that DIEs are *immutable* -- if we want to create a 
+				 * new one, we have to build it from scratch or by cloning
+				 * an existing one. The built DIE only has to implement the
+				 * non-mutable */
+				boost::shared_ptr<dwarf::encap::die> encap_d
+				 = boost::dynamic_pointer_cast<encap::die>(p_d);
+				if (!encap_d) return boost::shared_ptr<dwarf::spec::basic_die>(); // return null
+				else 
+				{
+					if (super::find(pos) != super::end()) throw Error(0, 0); // FIXME: better error
+					auto ret = super::insert(std::make_pair(pos, boost::dynamic_pointer_cast<encap::die>(p_d)));
+					assert(ret.second);
+					return p_d;
+				}
+			}
+			
+			template <class In> void insert (In first, In last) 
             {
                //	std::cerr << "inserted!" << std::endl;
             	while(first != last) insert(*first++); // will use a local insert ^^^
@@ -544,6 +570,7 @@ namespace dwarf {
 			virtual ~die();
             
             const dieset& get_ds() const { return m_ds; }
+            encap::dieset& get_ds() { return m_ds; } // covariant return 
 						
 			Dwarf_Off get_offset() const { return m_offset; }
 				
@@ -574,7 +601,6 @@ namespace dwarf {
             {
             	return m_ds[get_next_sibling_offset()]; 
             }
-            encap::dieset& get_ds() { return m_ds; } // covariant return 
             
 			die_off_list& children()  { return m_children; }
 			die_off_list& get_children() { return m_children; }

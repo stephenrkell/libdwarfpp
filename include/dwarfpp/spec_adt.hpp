@@ -22,8 +22,6 @@ namespace dwarf
 	namespace spec 
     {
 	    using namespace lib;
-        //class abstract_dieset;
-        //class abstract_dieset::iterator;
         class compile_unit_die;
         class program_element_die;
         struct basic_die;
@@ -38,6 +36,8 @@ namespace dwarf
             {
             	abstract_dieset *p_ds;
                 Dwarf_Off off;
+				bool operator==(const position& arg) const 
+				{ return this->p_ds == arg.p_ds && this->off == arg.off; }
                 void canonicalize_position()
                 { 
 /*                	try // test whether we're pointing at a real DIE
@@ -63,6 +63,46 @@ namespace dwarf
                 	std::deque<position>& path) = 0;
                 virtual int decrement(position& pos,
                 	std::deque<position>& path) = 0;
+			protected:
+				const int behaviour; // used for equality comparison
+				
+				enum
+				{
+					 NO_BEHAVIOUR,
+					 PREDICATED_BEHAVIOUR,
+					 DEPTHFIRST_BEHAVIOUR, // FIXME: do I actually use the predicates in these?
+					 BREADTHFIRST_BEHAVIOUR,
+					 SIBLINGS_BEHAVIOUR
+				};
+				
+				order_policy(int behaviour) : behaviour(behaviour) {}
+			public:
+				
+				/* Equality of policies: 
+				 * By default, policies are tested only for behavioural equality.
+				 * Subtypes might want to narrow that to
+				 * - all policies of the same class are equal
+				 * or
+				 * - policies must exhibit value-equality.
+				 *
+				 * Virtual dispatch asymmetry here:
+				 * in the worst case this will get dispatched
+				 * to a base class. But that only happens if
+				 * the two policies are not of the same class.
+				 * We don't want such to be equal anyway, so
+				 * this is okay. 
+				 */ 
+				order_policy() : behaviour(0) {}
+				
+				virtual bool half_equal(const order_policy& arg) const
+				{
+					// this is the "most generous" equality relation
+					return this->behaviour == arg.behaviour;
+				}
+				bool operator==(const order_policy& arg) const
+				{
+					return this->half_equal(arg) && arg.half_equal(*this);
+				}
 			};
             
             // FIXME: remember what this is for....
@@ -71,7 +111,13 @@ namespace dwarf
 				virtual bool operator()(const spec::basic_die& d) const = 0;
 			};
             
-            struct policy : order_policy, die_pred {};
+            struct policy : order_policy, die_pred 
+			{
+			protected:
+				policy(int behaviour) : order_policy(behaviour) {}
+			public:
+				policy() : order_policy(PREDICATED_BEHAVIOUR) {}
+			};
             /* Default policy: depth-first order, all match. */
             struct default_policy : policy
             {
@@ -80,7 +126,11 @@ namespace dwarf
                 	std::deque<position>& path);
                 int decrement(position& pos,
                 	std::deque<position>& path);
-                
+			protected:
+				default_policy(int behaviour) : policy(behaviour) {}
+			public:
+				default_policy() : policy(DEPTHFIRST_BEHAVIOUR) {}
+				
                 // always true
                 bool operator()(const spec::basic_die& d) const { return true; }
 			};
@@ -95,8 +145,16 @@ namespace dwarf
                 	std::deque<position>& path);
                 int decrement(position& pos,
                 	std::deque<position>& path);
-
-            	bfs_policy() : m_queue() {}
+			protected:
+				bfs_policy(int behaviour) : policy(behaviour), m_queue() {}
+			public:
+            	bfs_policy() : policy(BREADTHFIRST_BEHAVIOUR), m_queue() {}
+				
+				bool half_equal(const order_policy& arg) const
+				{
+					return dynamic_cast<const bfs_policy*>(&arg)
+						&& dynamic_cast<const bfs_policy*>(&arg)->m_queue == this->m_queue;
+				}
                 
                 // always true
                 bool operator()(const spec::basic_die& d) const { return true; }
@@ -111,6 +169,10 @@ namespace dwarf
                 	std::deque<position>& path);
                 int decrement(position& pos,
                 	std::deque<position>& path);
+			protected:
+				siblings_policy(int behaviour) : policy(behaviour) {}
+			public:
+				siblings_policy() : policy(SIBLINGS_BEHAVIOUR) {}
                 
                 // always true
                 bool operator()(const spec::basic_die& d) const { return true; }
@@ -126,7 +188,7 @@ namespace dwarf
                 bool operator==(const basic_iterator_base& arg) const
                 { return this->off == arg.off && this->p_ds == arg.p_ds
                 	&& (off == std::numeric_limits<Dwarf_Off>::max () || // HACK: == end() works
-                    	&this->m_policy == &arg.m_policy);               // for any policy
+                    	this->m_policy == arg.m_policy);               // for any policy
                 }
                 bool operator!=(const basic_iterator_base& arg) const { return !(*this == arg); }
                 basic_iterator_base(abstract_dieset& ds, Dwarf_Off off,
@@ -139,9 +201,15 @@ namespace dwarf
                 typedef Dwarf_Off difference_type;
                 typedef spec::basic_die *pointer;
                 typedef spec::basic_die& reference;
+				
+				basic_iterator_base& operator=(const basic_iterator_base& arg)
+				{
+					assert(m_policy == arg.m_policy);
+					this->path_from_root = arg.path_from_root;
+					return *this;
+				}
             };
 
-        	//typedef std::map<Dwarf_Off, boost::shared_ptr<spec::basic_die> >::iterator iterator;
             struct iterator;
         	virtual iterator find(Dwarf_Off off) = 0;
             virtual iterator begin() = 0;
@@ -153,8 +221,6 @@ namespace dwarf
             virtual boost::shared_ptr<spec::basic_die> operator[](Dwarf_Off off) const = 0;
             boost::shared_ptr<spec::basic_die> operator[](Dwarf_Off off)
             { return const_cast<const abstract_dieset *>(this)->operator[](off); }
-            
-            //virtual encap::rangelist rangelist_at(Dwarf_Unsigned i) const = 0;
            
             struct iterator
             : public boost::iterator_adaptor<iterator, // Derived
@@ -164,7 +230,6 @@ namespace dwarf
                     boost::shared_ptr<spec::basic_die> // Reference
                 > 
             {
-                //typedef std::pair<const Dwarf_Off, boost::shared_ptr<spec::basic_die> > Value;
                 typedef boost::shared_ptr<spec::basic_die> Value;
             	typedef basic_iterator_base Base;
             	
@@ -193,12 +258,10 @@ namespace dwarf
                 { this->base().m_policy.increment(this->base_reference(), this->base_reference().path_from_root); }
             	void decrement()        
                 { this->base().m_policy.decrement(this->base_reference(), this->base_reference().path_from_root); }
-                Value dereference() { return /*std::make_pair(
-                	this->base().off, */this->base().p_ds->operator[](this->base().off)/*)*/; }
+                Value dereference() { return this->base().p_ds->operator[](this->base().off); }
                 Value dereference() const { return this->base().p_ds->operator[](this->base().off); }
                 position& pos() { return this->base_reference(); }
                 const std::deque<position>& path() { return this->base_reference().path_from_root; }
-                //bool equal(const iterator& arg) { return this->base_reference() == arg.base_reference(); }
             };
             virtual boost::shared_ptr<spec::file_toplevel_die> toplevel() = 0; /* NOT const */
             virtual const spec::abstract_def& get_spec() const = 0;
@@ -211,32 +274,70 @@ namespace dwarf
 		    virtual Dwarf_Off get_offset() const = 0;
             virtual Dwarf_Half get_tag() const = 0;
             
-            virtual boost::shared_ptr<basic_die> get_parent() = 0;
+            //virtual boost::shared_ptr<basic_die> get_parent() = 0;
+			boost::shared_ptr<basic_die> get_parent()
+			{ return this->get_ds().move_up(get_this()); }
 			boost::shared_ptr<basic_die> get_parent() const
             { return const_cast<basic_die *>(this)->get_parent(); }           
             
-            virtual boost::shared_ptr<basic_die> get_first_child() = 0;
+            //virtual boost::shared_ptr<basic_die> get_first_child() = 0;
+			boost::shared_ptr<basic_die> get_first_child() 
+			{ return this->get_ds().move_down(get_this()); }
             boost::shared_ptr<basic_die> get_first_child() const
             { return const_cast<basic_die *>(this)->get_first_child(); }
-            virtual Dwarf_Off get_first_child_offset() const = 0;
-            boost::optional<Dwarf_Off> first_child_offset() const
+            //virtual Dwarf_Off get_first_child_offset() const = 0;
+			Dwarf_Off get_first_child_offset() const
+			{ return this->get_ds().move_down(get_this()); }
+            
+			boost::optional<Dwarf_Off> first_child_offset() const
             { 	try { return this->get_first_child_offset(); } 
             	catch (No_entry) { return boost::optional<Dwarf_Off>(); } }
             
-            virtual boost::shared_ptr<basic_die> get_next_sibling() = 0;
-            boost::shared_ptr<basic_die> get_next_sibling() const
+            //virtual boost::shared_ptr<basic_die> get_next_sibling() = 0;
+            boost::shared_ptr<basic_die> get_next_sibling()
+			{ return this->get_ds().move_right(get_this()); }
+			boost::shared_ptr<basic_die> get_next_sibling() const
             { return const_cast<basic_die *>(this)->get_next_sibling(); }
-            virtual Dwarf_Off get_next_sibling_offset() const = 0;            
-            boost::optional<Dwarf_Off> next_sibling_offset() const
+            //virtual Dwarf_Off get_next_sibling_offset() const = 0;
+			Dwarf_Off get_next_sibling_offset() const
+			{ return this->get_ds().move_right(get_this()); }
+            
+			boost::optional<Dwarf_Off> next_sibling_offset() const
             { 	try { return this->get_next_sibling_offset(); } 
             	catch (No_entry) { return boost::optional<Dwarf_Off>(); } }
             
             virtual boost::optional<std::string> get_name() const = 0;
             virtual const spec::abstract_def& get_spec() const = 0;
             
+        protected: /* we don't want get_ds() used by end users, because
+                    * there is no canonical dieset.... */
             virtual const abstract_dieset& get_ds() const
             { return const_cast<basic_die *>(this)->get_ds(); }
             virtual abstract_dieset& get_ds() = 0;
+			// so how do we implement this in the stacking-dieset sense?
+			// we could have an explicit delegation pointer stored here
+			// but better just to use overriding if we can -- how?
+			// subclass, new constructors passing stacking_dieset reference,
+			// override get_ds()... but THEN have to wrap everything s.t. uses the new get_ds
+			// -- better to set up ds dynamically
+			// but then still, requires canonical dieset
+			// that's okay -- master/slave separation
+			// when we add a dieset to the stacking dieset,
+			// we update its master dieset pointer
+			// -- in encap, each die stores an m_ds
+			// -- in lib, each die similarly stores a p_ds
+			// BUT another problem:
+			// encap::dies are computed eagerly
+			// so will already be storing the wrong m_ds
+			// (and it's a reference so you can't change it)
+			
+			// It seems like there should be a name for this problem. 
+			// By including backlinks (a.k.a. contextual knowledge)
+			// in our data structure, we've made it
+			// brittle, because 
+			// changes to that contextual knowledge now require
+			// changes to many places in the source code.
+		public:
 
             // recover a shared_ptr to this DIE, from a plain this ptr
             boost::shared_ptr<basic_die> get_this();
@@ -272,31 +373,9 @@ namespace dwarf
 		public:
             boost::optional<std::vector<std::string> >
             ident_path_from_root() const;
-// 			std::vector<Dwarf_Off>
-//             offset_path_from_root() const
-// 			{   // FIXME: remove const_cast
-// 				std::vector<Dwarf_Off> ret;
-// 				auto p = const_cast<basic_die*>(this)->iterator_here().base().path_from_root;
-// 				for (auto i = p.begin(); i != p.end(); i++) ret.push_back(i->off);
-// 				return ret;
-// 			}
 
             boost::optional<std::vector<std::string> >
             ident_path_from_cu() const;
-// 			std::vector<Dwarf_Off>
-//             offset_path_from_cu() const
-// 			{   // FIXME: remove const_cast
-// 				std::vector<Dwarf_Off> ret;
-// 				auto p = const_cast<basic_die*>(this)->iterator_here().base().path_from_root;
-// 				for (auto i = p.begin()+1; i != p.end(); i++) ret.push_back(i->off);
-// 				return ret;
-// 			}
-// 
-// 			boost::shared_ptr<basic_die>
-// 			resolve_offset_path(const std::vector<Dwarf_Off>& path)
-// 			{
-// 				if (path.size() == 1) 
-// 			}
 
 			/* These, and other resolve()-style functions, are not const 
              * because they need to be able to return references to mutable
@@ -456,8 +535,6 @@ struct has_tag : public std::unary_function<boost::shared_ptr<spec::basic_die>, 
             struct is_visible
             {
                 bool operator()(boost::shared_ptr<spec::basic_die> p) const;
-
-//                 bool operator()(Die_encap_base& d) const
             };
 
             template <typename Iter>

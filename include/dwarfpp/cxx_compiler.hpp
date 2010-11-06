@@ -31,7 +31,7 @@ namespace dwarf
             // <byte-size, encoding, bit-offset = 0, bit-size = byte-size * 8 - bit-offset>
             struct base_type
             {
-    	        Dwarf_Unsigned byte_size;
+                Dwarf_Unsigned byte_size;
                 Dwarf_Unsigned encoding;
                 Dwarf_Unsigned bit_offset;
                 Dwarf_Unsigned bit_size;
@@ -158,8 +158,8 @@ namespace dwarf
 				// FIXME: better approximation of C++ assignability rules goes here
 				/* We say assignable if
 				 * - base types (any), or
-				 * - pointers to nominally equal types, or
-				 * - nominally equal structured types */
+				 * - pointers to fq-nominally equal types, or
+				 * - fq-nominally equal structured types _within the same dieset_ */
 				
 				if (dest->get_tag() == DW_TAG_base_type && source->get_tag() == DW_TAG_base_type)
 				{ return true; }
@@ -167,7 +167,8 @@ namespace dwarf
 				if (dest->get_tag() == DW_TAG_structure_type 
 				&& source->get_tag() == DW_TAG_structure_type)
 				{
-					return fq_name_for(source) == fq_name_for(dest);
+					return fq_name_for(source) == fq_name_for(dest)
+						&& &source->get_ds() == &dest->get_ds();
 				}
 				
 				if (dest->get_tag() == DW_TAG_pointer_type
