@@ -397,11 +397,13 @@ namespace dwarf
             const ::dwarf::spec::abstract_def& spec;
             regs *p_regs; // optional set of register values, for DW_OP_breg*
             boost::optional<Dwarf_Signed> frame_base;
+			std::vector<Dwarf_Loc>::iterator i;
 			void eval();
 		public:
 			evaluator(const std::vector<unsigned char> expr, 
             	const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0)
 			{
+            	//i = expr.begin();
 				assert(false);
 			}
 			evaluator(const encap::loclist& loclist,
@@ -417,6 +419,7 @@ namespace dwarf
                 : stack(initial_stack), spec(spec), p_regs(0)
 			{
 				expr = loc_desc;
+                i = expr.begin();
 				eval();
 			} 
 			evaluator(const std::vector<Dwarf_Loc>& loc_desc,
@@ -427,6 +430,7 @@ namespace dwarf
                 : stack(initial_stack), spec(spec), p_regs(&regs)
 			{
 				expr = loc_desc;
+                i = expr.begin();
                 this->frame_base = frame_base;
 				eval();
 			} 
@@ -441,11 +445,14 @@ namespace dwarf
 				//if (av.get_loclist().size() != 1) throw "only support singleton loclists for now";			
 				//expr = *(av.get_loclist().begin());
 				expr = loc_desc;
+                i = expr.begin();
                 this->frame_base = frame_base;
 				eval();
 			} 
             
             Dwarf_Unsigned tos() const { return stack.top(); }
+            bool finished() const { return i == expr.end(); }
+            Dwarf_Loc current() const { return *i; }
 		};
         Dwarf_Unsigned eval(const encap::loclist& loclist,
         	Dwarf_Addr vaddr,

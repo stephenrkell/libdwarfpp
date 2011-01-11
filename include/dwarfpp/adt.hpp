@@ -154,7 +154,7 @@ namespace dwarf
 #define stored_type_ref Dwarf_Off
 #define stored_type_tag Dwarf_Half
 #define stored_type_loclist dwarf::encap::loclist
-#define stored_type_address Dwarf_Addr
+#define stored_type_address dwarf::encap::attribute_value::address
 #define stored_type_refdie boost::shared_ptr<spec::basic_die> 
 #define stored_type_refdie_is_type boost::shared_ptr<spec::type_die> 
 #define stored_type_rangelist dwarf::encap::rangelist

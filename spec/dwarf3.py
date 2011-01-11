@@ -101,12 +101,12 @@ attr_type_map = dict(attr_types)
 # 
 artificial_tags = [ \
 ("basic", ([], [], []) ),
-("program_element", ([("decl_column", False ), ("decl_file", False), ("decl_line", False), ("prototyped", False), ("declaration", False), ("external", False), ("visibility", False)], [], ["basic"]) ), \
+("program_element", ([("name", False), ("decl_column", False ), ("decl_file", False), ("decl_line", False), ("prototyped", False), ("declaration", False), ("external", False), ("visibility", False)], [], ["basic"]) ), \
 ("type", ([("byte_size", False )], [], ["program_element"]) ), \
 ("type_chain", ([("type", False)],  [], ["type"]) ), \
 ("with_named_children", ([], [], ["basic"])), \
 ("with_runtime_location", ([], [], ["basic"])), \
-("with_stack_location", ([], [], ["basic"])) \
+("with_stack_location", ([("location", False), ("type", False)], [], ["basic"])) \
 ]
 artificial_tag_map = dict(artificial_tags)
 
@@ -118,14 +118,14 @@ tags = [ \
 ("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["type", "with_named_children"] ) ), \
 ("entry_point", ( [], [] , ["basic"] ) ), \
 ("enumeration_type", ( [("type", False)], ["enumerator"] , ["type", "with_named_children"] ) ), \
-("formal_parameter", ( [("type", False), ("location", False) ], [] , ["program_element", "with_stack_location"] ) ), \
+("formal_parameter", ( [], [] , ["program_element", "with_stack_location"] ) ), \
 ("imported_declaration", ( [], [], ["basic"]  ) ), \
 ("label", ( [], [], ["basic"]  ) ), \
 ("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_runtime_location"] ) ), \
 ("member", ( [("type", False), ("data_member_location", False)], [], ["basic"]  ) ), \
 ("pointer_type", ( [], [], ["type_chain"]  ) ), \
 ("reference_type", ( [], [], ["type_chain"]  ) ), \
-("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_runtime_location"]  ) ), \
+("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_runtime_location"]  ) ), \
 ("string_type", ( [], [], ["type"]  ) ), \
 ("structure_type", ( [], [ "member", "access_declaration" ] + member_types, ["type", "with_named_children"]  ) ), \
 ("subroutine_type", ( [("type", False)], [], ["type"]  ) ), \
@@ -153,13 +153,13 @@ tags = [ \
 ("namelist", ( [], [], ["basic"]  ) ), \
 ("namelist_item", ( [], [], ["basic"]  ) ), \
 ("packed_type", ( [], [], ["type_chain"]  ) ), \
-("subprogram", ( [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["program_element", "with_runtime_location"]  ) ), \
+("subprogram", ( [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["program_element", "with_runtime_location", "with_named_children"]  ) ), \
 ("template_type_parameter", ( [], [], ["basic"]  ) ), \
 ("template_value_parameter", ( [], [], ["basic"]  ) ), \
 ("thrown_type", ( [], [], ["type_chain"]  ) ), \
 ("try_block", ( [], [], ["basic"]  ) ), \
 ("variant_part", ( [], [], ["basic"]  ) ), \
-("variable", ( [ ("type", False), ("location", False) ], [] , ["program_element", "with_runtime_location", "with_stack_location"] ) ), \
+("variable", ( [], [] , ["program_element", "with_runtime_location", "with_stack_location"] ) ), \
 ("volatile_type", ( [], [], ["type_chain"]  ) ), \
 ("dwarf_procedure", ( [], [], ["basic"]  ) ), \
 ("restrict_type", ( [], [], ["type_chain"]  ) ), \

@@ -137,7 +137,8 @@ namespace dwarf
 /* from spec::with_runtime_location_die */
 		boost::optional<Dwarf_Off> // returns *offset within the element*
         with_runtime_location_die::contains_addr(Dwarf_Addr file_relative_address,
-        	sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), void *arg) const
+        	sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
+			void *arg /* = 0 */) const
         {
         	// FIXME: get rid of the const_casts
             auto nonconst_this = const_cast<with_runtime_location_die *>(this);
@@ -177,7 +178,7 @@ namespace dwarf
                 //	<< " has rangelist " << rangelist << std::endl;
                 auto nonconst_this = const_cast<with_runtime_location_die *>(this);
                 // rangelist::find_addr() requires a dieset-relative (i.e. file-relative) address
-                assert(nonconst_this->enclosing_compile_unit()->get_low_pc());
+                /*assert(nonconst_this->enclosing_compile_unit()->get_low_pc());*/
              	auto range_found = rangelist.find_addr(
                  	file_relative_address /*- 
                      *(nonconst_this->enclosing_compile_unit()->get_low_pc())*/);
@@ -295,7 +296,7 @@ namespace dwarf
             Dwarf_Unsigned opcodes[] 
             = { DW_OP_constu, low_pc, 
                 DW_OP_piece, high_pc - low_pc };
-            encap::loclist list(opcodes); 
+            encap::loclist list(encap::loc_expr(opcodes, 0, std::numeric_limits<Dwarf_Addr>::max())); 
             return list;
         }
         static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc);
@@ -303,7 +304,7 @@ namespace dwarf
         {
             Dwarf_Unsigned opcodes[] 
             = { DW_OP_constu, low_pc };
-            encap::loclist list(opcodes); 
+            encap::loclist list(encap::loc_expr(opcodes, 0, std::numeric_limits<Dwarf_Addr>::max())); 
             return list;
         }
 		encap::loclist with_runtime_location_die::get_runtime_location() const
@@ -318,14 +319,14 @@ namespace dwarf
             if (attrs.find(DW_AT_low_pc) != attrs.end() 
             	&& attrs.find(DW_AT_high_pc) != attrs.end())
             {
-            	return loclist_from_pc_values(attrs.find(DW_AT_low_pc)->second.get_address(),
-                	attrs.find(DW_AT_high_pc)->second.get_address());
+            	return loclist_from_pc_values(attrs.find(DW_AT_low_pc)->second.get_address().addr,
+                	attrs.find(DW_AT_high_pc)->second.get_address().addr);
             }
             else
             {
             	assert(attrs.find(DW_AT_low_pc) != attrs.end());
         	    return loclist_from_pc_values(
-                	attrs.find(DW_AT_low_pc)->second.get_address());
+                	attrs.find(DW_AT_low_pc)->second.get_address().addr);
             }
         } 
 /* from spec::subprogram_die */
@@ -499,7 +500,8 @@ namespace dwarf
 
             if (!this->get_type()) 
             {
-            	return boost::dynamic_pointer_cast<type_die>(get_this()); // broken chain
+            	return //boost::dynamic_pointer_cast<type_die>(get_this()); // broken chain
+					boost::shared_ptr<type_die>();
             }
             else return (*const_cast<type_chain_die*>(this)->get_type())->get_concrete_type();
         }
@@ -1162,7 +1164,7 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
             }
             catch (No_entry) {}
 
-            print_path; std::cerr << "Offset " << ((path.size() > 0) ? path.back().off : 0UL) << " has no children, trying siblings." << std::endl;
+            //print_path; std::cerr << "Offset " << ((path.size() > 0) ? path.back().off : 0UL) << " has no children, trying siblings." << std::endl;
             
             // else look for later siblings right here
             int number_of_pops = 1;

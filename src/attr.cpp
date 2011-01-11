@@ -116,6 +116,43 @@ namespace dwarf
             s << "}";
             return s;
         }
+        std::ostream& operator<<(std::ostream& s, const attribute_value::address& a)
+        {
+        	s << a.addr;
+            return s;
+        }
+        bool operator==(Dwarf_Addr arg, attribute_value::address a)
+        {
+        	return arg == a.addr;
+        }
+        bool operator!=(Dwarf_Addr arg, attribute_value::address a)
+        {
+        	return arg != a.addr;
+        }
+        bool operator<(Dwarf_Addr arg, attribute_value::address a)
+        {
+        	return arg < a.addr;
+		}        
+        bool operator<=(Dwarf_Addr arg, attribute_value::address a)
+        {
+        	return arg <= a.addr;
+        }
+        bool operator>(Dwarf_Addr arg, attribute_value::address a)
+        {
+        	return arg > a.addr;
+        }
+        bool operator>=(Dwarf_Addr arg, attribute_value::address a)
+        {
+        	return arg >= a.addr;
+        }
+        Dwarf_Addr operator-(Dwarf_Addr arg, attribute_value::address a)
+        {
+        	return arg - a.addr;
+		}
+        Dwarf_Addr operator-(attribute_value::address a, Dwarf_Addr arg)
+        {
+        	return a.addr - arg;
+		}             
     }
     namespace lib
     {
@@ -256,7 +293,7 @@ namespace dwarf
 				case spec::interp::address:
 					a.formaddr(&addr);
 					this->f = ADDR;
-					this->v_addr = addr;
+					this->v_addr.addr = addr;
 					break;
 				case spec::interp::block:
 					{

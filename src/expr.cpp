@@ -22,6 +22,7 @@ namespace dwarf
             const std::stack<Dwarf_Unsigned>& initial_stack)
         : stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
 		{
+        	i = expr.begin();
         	/* Search through loc expressions for the one that matches vaddr. */
             for (auto i_loc_expr = loclist.begin();
         		    i_loc_expr != loclist.end();
@@ -33,6 +34,7 @@ namespace dwarf
             	    && vaddr < i_loc_expr->hipc))
                 {
             	    expr = *i_loc_expr/*->m_expr*/;
+         			i = expr.begin();
                     eval();
                     return;
                 }

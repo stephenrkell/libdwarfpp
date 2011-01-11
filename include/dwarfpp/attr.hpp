@@ -69,6 +69,7 @@ namespace dwarf
         public:
         	template <class In> rangelist(In first, In last) 
             : std::vector<lib::Dwarf_Ranges>(first, last) {}
+            rangelist() : std::vector<lib::Dwarf_Ranges>() {}
             
             boost::optional<std::pair<Dwarf_Off, int> >
             find_addr(Dwarf_Off file_relative_addr);
@@ -128,6 +129,23 @@ namespace dwarf
                     return n;
                 }
             };
+            struct address 
+            { 
+            	Dwarf_Addr addr; 
+                bool operator==(const address& arg) const { return this->addr == arg.addr; }
+                bool operator!=(const address& arg) const { return !(*this == arg); }
+                bool operator<(const address& arg) const { return this->addr < arg.addr; }
+                bool operator<=(const address& arg) const { return this->addr <= arg.addr; }
+                bool operator>(const address& arg) const { return this->addr > arg.addr; }
+                bool operator>=(const address& arg) const { return this->addr >= arg.addr; }
+                bool operator==(Dwarf_Addr arg) const { return this->addr == arg; }
+                bool operator!=(Dwarf_Addr arg) const { return !(*this == arg); }
+                bool operator<(Dwarf_Addr arg) const { return this->addr < addr; }
+                bool operator<=(Dwarf_Addr arg) const { return this->addr <= addr; }
+                bool operator>(Dwarf_Addr arg) const { return this->addr > addr; }
+                bool operator>=(Dwarf_Addr arg) const { return this->addr >= addr; }
+                //Dwarf_Addr operator Dwarf_Addr() { return addr; }
+            };
 			/*static const attribute_value& DOES_NOT_EXIST() {
 				if (dne_val == 0) dne_val = new attribute_value(); // FIXME: delete this anywhere?
 				return *dne_val;
@@ -142,7 +160,7 @@ namespace dwarf
 				Dwarf_Bool v_flag;
 				Dwarf_Unsigned v_u;
 				Dwarf_Signed v_s;
-				Dwarf_Addr v_addr;
+				address v_addr;
 				//std::vector<unsigned char> *v_block; // TODO: make resource-managing
 				//std::string *v_str; // TODO: make resource-managing
 				//ref *v_ref;
@@ -173,7 +191,7 @@ namespace dwarf
 // 			//attribute_value() {} // allow uninitialised temporaries
  			attribute_value(spec::abstract_dieset& ds, Dwarf_Bool b) : m_ds(ds), orig_form(DW_FORM_flag), f(FLAG), v_flag(b) {}
 // 			// HACK to allow overload resolution: addr is ignored
-// 			attribute_value(void *addr, Dwarf_Addr value) : f(ADDR), v_addr(value) {}		
+ 			attribute_value(spec::abstract_dieset& ds, address addr) : m_ds(ds), orig_form(DW_FORM_addr), f(ADDR), v_addr(addr) {}		
  			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned u) : m_ds(ds), orig_form(DW_FORM_udata), f(UNSIGNED), v_u(u) {}				
  			attribute_value(spec::abstract_dieset& ds, Dwarf_Signed s) : m_ds(ds), orig_form(DW_FORM_sdata), f(SIGNED), v_s(s) {}			
 // 			attribute_value(dwarf::block& b) : f(BLOCK), v_block(new std::vector<unsigned char>(
@@ -186,8 +204,8 @@ namespace dwarf
  			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : m_ds(ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
 //			attribute_value(lib::abstract_dieset& ds, spec::basic_die& d) : orig_form(DW_FORM_ref_addr), f(REF)
 //            { assert(dynamic_cast<encap::dieset *>(ds)); this->v_ref = new ref(d.m_ds, d.m_offset, true, 
-			attribute_value(spec::abstract_dieset& ds, const loclist& l) : m_ds(ds), orig_form(DW_FORM_block), f(LOCLIST), v_loclist(new loclist(l)) {}
-			attribute_value(spec::abstract_dieset& ds, const rangelist& l) : m_ds(ds), orig_form(DW_FORM_block), f(RANGELIST), v_rangelist(new rangelist(l)) {}            
+			attribute_value(spec::abstract_dieset& ds, const loclist& l) : m_ds(ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new loclist(l)) {}
+			attribute_value(spec::abstract_dieset& ds, const rangelist& l) : m_ds(ds), orig_form(DW_FORM_data4), f(RANGELIST), v_rangelist(new rangelist(l)) {}            
 			
 			Dwarf_Bool get_flag() const { assert(f == FLAG); return v_flag; }
 			Dwarf_Unsigned get_unsigned() const { assert(f == UNSIGNED); return v_u; }
@@ -195,7 +213,7 @@ namespace dwarf
 			const std::vector<unsigned char> *get_block() const { assert(f == BLOCK); return v_block; }
 			const std::string& get_string() const { assert(f == STRING); return *v_string; }
 			weak_ref& get_ref() const { assert(f == REF); return *v_ref; }
-            Dwarf_Addr get_address() const { assert(f == ADDR); return v_addr; }
+            address get_address() const { assert(f == ADDR); return v_addr; }
             boost::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
 			//spec::basic_die& get_refdie() const; // defined in cpp file
             boost::shared_ptr<spec::type_die> get_refdie_is_type() { return boost::dynamic_pointer_cast<spec::type_die>(get_refdie()); }
@@ -319,9 +337,19 @@ namespace dwarf
 				} // end switch
 			} // end ~attribute_value
 		}; // end class attribute_value
+        
+        bool operator==(Dwarf_Addr arg, attribute_value::address a);
+        bool operator!=(Dwarf_Addr arg, attribute_value::address a);
+        bool operator<(Dwarf_Addr arg, attribute_value::address a);
+        bool operator<=(Dwarf_Addr arg, attribute_value::address a);
+        bool operator>(Dwarf_Addr arg, attribute_value::address a);
+        bool operator>=(Dwarf_Addr arg, attribute_value::address a);
+        Dwarf_Addr operator-(Dwarf_Addr arg, attribute_value::address a);
+        Dwarf_Addr operator-(attribute_value::address a, Dwarf_Addr arg);
 
 		std::ostream& operator<<(std::ostream& s, const attribute_value v);
 		std::ostream& operator<<(std::ostream& s, std::pair<const Dwarf_Half, attribute_value>& v);
+        std::ostream& operator<<(std::ostream& s, const attribute_value::address& a);
     }
 }
     

@@ -10,6 +10,7 @@
 #include <boost/iterator/filter_iterator.hpp>
 #include <boost/iterator/transform_iterator.hpp>
 #include <boost/make_shared.hpp>
+#include <boost/enable_shared_from_this.hpp>
 #include "lib.hpp"
 #include "expr.hpp"
 #include "attr.hpp"
@@ -28,7 +29,7 @@ namespace dwarf
         struct file_toplevel_die;
         std::ostream& operator<<(std::ostream& s, const basic_die& d);
         
-		class abstract_dieset
+		class abstract_dieset : public boost::enable_shared_from_this<abstract_dieset>
         {
         public:
             /* This is all you need to denote a member of a dieset. */
@@ -274,33 +275,33 @@ namespace dwarf
 		    virtual Dwarf_Off get_offset() const = 0;
             virtual Dwarf_Half get_tag() const = 0;
             
-            //virtual boost::shared_ptr<basic_die> get_parent() = 0;
-			boost::shared_ptr<basic_die> get_parent()
-			{ return this->get_ds().move_up(get_this()); }
+            virtual boost::shared_ptr<basic_die> get_parent() = 0;
+			//boost::shared_ptr<basic_die> get_parent()
+			//{ return this->get_ds().move_up(get_this()); }
 			boost::shared_ptr<basic_die> get_parent() const
             { return const_cast<basic_die *>(this)->get_parent(); }           
             
-            //virtual boost::shared_ptr<basic_die> get_first_child() = 0;
-			boost::shared_ptr<basic_die> get_first_child() 
-			{ return this->get_ds().move_down(get_this()); }
+            virtual boost::shared_ptr<basic_die> get_first_child() = 0;
+			//boost::shared_ptr<basic_die> get_first_child() 
+			//{ return this->get_ds().move_down(get_this()); }
             boost::shared_ptr<basic_die> get_first_child() const
             { return const_cast<basic_die *>(this)->get_first_child(); }
-            //virtual Dwarf_Off get_first_child_offset() const = 0;
-			Dwarf_Off get_first_child_offset() const
-			{ return this->get_ds().move_down(get_this()); }
+            virtual Dwarf_Off get_first_child_offset() const = 0;
+			//Dwarf_Off get_first_child_offset() const
+			//{ return this->get_ds().move_down(get_this()); }
             
 			boost::optional<Dwarf_Off> first_child_offset() const
             { 	try { return this->get_first_child_offset(); } 
             	catch (No_entry) { return boost::optional<Dwarf_Off>(); } }
             
-            //virtual boost::shared_ptr<basic_die> get_next_sibling() = 0;
-            boost::shared_ptr<basic_die> get_next_sibling()
-			{ return this->get_ds().move_right(get_this()); }
+            virtual boost::shared_ptr<basic_die> get_next_sibling() = 0;
+            //boost::shared_ptr<basic_die> get_next_sibling()
+			//{ return this->get_ds().move_right(get_this()); }
 			boost::shared_ptr<basic_die> get_next_sibling() const
             { return const_cast<basic_die *>(this)->get_next_sibling(); }
-            //virtual Dwarf_Off get_next_sibling_offset() const = 0;
-			Dwarf_Off get_next_sibling_offset() const
-			{ return this->get_ds().move_right(get_this()); }
+            virtual Dwarf_Off get_next_sibling_offset() const = 0;
+			//Dwarf_Off get_next_sibling_offset() const
+			//{ return this->get_ds().move_right(get_this()); }
             
 			boost::optional<Dwarf_Off> next_sibling_offset() const
             { 	try { return this->get_next_sibling_offset(); } 
@@ -308,12 +309,16 @@ namespace dwarf
             
             virtual boost::optional<std::string> get_name() const = 0;
             virtual const spec::abstract_def& get_spec() const = 0;
-            
-        protected: /* we don't want get_ds() used by end users, because
-                    * there is no canonical dieset.... */
+
             virtual const abstract_dieset& get_ds() const
             { return const_cast<basic_die *>(this)->get_ds(); }
             virtual abstract_dieset& get_ds() = 0;
+        protected: /* TENTATIVE: we don't want get_ds() used by end users, because
+                    * there is no canonical dieset.... */
+            //virtual const abstract_dieset& get_ds() const
+            //{ return const_cast<basic_die *>(this)->get_ds(); }
+            //virtual abstract_dieset& get_ds() = 0;
+			
 			// so how do we implement this in the stacking-dieset sense?
 			// we could have an explicit delegation pointer stored here
 			// but better just to use overriding if we can -- how?
@@ -402,16 +407,26 @@ namespace dwarf
             	Dwarf_Addr file_relative_addr,
                 sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
                 void *arg = 0) const;
+            /*virtual std::vector<std::pair<Dwarf_Addr, Dwarf_Addr> >
+			file_relative_extents(
+                sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
+                void *arg = 0) const;*/
 		};
         
         struct with_stack_location_die : public virtual basic_die
         {
-            virtual boost::optional<Dwarf_Off> contains_addr(
-            	    Dwarf_Addr absolute_addr,
-                    Dwarf_Signed frame_base_addr,
-                    Dwarf_Off dieset_relative_ip,
-                    dwarf::lib::regs *p_regs = 0) const;
-    	};
+			virtual boost::optional<Dwarf_Off> contains_addr(
+					Dwarf_Addr absolute_addr,
+					Dwarf_Signed frame_base_addr,
+					Dwarf_Off dieset_relative_ip,
+					dwarf::lib::regs *p_regs = 0) const;
+			virtual boost::optional<encap::loclist> get_location() const = 0;
+			virtual boost::optional<boost::shared_ptr<spec::type_die> > get_type() const = 0;
+			/* virtual Dwarf_Addr calculate_addr(
+				Dwarf_Signed frame_base_addr,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs = 0) const;*/
+		};
                 
 	    struct with_named_children_die : public virtual basic_die
         {
@@ -495,7 +510,7 @@ namespace dwarf
 #define stored_type_ref Dwarf_Off
 #define stored_type_tag Dwarf_Half
 #define stored_type_loclist dwarf::encap::loclist
-#define stored_type_address Dwarf_Addr
+#define stored_type_address dwarf::encap::attribute_value::address
 #define stored_type_refdie boost::shared_ptr<spec::basic_die> 
 #define stored_type_refdie_is_type boost::shared_ptr<spec::type_die> 
 #define stored_type_rangelist dwarf::encap::rangelist

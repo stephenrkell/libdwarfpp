@@ -49,8 +49,10 @@ namespace dwarf
                  * This means we shouldn't pass the Dwarf_Error through the 
                  * exception that our error handler generates, because the
                  * catching code will try to dwarf_dealloc() it when it should
-                 * instead free() it. HACK: for now, free() it here. */
-                free(error);
+                 * instead free() it. HACK: for now, free() it here.
+                 * ANOTHER HACK: no, don't, because this is causing problems
+                 * in libprocessimage. */
+                /* free(error);*/
             	default_error_handler(NULL, errarg); // throws
                 break;
             case DW_DLV_NO_ENTRY:
@@ -500,7 +502,14 @@ namespace dwarf
 		
 		void evaluator::eval()
 		{
-			std::vector<Dwarf_Loc>::iterator i = expr.begin();
+			//std::vector<Dwarf_Loc>::iterator i = expr.begin();
+            if (i != expr.end() && i != expr.begin())
+            {
+            	/* This happens when we stopped at a DW_OP_piece argument. 
+                 * Advance the opcode iterator and clear the stack. */
+                ++i;
+                while (!stack.empty()) stack.pop();
+			}
             boost::optional<std::string> error_detail;
 			while (i != expr.end())
 			{
@@ -518,6 +527,13 @@ namespace dwarf
                     	if (!frame_base) goto logic_error;
                         stack.push(*frame_base + i->lr_number);
                     } break;
+                    case DW_OP_piece: {
+                    	/* Here we do something special: leave the opcode iterator
+                         * pointing at the piece argument, and return. This allow us
+                         * to probe the piece size (by getting *i) and to resume by
+                         * calling eval() again. */
+                         ++i;
+                    }    return;
                     case DW_OP_breg0:
                     case DW_OP_breg1:
                     case DW_OP_breg2:

@@ -23,7 +23,7 @@ stored_types = [ \
 ("signed", "Dwarf_Signed"), \
 ("base", "base&"), \
 ("offset", "Dwarf_Off"), \
-("address", "Dwarf_Addr"), \
+("address", "dwarf::encap::attribute_value::address"), \
 ("half", "Dwarf_Half"), \
 ("ref", "Dwarf_Off"), \
 ("refdie", "boost::shared_ptr< dwarf::spec::basic_die >"), \
@@ -123,7 +123,7 @@ attr_types = [ \
 ] 
 attr_type_map = dict(attr_types)
 
-decl_attrs = [ ("decl_column", False ), ("decl_file", False), ("decl_line", False) ]
+decl_attrs = [ ("decl_column", False ), ("decl_file", False), ("decl_line", False), ("name", False) ]
 member_types = [ "class_type", "typedef", "structure_type", "enumeration_type", "union_type" ]
 prog_el_attrs = decl_attrs + [ ("prototyped", False), ("declaration", False), ("external", False), ("visibility", False) ]
 type_attrs = prog_el_attrs + [ ("byte_size", False) ]
@@ -141,7 +141,7 @@ dwarf3_tags = [ \
 ("member", ( decl_attrs + [("type", False), ("data_member_location", False)], [], ["base"]  ) ), \
 ("pointer_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
 ("reference_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
-("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False) ], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["has_named_children"]  ) ), \
+("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["has_named_children"]  ) ), \
 ("string_type", ( type_attrs + [], [], ["is_type"]  ) ), \
 ("structure_type", ( prog_el_attrs + [("byte_size", False)], [ "member", "access_declaration" ] + member_types, ["is_type", "has_named_children"]  ) ), \
 ("subroutine_type", ( type_attrs + [("type", False)], [], ["is_type"]  ) ), \
@@ -169,7 +169,7 @@ dwarf3_tags = [ \
 ("namelist", ( decl_attrs + [], [], ["base"]  ) ), \
 ("namelist_item", ( decl_attrs + [], [], ["base"]  ) ), \
 ("packed_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
-("subprogram", ( prog_el_attrs + [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("frame_base", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["is_program_element"]  ) ), \
+("subprogram", ( prog_el_attrs + [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("frame_base", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["is_program_element", "has_named_children"]  ) ), \
 ("template_type_parameter", ( decl_attrs + [], [], ["base"]  ) ), \
 ("template_value_parameter", ( decl_attrs + [], [], ["base"]  ) ), \
 ("thrown_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \

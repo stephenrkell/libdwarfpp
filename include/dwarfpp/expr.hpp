@@ -76,11 +76,12 @@ namespace dwarf
             	const spec::abstract_def& spec = spec::dwarf3) 
             : std::vector<expr_instr>(first, last),
               spec(spec), /*m_expr(first, last), */hipc(0), lopc(0) {}
+              
 			/* This template parses a location expression out of an array of unsigneds. */
 			template<size_t s> 
-            loc_expr(Dwarf_Unsigned (&arr)[s], 
+            loc_expr(Dwarf_Unsigned (&arr)[s], Dwarf_Addr lopc, Dwarf_Addr hipc,
             	const spec::abstract_def& spec = spec::dwarf3) 
-            : spec(spec), hipc(0), lopc(0)
+            : spec(spec), hipc(hipc), lopc(lopc)
 			{
 				Dwarf_Unsigned *iter = &arr[0];
 				Dwarf_Unsigned next_offset = 0U;
