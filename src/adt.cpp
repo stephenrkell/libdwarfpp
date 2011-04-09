@@ -54,6 +54,47 @@ namespace dwarf
             else return 0; // error -- we have no name
         }
 
+		std::vector< boost::optional<std::string> >
+		basic_die::opt_ident_path_from_root() const
+		{
+			if (get_offset() == 0) return std::vector<boost::optional<std::string> >(); // empty
+			else 
+			{
+				// assert that we have a parent but it's not us
+				assert(this->get_parent() && this->get_parent()->get_offset() != get_offset());
+				std::vector< boost::optional<std::string> > built 
+				 = const_cast<basic_die*>(this)->get_parent()->opt_ident_path_from_root();
+				built.push_back(get_name());
+				return built;
+			}
+		}
+
+		std::vector < boost::optional<std::string> >
+		basic_die::opt_ident_path_from_cu() const
+		{
+			if (get_offset() == 0) return std::vector < boost::optional<std::string> >(); // error
+			if (get_tag() == DW_TAG_compile_unit)
+			{
+				return std::vector<boost::optional<std::string> >(); // empty
+			}
+			else // recursive case
+			{
+				// assert that we have a parent but it's not us
+				
+				// assertion pre-failure debugging aid
+				if (!(this->get_parent() && this->get_parent()->get_offset() != get_offset()))
+				{
+					std::cerr << *this;
+				}
+				assert(this->get_parent() && this->get_parent()->get_offset() != get_offset());
+				// try to build our parent's path
+				std::vector< boost::optional< std::string> >
+				built = const_cast<basic_die*>(this)->get_parent()->opt_ident_path_from_cu();
+				built.push_back(get_name());
+				return built;
+			}
+		}
+
         boost::shared_ptr<spec::basic_die> 
         basic_die::nearest_enclosing(Dwarf_Half tag) 
         {
@@ -917,6 +958,20 @@ namespace dwarf
                 path_from_root.size() == 0) this->path_from_root = ds.find(off).path();
             canonicalize_position(); 
         }
+		
+		/* Partial order on iterators -- these are comparable when they share a parent. */
+		bool
+		abstract_dieset::iterator::shares_parent_pos(const abstract_dieset::iterator& i)
+		{ return this->base().p_ds == i.base().p_ds
+			&& 
+			this->dereference()->get_parent()->get_offset() 
+			== i.dereference()->get_parent()->get_offset();
+		}
+		bool
+		abstract_dieset::iterator::operator<(const iterator& i)
+		{ return this->shares_parent_pos(i) && 
+		  this->dereference()->get_offset() < i.dereference()->get_offset(); 
+		}
 
         bool 
 		file_toplevel_die::is_visible::operator()(

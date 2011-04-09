@@ -464,7 +464,7 @@ namespace dwarf
 //             else return std::make_pair(offset, i - this->begin());
 //         }
         
-        boost::optional<std::pair<Dwarf_Off, int> >
+        boost::optional<std::pair<Dwarf_Off, long int> >
         rangelist::find_addr(Dwarf_Off dieset_relative_address)
         {
             iterator found = this->end();

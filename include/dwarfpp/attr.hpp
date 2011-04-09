@@ -71,7 +71,7 @@ namespace dwarf
             : std::vector<lib::Dwarf_Ranges>(first, last) {}
             rangelist() : std::vector<lib::Dwarf_Ranges>() {}
             
-            boost::optional<std::pair<Dwarf_Off, int> >
+            boost::optional<std::pair<Dwarf_Off, long> >
             find_addr(Dwarf_Off file_relative_addr);
         };
         std::ostream& operator<<(std::ostream& s, const rangelist& rl);

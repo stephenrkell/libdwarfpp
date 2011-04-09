@@ -1,4 +1,4 @@
-CXXFLAGS += -std=gnu++0x -Wall -O0 -g3 -fno-eliminate-unused-debug-types -pg
+CXXFLAGS += -std=gnu++0x -Wall -O0 -g3 -fno-eliminate-unused-debug-types -pg -fPIC
 CXXFLAGS += -I../include
 
 SRC := $(wildcard *.cpp)
@@ -21,12 +21,12 @@ libdwarfpp.so: $(OBJS)
 
 .PHONY: clean
 clean:
-	rm -f *.o *.a *.inc .*.d
+	rm -f *.o *.a *.inc .*.d *.so
 
 $(DEPS): .%.d : %.cpp
 	g++ -MM $(CXXFLAGS) "$<"  > "$@"
 
-include $(DEPS)
+-include $(DEPS)
 
 %.o: %.cpp #$(HDRS)
 	g++ $(CXXFLAGS) -c -o "$@" "$<"

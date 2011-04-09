@@ -37,8 +37,21 @@ namespace dwarf
             {
             	abstract_dieset *p_ds;
                 Dwarf_Off off;
-				bool operator==(const position& arg) const 
+/*				bool operator==(const position& arg) const 
 				{ return this->p_ds == arg.p_ds && this->off == arg.off; }
+				bool operator!=(const position& arg) const
+				{ return !(*this == arg); }
+				bool operator<=(const position& arg) const
+				{ return this->p_ds < arg.p_ds
+				|| (this->p_ds == arg.p_ds
+				    && this->off <= arg.off); }
+				bool operator<(const position& arg) const 
+				{ return *this < arg && *this != arg; }
+				bool operator>(const position& arg) const
+				{ return !(*this <= arg); }
+				bool operator>=(const position& arg) const
+				{ return *this == arg || *this > arg; }*/
+				
                 void canonicalize_position()
                 { 
 /*                	try // test whether we're pointing at a real DIE
@@ -227,7 +240,7 @@ namespace dwarf
             : public boost::iterator_adaptor<iterator, // Derived
                     basic_iterator_base,        // Base
                     boost::shared_ptr<spec::basic_die>, // Value
-                    boost::use_default, // Traversal
+                    boost::bidirectional_traversal_tag, // Traversal
                     boost::shared_ptr<spec::basic_die> // Reference
                 > 
             {
@@ -263,10 +276,48 @@ namespace dwarf
                 Value dereference() const { return this->base().p_ds->operator[](this->base().off); }
                 position& pos() { return this->base_reference(); }
                 const std::deque<position>& path() { return this->base_reference().path_from_root; }
+				
+				/* iterator_adaptor implements <, <=, >, >= using distance_to.
+				 * However, that's more precise than we need: we can't cheaply
+				 * compute distance_to, but we can cheaply compute a partial
+				 * order among nodes sharing a parent. This is useful for our
+				 * various children_iterator, in whose context it becomes a total
+				 * order. We implement this partial order here. */
+				bool shares_parent_pos(const iterator& i);
+				bool operator<(const iterator& i);
+				bool operator<=(const iterator& i)
+				{
+					return this->shares_parent_pos(i)
+					&&
+					(i.base() == this->base()
+						|| *this < i);
+				}
+				bool operator>(const iterator& i)
+				{ return this->shares_parent_pos(i) && !(*this <= i); }
+				
+				bool operator>=(const iterator& i)
+				{ return this->shares_parent_pos(i) && !(*this < i); }
+				
+					
             };
             virtual boost::shared_ptr<spec::file_toplevel_die> toplevel() = 0; /* NOT const */
             virtual const spec::abstract_def& get_spec() const = 0;
         };        
+		// overloads moved outside struct definition above....
+		inline bool operator==(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2) 
+		{ return arg1.p_ds == arg2.p_ds && arg1.off == arg2.off; }
+		inline bool operator!=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
+		{ return !(arg1 == arg2); }
+		inline bool operator<=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
+		{ return arg1.p_ds < arg2.p_ds
+		|| (arg1.p_ds == arg2.p_ds
+			&& arg1.off <= arg2.off); }
+		inline bool operator<(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
+		{ return arg1 < arg2 && arg1 != arg2; }
+		inline bool operator>(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
+		{ return !(arg1 <= arg2); }
+		inline bool operator>=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
+		{ return arg1 == arg2 || arg1 > arg2; }
         
 	    struct basic_die
         {
@@ -382,6 +433,17 @@ namespace dwarf
             boost::optional<std::vector<std::string> >
             ident_path_from_cu() const;
 
+			// These two are similar, but still return a path even when
+			// some nameless elements are missing. These therefore can't be
+			// resolved, and need not be unique within a dieset, 
+			// but can be useful for identifying corresponding
+			// elements (e.g. shared type DIEs) across multiple diesets.
+			std::vector< boost::optional<std::string> >
+			opt_ident_path_from_root() const;
+
+			std::vector < boost::optional<std::string> >
+			opt_ident_path_from_cu() const;
+
 			/* These, and other resolve()-style functions, are not const 
              * because they need to be able to return references to mutable
              * found DIEs. FIXME: provide const overloads. */
@@ -412,8 +474,13 @@ namespace dwarf
                 sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
                 void *arg = 0) const;*/
 		};
-        
-        struct with_stack_location_die : public virtual basic_die
+		
+		struct with_type_describing_layout_die : public virtual basic_die
+		{
+			virtual boost::optional<boost::shared_ptr<spec::type_die> > get_type() const = 0;
+		};
+
+        struct with_stack_location_die : public virtual with_type_describing_layout_die
         {
 			virtual boost::optional<Dwarf_Off> contains_addr(
 					Dwarf_Addr absolute_addr,
@@ -421,7 +488,6 @@ namespace dwarf
 					Dwarf_Off dieset_relative_ip,
 					dwarf::lib::regs *p_regs = 0) const;
 			virtual boost::optional<encap::loclist> get_location() const = 0;
-			virtual boost::optional<boost::shared_ptr<spec::type_die> > get_type() const = 0;
 			/* virtual Dwarf_Addr calculate_addr(
 				Dwarf_Signed frame_base_addr,
 				Dwarf_Off dieset_relative_ip,

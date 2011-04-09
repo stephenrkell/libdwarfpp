@@ -106,7 +106,8 @@ artificial_tags = [ \
 ("type_chain", ([("type", False)],  [], ["type"]) ), \
 ("with_named_children", ([], [], ["basic"])), \
 ("with_runtime_location", ([], [], ["basic"])), \
-("with_stack_location", ([("location", False), ("type", False)], [], ["basic"])) \
+("with_stack_location", ([("location", False)], [], ["with_type_describing_layout"])), \
+("with_type_describing_layout", ([("type", False)], [], ["basic"])) \
 ]
 artificial_tag_map = dict(artificial_tags)
 
@@ -118,11 +119,11 @@ tags = [ \
 ("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["type", "with_named_children"] ) ), \
 ("entry_point", ( [], [] , ["basic"] ) ), \
 ("enumeration_type", ( [("type", False)], ["enumerator"] , ["type", "with_named_children"] ) ), \
-("formal_parameter", ( [], [] , ["program_element", "with_stack_location"] ) ), \
+("formal_parameter", ( [], [] , ["program_element", "with_stack_location", "with_type_describing_layout"] ) ), \
 ("imported_declaration", ( [], [], ["basic"]  ) ), \
 ("label", ( [], [], ["basic"]  ) ), \
 ("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_runtime_location"] ) ), \
-("member", ( [("type", False), ("data_member_location", False)], [], ["basic"]  ) ), \
+("member", ( [("data_member_location", False)], [], ["program_element", "with_type_describing_layout"]  ) ), \
 ("pointer_type", ( [], [], ["type_chain"]  ) ), \
 ("reference_type", ( [], [], ["type_chain"]  ) ), \
 ("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_runtime_location"]  ) ), \
@@ -135,7 +136,7 @@ tags = [ \
 ("variant", ( [], [] , ["basic"] ) ), \
 ("common_block", ( [], [], ["basic"]  ) ), \
 ("common_inclusion", ( [], [], ["basic"]  ) ), \
-("inheritance", ( [("type", False), ("data_member_location", False)], [], ["basic"]  ) ), \
+("inheritance", ( [("data_member_location", False)], [], ["basic", "with_type_describing_layout"]  ) ), \
 ("inlined_subroutine", ( [("high_pc", False), ("low_pc", False), ("ranges", False)], [], ["with_runtime_location"]  ) ), \
 ("module", ( [], [], ["with_named_children"]  ) ), \
 ("ptr_to_member_type", ( [], [], ["type"]  ) ), \
@@ -159,7 +160,7 @@ tags = [ \
 ("thrown_type", ( [], [], ["type_chain"]  ) ), \
 ("try_block", ( [], [], ["basic"]  ) ), \
 ("variant_part", ( [], [], ["basic"]  ) ), \
-("variable", ( [], [] , ["program_element", "with_runtime_location", "with_stack_location"] ) ), \
+("variable", ( [], [] , ["program_element", "with_runtime_location", "with_stack_location", "with_type_describing_layout"] ) ), \
 ("volatile_type", ( [], [], ["type_chain"]  ) ), \
 ("dwarf_procedure", ( [], [], ["basic"]  ) ), \
 ("restrict_type", ( [], [], ["type_chain"]  ) ), \

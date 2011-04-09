@@ -138,7 +138,7 @@ dwarf3_tags = [ \
 ("imported_declaration", ( decl_attrs + [], [], ["base"]  ) ), \
 ("label", ( decl_attrs + [], [], ["base"]  ) ), \
 ("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["base"] ) ), \
-("member", ( decl_attrs + [("type", False), ("data_member_location", False)], [], ["base"]  ) ), \
+("member", ( prog_el_attrs + [("type", False), ("data_member_location", False)], [], ["is_program_element"]  ) ), \
 ("pointer_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
 ("reference_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
 ("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["has_named_children"]  ) ), \
@@ -151,7 +151,7 @@ dwarf3_tags = [ \
 ("variant", ( decl_attrs + [], [] , ["base"] ) ), \
 ("common_block", ( decl_attrs + [], [], ["base"]  ) ), \
 ("common_inclusion", ( decl_attrs + [], [], ["base"]  ) ), \
-("inheritance", ( decl_attrs + [("type", False), ("data_member_location", False)], [], ["base"]  ) ), \
+("inheritance", ( prog_el_attrs + [("type", False), ("data_member_location", False)], [], ["is_program_element"]  ) ), \
 ("inlined_subroutine", ( [("high_pc", False), ("low_pc", False), ("ranges", False)], [], ["base"]  ) ), \
 ("module", ( decl_attrs + [], [], ["has_named_children"]  ) ), \
 ("ptr_to_member_type", ( type_attrs + [], [], ["is_type"]  ) ), \

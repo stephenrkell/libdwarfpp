@@ -1,7 +1,7 @@
 DWARF_PREFIX ?= /usr
 
 .PHONY: default
-default: include libs examples #tests
+default: include libs examples lib #tests
 
 incs := include/dwarfpp/abstract_hdr_gen.inc \
        include/dwarfpp/encap_hdr_gen.inc \
@@ -49,6 +49,7 @@ clean:
 	$(MAKE) -C src clean
 	$(MAKE) -C examples clean
 	$(MAKE) -C tests clean
+	rm -f lib/*.so
 
 .PHONY: lib
 lib: libs

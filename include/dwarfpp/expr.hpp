@@ -148,7 +148,8 @@ namespace dwarf
 			{
 				for (int i = 0; i != dll.len(); i++)
 				{
-					push_back(loc_expr(dll[i])); // construct new vector
+					auto tmp = loc_expr(dll[i]); // FIXME: elide this temporary -- was compile-skew bug
+					push_back(tmp); // construct new vector
 				}		
 			}
 			// would ideally repeat all vector constructors
