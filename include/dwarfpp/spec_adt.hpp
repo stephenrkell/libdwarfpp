@@ -283,19 +283,19 @@ namespace dwarf
 				 * order among nodes sharing a parent. This is useful for our
 				 * various children_iterator, in whose context it becomes a total
 				 * order. We implement this partial order here. */
-				bool shares_parent_pos(const iterator& i);
-				bool operator<(const iterator& i);
-				bool operator<=(const iterator& i)
+				bool shares_parent_pos(const iterator& i) const;
+				bool operator<(const iterator& i) const;
+				bool operator<=(const iterator& i) const
 				{
 					return this->shares_parent_pos(i)
 					&&
 					(i.base() == this->base()
 						|| *this < i);
 				}
-				bool operator>(const iterator& i)
+				bool operator>(const iterator& i) const
 				{ return this->shares_parent_pos(i) && !(*this <= i); }
 				
-				bool operator>=(const iterator& i)
+				bool operator>=(const iterator& i) const
 				{ return this->shares_parent_pos(i) && !(*this < i); }
 				
 					
@@ -603,13 +603,73 @@ struct has_tag : public std::unary_function<boost::shared_ptr<spec::basic_die>, 
     	return arg->get_tag() == Tag; 
     }
 };
+
+template <class Iter>
+struct with_iterator_partial_order : public Iter
+{
+	typedef with_iterator_partial_order self;
+	
+	/* HACK: add back in the comparison operators from abstract_dieset::iterator. 
+	 * We need this because transform_iterator and
+	 * filter_iterator and iterator_adaptor all hide our operator< (et al)
+	 * with one based on distance_to(), which we can't define efficiently 
+	 * (noting that we have only a partial order anyway, so it'd be a partial
+	 * function at best). */
+	bool operator<(const self& i) const { return this->base().base() < i.base().base(); }
+	bool operator<=(const self& i) const { return this->base().base() <= i.base().base(); }
+	bool operator>(const self& i) const { return this->base().base() > i.base().base(); }
+	bool operator>=(const self& i) const { return this->base().base() >= i.base().base(); }
+	
+	// let's try this fancy C++0x constructor forwarding then
+	// using Iter::Iter;
+	// HACK: the above doesn't yet work in g++, so do "perfect forwarding" instead...
+	template <typename... Args> 
+	with_iterator_partial_order(Args&&... args)
+	// : Iter(args...) {}
+	: Iter(std::forward<Args>(args)...) {}
+	
+// 	// double HACK: usual C++ problem: need to repeat constructors!
+//   public:
+//     with_iterator_partial_order() {}
+//     with_iterator_partial_order(typename Iter::Iterator const& x, __typeof(functor()) f) : Iter(x, f) {}
+//     explicit with_iterator_partial_order(typename Iter::Iterator const& x) : Iter(x) {}
+// // third HACK: skip this constructor for now
+// //     template<
+// //         class OtherUnaryFunction
+// //       , class OtherIterator
+// //       , class OtherReference
+// //       , class OtherValue>
+// //     transform_iterator(
+// //          transform_iterator<OtherUnaryFunction, OtherIterator, OtherReference, OtherValue> const& t
+// //        , typename enable_if_convertible<OtherIterator, Iterator>::type* = 0
+// // #if !BOOST_WORKAROUND(BOOST_MSVC, == 1310)
+// //        , typename enable_if_convertible<OtherUnaryFunction, UnaryFunc>::type* = 0
+// // #endif 
+// //     )
+// //       : super_t(t.base()), m_f(t.functor())
+// //    {}
+};
+
 //typedef std::unary_function<boost::shared_ptr<spec::basic_die>, boost::shared_ptr<spec:: arg ## _die > > type_of_dynamic_pointer_cast;
 #define child_tag(arg) \
 	typedef boost::shared_ptr<spec:: arg ## _die >(*type_of_dynamic_pointer_cast_ ## arg)(boost::shared_ptr<spec::basic_die> const&); \
-	typedef boost::filter_iterator<has_tag< DW_TAG_ ## arg >, spec::abstract_dieset::iterator> arg ## _basic_iterator; \
-	typedef boost::transform_iterator<type_of_dynamic_pointer_cast_ ## arg, arg ## _basic_iterator> arg ## _iterator; \
-    arg ## _iterator arg ## _children_begin() { return arg ## _iterator(arg ## _basic_iterator(children_begin(), children_end()), boost::dynamic_pointer_cast<spec:: arg ## _die> ); } \
-    arg ## _iterator arg ## _children_end() { return arg ## _iterator(arg ## _basic_iterator(children_end(), children_end()), boost::dynamic_pointer_cast<spec:: arg ## _die> ); }
+	typedef boost::filter_iterator<has_tag< DW_TAG_ ## arg >, spec::abstract_dieset::iterator> arg ## _filter_iterator; \
+	typedef boost::transform_iterator<type_of_dynamic_pointer_cast_ ## arg, arg ## _filter_iterator> arg ## _transform_iterator; \
+	typedef with_iterator_partial_order<arg ## _transform_iterator> arg ## _iterator; \
+    arg ## _iterator arg ## _children_begin() \
+	{ return \
+		arg ## _iterator( \
+		arg ## _transform_iterator(\
+		arg ## _filter_iterator(children_begin(), children_end()), \
+		 boost::dynamic_pointer_cast<spec:: arg ## _die> \
+		)); } \
+    arg ## _iterator arg ## _children_end() \
+	{ return \
+		arg ## _iterator(\
+		arg ## _transform_iterator(\
+		arg ## _filter_iterator(children_end(), children_end()), \
+		boost::dynamic_pointer_cast<spec:: arg ## _die> \
+		)); }
 
         struct file_toplevel_die : public virtual with_named_children_die
         {

@@ -961,14 +961,14 @@ namespace dwarf
 		
 		/* Partial order on iterators -- these are comparable when they share a parent. */
 		bool
-		abstract_dieset::iterator::shares_parent_pos(const abstract_dieset::iterator& i)
+		abstract_dieset::iterator::shares_parent_pos(const abstract_dieset::iterator& i) const
 		{ return this->base().p_ds == i.base().p_ds
 			&& 
 			this->dereference()->get_parent()->get_offset() 
 			== i.dereference()->get_parent()->get_offset();
 		}
 		bool
-		abstract_dieset::iterator::operator<(const iterator& i)
+		abstract_dieset::iterator::operator<(const iterator& i) const
 		{ return this->shares_parent_pos(i) && 
 		  this->dereference()->get_offset() < i.dereference()->get_offset(); 
 		}
@@ -1020,93 +1020,62 @@ namespace dwarf
     }
     namespace lib
     {
-    	/* WARNING: only use find() when you're not sure that a DIE exists
-         * at offset off. Otherwise use operator[]. */
-        abstract_dieset::iterator 
-        dieset::find(Dwarf_Off off)  
-        {
-	        //abstract_dieset::iterator i = this->begin();
-        	//while (i != this->end() && i.pos().off != off) i++;
-            //return i;
-            
-            /* We can do better than linear search, using the properties of
-             * DWARF offsets.  */
-            std::deque<position> path_from_root;
-            boost::shared_ptr<spec::basic_die> current_parent = this->toplevel();
-            while (current_parent->get_offset() != off)
-            {
-            	// walk through siblings...
-                auto current_sibling = current_parent->get_first_child(); // index for loop below
-                /* Note that we may throw No_entry here ^^^ -- this happens
-                 * if and only if our search has failed, which is what we want. */
-                boost::shared_ptr<spec::basic_die> previous_sibling; // starts at 0
-                
-                // ...linear search for the child we should descend to
-                // (the *outer* while loop decides whether that child is the node we're looking for)
-                while (off >= current_sibling->get_offset())
-                {
-                	// keep going
-                    previous_sibling = current_sibling;
-                    try
-                    {
-                    	current_sibling = current_sibling->get_next_sibling();
-                    } catch (No_entry)
-                    {
-                    	// reached the last sibling -- so point previous_sibling
-                        // at the last one, and unset current_sibling
-                        previous_sibling = current_sibling;
-                        current_sibling = boost::shared_ptr<spec::basic_die>();
-                        break;
+		/* WARNING: only use find() when you're not sure that a DIE exists
+		 * at offset off. Otherwise use operator[]. */
+		abstract_dieset::iterator 
+		dieset::find(Dwarf_Off off)  
+		{
+			//abstract_dieset::iterator i = this->begin();
+			//while (i != this->end() && i.pos().off != off) i++;
+			//return i;
+			
+			/* We can do better than linear search, using the properties of
+			 * DWARF offsets.  */
+			boost::shared_ptr<spec::basic_die> current = this->toplevel();
+			std::deque<position> path_from_root(1, (position){this, 0UL}); // start with root node only
+			/* We do this because iterators can point at the root, and all iterators should 
+			 * have the property that the last element in the path is their current node. */
+			 
+			while (current->get_offset() != off)
+			{
+				// we haven't reached our target yet, so walk through siblings...
+				auto child = current->get_first_child(); // index for loop below
+				/* Note that we may throw No_entry here ^^^ -- this happens
+				 * if and only if our search has failed, which is what we want. */
+				boost::shared_ptr<spec::basic_die> prev_child; // starts at 0
+				
+				// ...linear search for the child we should accept or descend to
+				// (NOTE: if they first child is the one we want, we'll go round once,
+				// until that is now prev_child and child is the next (if any)
+				while (child && !(child->get_offset() > off))
+				{
+					// keep going
+					prev_child = child;
+					try
+					{
+						child = child->get_next_sibling();
+					} 
+					catch (No_entry)
+					{
+						// reached the last sibling
+						child = boost::shared_ptr<spec::basic_die>();
 					}
-                }
-                // try descending 
-                path_from_root.push_back((position){this, previous_sibling->get_offset()});
-                            
-                /* descend a level */
-                current_parent = previous_sibling;
-                            
-//                 try
-//                 {
-//                     for (;
-//                 	    current_sibling; // terminated by exception
-//                         current_sibling = current_sibling->get_next_sibling())
-//                     {
-//                     	// our target offset is somewhere after
-//                         // previous sibling (if we have one)
-//                     	assert(!previous_sibling || off > previous_sibling->get_offset());
-//                         
-// 						// if it's less than the current sibling, it must be a child
-//                         // of the *previous* sibling, 
-//                     	if (off < current_sibling->get_offset())
-//                         {
-//                         	/* Means off must be a child of current. */
-//                             
-//                         	// on first iteration, current_sibling's offset
-//                             // should always be >= offset, or we wouldn't have
-//                             // descended here.
-//                         	assert(previous_sibling);
-//                             
-//                             
-//                             break; // resumes while loop
-//                         }
-//                         else // off >= current_sibling->get_offset()
-//                         {
-//                         
-//                         }
-//                         previous_sibling = current_sibling;
-//                     }
-// 
-//                 } catch (No_entry) 
-//                 {
-//                 	// reached final sibling, so *either* it's under
-//                     // the last sibling, or we've failed
-//                 	return this->end();
-//                 }
-            }
-            path_from_root.push_back((position){this, off});
-
+				}
+				// on terminating this loop: child is *after* the one we want, or null
+				// prev_child is either equal to it, or is an ancestor of it
+				assert(prev_child && (!child || child->get_offset() > off)
+					&& prev_child->get_offset() <= off);
+					
+				current = prev_child; // we either terminate on this child, or descend under it
+				// ... either way, remember its position
+				// (sanity check: make sure we're not doubling up a path entry)
+				assert(path_from_root.size() != 0 &&
+					(path_from_root.back() != (position){this, prev_child->get_offset()}));
+				path_from_root.push_back((position){this, prev_child->get_offset()});
+			}
+			
 			return abstract_dieset::iterator((position){this, off}, path_from_root);
-        }
+		}
         
         abstract_dieset::iterator 
         dieset::begin() 
@@ -1123,26 +1092,27 @@ namespace dwarf
                 std::deque<position>());
 		} 
         
-        Dwarf_Off 
-        dieset::find_parent_offset_of(Dwarf_Off off)
-        {
-        	if (off == 0UL) throw No_entry();
-            //else if (
-            if (this->parent_cache.find(off) != this->parent_cache.end())
-            {
-            	return this->parent_cache[off];
-            }
-            
-        	auto path = this->find(off).path();
-            if (path.size() > 1) 
-            { 
-            	path.pop_back(); 
-                this->parent_cache[off] = path.back().off;
-                return //boost::dynamic_pointer_cast<basic_die>(path.back().off); 
-                	path.back().off;
-            }
-            else throw lib::No_entry();
-        } 
+		Dwarf_Off 
+		dieset::find_parent_offset_of(Dwarf_Off off)
+		{
+			if (off == 0UL) throw No_entry();
+			//else if (
+			if (this->parent_cache.find(off) != this->parent_cache.end())
+			{
+				return this->parent_cache[off];
+			}
+			
+			// NOTE: we use find() so that we get the path not just die ptr
+			auto path = this->find(off).path();
+			assert(path.back().off == off);
+			if (path.size() > 1) 
+			{ 
+				position parent_pos = *(path.end() - 2);
+				this->parent_cache[off] = parent_pos.off; // our answer is the *new* last element
+				return parent_pos.off;
+			}
+			else throw lib::No_entry();
+		} 
 
         boost::shared_ptr<basic_die> 
         dieset::find_parent_of(Dwarf_Off off)
