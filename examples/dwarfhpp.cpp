@@ -35,7 +35,7 @@ static std::string create_ident_for_anonymous_die(adie& d)
     s << "_dwarfhpp_anon_" << std::hex << d.get_offset();
     return s.str();
 }
-
+static std::string cxx_type_of_untyped_arguments;
 template <typename Value>
 skip_edge_iterator<Value>::skip_edge_iterator(
 	Base p, Base begin, Base end, const cpp_dependency_order& deps)
@@ -396,7 +396,12 @@ proto_for_specialization(formal_parameter)
 
     if (argpos != 0) out << ", ";
 
-    out	<< (d.get_type() ? name_for_type(compiler, dynamic_cast<encap::Die_encap_is_type&>(**d.get_type())) : "int")
+    out	<< (d.get_type() 
+			? name_for_type(
+				compiler, 
+				dynamic_cast<encap::Die_encap_is_type&>(**d.get_type())
+			  )
+			: cxx_type_of_untyped_arguments)
         << ' '
         << name_for_argument(compiler, d, argpos);
 }
@@ -730,6 +735,11 @@ int main(int argc, char **argv)
     args.push_back("-fno-eliminate-unused-debug-types");
     args.push_back("-fno-eliminate-unused-debug-symbols");
     dwarf::tool::cxx_compiler compiler(args);
+	
+	/* Set the type of untyped arguments. 
+	 * HACK: this should be a command-line argument,
+	 * just as the compiler stuff should. */
+	dwarf::tool::cxx_type_of_untyped_arguments = " ::cake::unspecified_wordsize_type";
     
     /* Basic operation:
      * For each DIE that is something we can put into a header,

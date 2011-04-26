@@ -438,6 +438,14 @@ include(`encap_hdr_gen.inc')
             	Die_encap_base& parent,
                 boost::optional<const std::string&> name)
             { 	return *(new Created(parent, name)); }
+            template <
+            	Dwarf_Half Tag, 
+            	typename Created = typename dwarf::abstract::tag<die,Tag >::type
+            > 
+            boost::shared_ptr<spec::basic_die> create( // FIXME: use Tag as index to precise type
+            	boost::shared_ptr<die> p_parent,
+                boost::optional<const std::string&> name)
+            { 	return (new Created(dynamic_cast<Die_encap_base&>(*p_parent), name))->get_this(); }
         };
 #undef stored_type_string
 #undef stored_type_flag

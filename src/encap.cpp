@@ -207,6 +207,17 @@ namespace dwarf
                     unsigned count = shdr.sh_size / shdr.sh_entsize;
 
 					Die_encap_all_compile_units& all_cus = ds().all_compile_units();
+					
+					// insert a fake wordsized type
+                    Die_encap_base_type& base_type = dynamic_cast<Die_encap_base_type&>(
+                        abstract::factory::get_factory<die>(get_spec()).create<DW_TAG_base_type>(
+                        (**all_cus.compile_units_begin()),
+                        std::string("__cake_wordsize_integer_type")));
+					base_type.set_byte_size((elf_class == ELFCLASS32) ? 4
+									  : (elf_class == ELFCLASS64) ? 8
+									  : 0);
+					base_type.set_encoding(DW_ATE_signed);
+					assert (base_type.get_byte_size() != 0);
 
                     for (unsigned ii = 0; ii < count; ++ii) {
                         GElf_Sym sym;
@@ -233,15 +244,11 @@ namespace dwarf
                             abstract::factory::get_factory<die>(get_spec()).create<DW_TAG_unspecified_parameters>(
                             	subprogram, boost::optional<const std::string&>());
                             // we don't know anything about the return type...
-                            // HACK: if we have "int", set it to "int" i.e. one word!
+                            // so use our magic word-sized base type
                             if ((*all_cus.compile_units_begin())->named_child(std::string("int")))
                             {
                             	subprogram.set_type(
-                                	boost::dynamic_pointer_cast<spec::type_die>(
-	                                	//((*all_cus.compile_units_begin())->named_child(std::string("int")))
-                                    	boost::dynamic_pointer_cast<spec::with_named_children_die>(
-                                        	all_cus.get_first_child()
-                                            )->named_child(std::string("int"))
+                                	boost::dynamic_pointer_cast<spec::type_die>(base_type.get_this()
                                     )
                                 );
                             }
