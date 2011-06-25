@@ -212,7 +212,8 @@ namespace dwarf
                     Die_encap_base_type& base_type = dynamic_cast<Die_encap_base_type&>(
                         abstract::factory::get_factory<die>(get_spec()).create<DW_TAG_base_type>(
                         (**all_cus.compile_units_begin()),
-                        std::string("__cake_wordsize_integer_type")));
+                        /*std::string("__cake_wordsize_integer_type")*/
+						boost::optional<const std::string& >() ));
 					base_type.set_byte_size((elf_class == ELFCLASS32) ? 4
 									  : (elf_class == ELFCLASS64) ? 8
 									  : 0);
@@ -245,13 +246,13 @@ namespace dwarf
                             	subprogram, boost::optional<const std::string&>());
                             // we don't know anything about the return type...
                             // so use our magic word-sized base type
-                            if ((*all_cus.compile_units_begin())->named_child(std::string("int")))
-                            {
+                            //if ((*all_cus.compile_units_begin())->named_child(std::string("int")))
+                            //{
                             	subprogram.set_type(
                                 	boost::dynamic_pointer_cast<spec::type_die>(base_type.get_this()
                                     )
                                 );
-                            }
+                            //}
                         }
                     }
                 }

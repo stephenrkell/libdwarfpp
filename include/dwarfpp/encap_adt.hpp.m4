@@ -200,9 +200,12 @@ typedef die::children_iterator children_iterator;
 typedef die::named_children_iterator named_children_iterator;
 //typedef selective_iterator<die::children_iterator, has_name>  named_children_base_iterator;
 //typedef downcasting_iterator<named_children_base_iterator, Die_encap_base> named_children_iterator;
+#define compile_unit_EXTRA_FUNCTION_DECLS \
+	Dwarf_Half get_address_size() const;
 include(`encap_typedefs_gen.inc')
 
 include(`encap_hdr_gen.inc')
+#undef compile_unit_EXTRA_FUNCTION_DECLS
         class Die_encap_all_compile_units 
             : public Die_encap_base, 
               public virtual dwarf::abstract::Die_abstract_all_compile_units <die>

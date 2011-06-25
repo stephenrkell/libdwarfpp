@@ -102,42 +102,98 @@ attr_type_map = dict(attr_types)
 artificial_tags = [ \
 ("basic", ([], [], []) ),
 ("program_element", ([("name", False), ("decl_column", False ), ("decl_file", False), ("decl_line", False), ("prototyped", False), ("declaration", False), ("external", False), ("visibility", False)], [], ["basic"]) ), \
-("type", ([("byte_size", False )], [], ["program_element"]) ), \
+("with_instances", ([], [], ["program_element"])), \
+("type", ([("byte_size", False )], [], ["with_instances"]) ), \
 ("type_chain", ([("type", False)],  [], ["type"]) ), \
 ("with_named_children", ([], [], ["basic"])), \
-("with_runtime_location", ([], [], ["basic"])), \
-("with_stack_location", ([("location", False)], [], ["with_type_describing_layout"])), \
-("with_type_describing_layout", ([("type", False)], [], ["basic"])) \
+("with_static_location", ([], [], ["basic"])), \
+("with_dynamic_location", ([], [], ["with_type_describing_layout"])), \
+("with_type_describing_layout", ([("type", False)], [], ["basic"])), \
+("with_data_members", ([], ["member"], ["type"]))
 ]
 artificial_tag_map = dict(artificial_tags)
+
+# At the moment we have the following abstractions of "things to do with memory layout":
+# with_runtime_location: means having "static" location
+# -- can be described by DW_AT_location, DW_AT_(MIPS_)?linkage_name, DW_AT_(high|low)_pc, 
+# with_stack_location: means having a frame_base-relative (probably) location (BUT variables...)
+# -- described by DW_AT_location dependent on a frame_base register
+# with_type_describing_layout: means having a "type" attribute describing layout (so NOT subprogram)
+# -- this means variables and formal parameters, whose layout is indirected
+# with_data_members: means its layout is described directly by children
+# -- there might be no DIE describing the object itself, e.g. heap objects
+#
+# We can separate out concepts as follows.
+# Static/singleton versus dynamic/multiply-instantiated things
+# -- e.g. variable (static/global) versus variable (local)
+# The thing versus its description
+# -- e.g. variable/fp versus type
+# -- note that a "subprogram" DIE describes three things!
+#    The static thing, a dynamic activation of the thing, and layout of the latter
+# -- note that types themselves may contain "things" that have instance-relative locations
+#    but types themselves do not have instance-relative locations
+# 
+# Candidate artificial tags:
+# with_static_location (subprogram, variable [global], compile_unit)
+# with_instances (subprogram, types)
+# with_instance_relative_location (member, inheritance, fp, variable [local], )
+#   ^-- these are things which, given the location of an instance of some enclosing DIE,
+#       we can calculate a location for the things themselves. 
+#       e.g. variables/fp: give frame base
+#       e.g. members/inheritance: give object base
+#   ^-- they are also almost-exactly the things that have types describing layout...
+#       making them distinct from subprograms and compile_units
+#       even though these things may also have *relative* locations (file-relative)
+#       -- note that we keep a distinction from with_type_describing_layout...
+#          ... e.g. for if DWARF ever splits global vars from local vars
+# Maybe call these "with_dynamic_location"?
+# And rename with_runtime_location to with_static_location?
+# And unify with_stack_location?
+# Is it always the immediate parent DIE that is the thing we pass an instance address of?
+# -- maybe not with lexical_blocks, which enclose variables
+# -- maybe we need an overridable get_dynamic_link() method...
+#    ... that gets us the DIE that we need an instance address of?
+# What would be a get_static_link()? HMM. Maybe just don't call it "link". get_instantiator()?
+# YES, and this always returns a with_instances, i.e. a type or a subprogram!
+# HMM. "instantiator" versus "with_instances" not quite right. 
+# Why not? Well, it's not "containing object", more like "*class* of containing object"
+# "instantiating_element"? "instantiating_definition"
+#
+# If we add DW_TAG_allocation_site,
+# this will be an analogue of subprogram? i.e. a thing that has dynamic activations
+# actually it will be more like a hypothetical DW_TAG_call_site
+# cf. a hypothetical DW_TAG_allocation which would simply say that 
+# some equivalence class of things may be allocated at some unspecified site(s)
+# -- we might use this to record things like malloc(sizeof(X) + sizeof(Y)) --
+#    the composite of X and Y is like a type, but never defined as a type
 
 # abbreviations
 member_types = [ "class_type", "typedef", "structure_type", "enumeration_type", "union_type" ]
 
 tags = [ \
 ("array_type", ( [("type", False)], ["subrange_type"], ["type"] ) ), \
-("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["type", "with_named_children"] ) ), \
+("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["with_data_members", "with_named_children"] ) ), \
 ("entry_point", ( [], [] , ["basic"] ) ), \
 ("enumeration_type", ( [("type", False)], ["enumerator"] , ["type", "with_named_children"] ) ), \
-("formal_parameter", ( [], [] , ["program_element", "with_stack_location", "with_type_describing_layout"] ) ), \
+("formal_parameter", ( [], [] , ["program_element", "with_dynamic_location"] ) ), \
 ("imported_declaration", ( [], [], ["basic"]  ) ), \
 ("label", ( [], [], ["basic"]  ) ), \
-("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_runtime_location"] ) ), \
-("member", ( [("data_member_location", False)], [], ["program_element", "with_type_describing_layout"]  ) ), \
+("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_static_location"] ) ), \
+("member", ( [("data_member_location", False)], [], ["program_element", "with_dynamic_location"]  ) ), \
 ("pointer_type", ( [], [], ["type_chain"]  ) ), \
 ("reference_type", ( [], [], ["type_chain"]  ) ), \
-("compile_unit", ( [ ("language", True), ("comp_dir", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_runtime_location"]  ) ), \
+("compile_unit", ( [ ("language", True), ("comp_dir", False), ("producer", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_static_location"]  ) ), \
 ("string_type", ( [], [], ["type"]  ) ), \
-("structure_type", ( [], [ "member", "access_declaration" ] + member_types, ["type", "with_named_children"]  ) ), \
+("structure_type", ( [], [ "member", "access_declaration" ] + member_types, ["with_data_members", "with_named_children"]  ) ), \
 ("subroutine_type", ( [("type", False)], [], ["type"]  ) ), \
 ("typedef", ( [], [], ["type_chain"]  ) ), \
-("union_type", ([], [ "member" ], ["type", "with_named_children"]  ) ), \
+("union_type", ([], [ "member" ], ["with_data_members", "with_named_children"]  ) ), \
 ("unspecified_parameters", ( [], [], ["program_element"]  ) ), \
 ("variant", ( [], [] , ["basic"] ) ), \
 ("common_block", ( [], [], ["basic"]  ) ), \
 ("common_inclusion", ( [], [], ["basic"]  ) ), \
-("inheritance", ( [("data_member_location", False)], [], ["basic", "with_type_describing_layout"]  ) ), \
-("inlined_subroutine", ( [("high_pc", False), ("low_pc", False), ("ranges", False)], [], ["with_runtime_location"]  ) ), \
+("inheritance", ( [("data_member_location", False)], [], ["basic", "with_dynamic_location"]  ) ), \
+("inlined_subroutine", ( [("high_pc", False), ("low_pc", False), ("ranges", False)], [], ["with_static_location"]  ) ), \
 ("module", ( [], [], ["with_named_children"]  ) ), \
 ("ptr_to_member_type", ( [], [], ["type"]  ) ), \
 ("set_type", ( [], [], ["type"]  ) ), \
@@ -154,13 +210,13 @@ tags = [ \
 ("namelist", ( [], [], ["basic"]  ) ), \
 ("namelist_item", ( [], [], ["basic"]  ) ), \
 ("packed_type", ( [], [], ["type_chain"]  ) ), \
-("subprogram", ( [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["program_element", "with_runtime_location", "with_named_children"]  ) ), \
+("subprogram", ( [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["program_element", "with_static_location", "with_named_children"]  ) ), \
 ("template_type_parameter", ( [], [], ["basic"]  ) ), \
 ("template_value_parameter", ( [], [], ["basic"]  ) ), \
 ("thrown_type", ( [], [], ["type_chain"]  ) ), \
 ("try_block", ( [], [], ["basic"]  ) ), \
 ("variant_part", ( [], [], ["basic"]  ) ), \
-("variable", ( [], [] , ["program_element", "with_runtime_location", "with_stack_location", "with_type_describing_layout"] ) ), \
+("variable", ( [], [] , ["program_element", "with_static_location", "with_dynamic_location"] ) ), \
 ("volatile_type", ( [], [], ["type_chain"]  ) ), \
 ("dwarf_procedure", ( [], [], ["basic"]  ) ), \
 ("restrict_type", ( [], [], ["type_chain"]  ) ), \

@@ -61,17 +61,24 @@ namespace dwarf
 //             Dwarf_Unsigned size() const { return get_size(); }
 //         }
 //         
-//         struct with_runtime_location_die 
-//         : public lib::basic_die, public virtual spec::with_runtime_location_die
+//         struct with_static_location_die 
+//         : public lib::basic_die, public virtual spec::with_static_location_die
 //         {
-//         	encap::loclist get_runtime_location() const;
-//             encap::loclist runtime_location() const { return get_runtime_location(); };
+//         	encap::loclist get_static_location() const;
+//             encap::loclist static_location() const { return get_static_location(); };
 //         };
 
+		struct compile_unit_die; // forward decl
         struct file_toplevel_die : public lib::basic_die, public virtual spec::file_toplevel_die
         {
         	int prev_version_stamp;
             const spec::abstract_def *p_spec;
+			struct cu_info_t
+			{
+				int version_stamp;
+				Dwarf_Half address_size;
+			};
+			std::map<Dwarf_Off, cu_info_t> cu_info;
         	file_toplevel_die(dieset& ds) : basic_die(ds, boost::shared_ptr<lib::die>()),
             	prev_version_stamp(-1), p_spec(0) {}
 		    Dwarf_Off get_offset() const { return 0UL; }
@@ -82,6 +89,7 @@ namespace dwarf
        		Dwarf_Off get_next_sibling_offset() const;
             boost::optional<std::string> get_name() const { return 0; }
             const spec::abstract_def& get_spec() const { assert(p_spec); return *p_spec; }
+			Dwarf_Half get_address_size_for_cu(const compile_unit_die *cu) const;
 		};
         class dieset : public virtual abstract_dieset // virtual s.t. can derive from std::map
         {                                             // and have its methods satisfy interface
@@ -136,12 +144,13 @@ namespace dwarf
 #define declare_base(base) base ## _die
 #define base_fragment(base) base ## _die(ds, p_d) {}
 #define initialize_base(fragment) virtual spec:: fragment ## _die(ds, p_d)
-#define constructor(fragment, ...) \
-	fragment ## _die(dieset& ds, boost::shared_ptr<lib::die> p_d) : basic_die(ds, p_d) {}
+#define constructor(fragment) \
+	fragment ## _die(dieset& ds, boost::shared_ptr<lib::die> p_d) : basic_die(ds, p_d) { \
+	}
 #define begin_class(fragment, base_inits, ...) \
 	struct fragment ## _die : virtual spec:: fragment ## _die, basic_die { \
-    	constructor(fragment, base_inits)
-#define base_initializations(...) __VA_ARGS__
+    	constructor(fragment)
+/* #define base_initializations(...) __VA_ARGS__ */
 #define end_class(fragment) \
 	};
 
@@ -188,7 +197,8 @@ namespace dwarf
 
 // compile_unit_die has an override for get_next_sibling()
 #define extra_decls_compile_unit \
-		boost::shared_ptr<spec::basic_die> get_next_sibling(); 
+		boost::shared_ptr<spec::basic_die> get_next_sibling(); \
+		Dwarf_Half get_address_size() const; 
 
 #include "dwarf3-adt.h"
 

@@ -94,7 +94,11 @@ namespace dwarf
 				return built;
 			}
 		}
-
+        boost::shared_ptr<spec::basic_die> 
+        basic_die::nearest_enclosing(Dwarf_Half tag) const
+		{
+			return const_cast<basic_die *>(this)->nearest_enclosing(tag);
+		}
         boost::shared_ptr<spec::basic_die> 
         basic_die::nearest_enclosing(Dwarf_Half tag) 
         {
@@ -125,7 +129,7 @@ namespace dwarf
         basic_die::enclosing_compile_unit()
         {
         	// HACK: special case: compile units enclose themselves (others don't)
-            // -- see with_runtime_location_die::contains_addr for motivation
+            // -- see with_static_location_die::contains_addr for motivation
             return boost::dynamic_pointer_cast<compile_unit_die>(
             	this->get_tag() == DW_TAG_compile_unit ?
                 	this->get_this()
@@ -175,19 +179,19 @@ namespace dwarf
 			return o;
         }
         
-/* from spec::with_runtime_location_die */
+/* from spec::with_static_location_die */
 		boost::optional<Dwarf_Off> // returns *offset within the element*
-        with_runtime_location_die::contains_addr(Dwarf_Addr file_relative_address,
+        with_static_location_die::contains_addr(Dwarf_Addr file_relative_address,
         	sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
 			void *arg /* = 0 */) const
         {
         	// FIXME: get rid of the const_casts
-            auto nonconst_this = const_cast<with_runtime_location_die *>(this);
+            auto nonconst_this = const_cast<with_static_location_die *>(this);
         	auto attrs = nonconst_this->get_attrs();
 
         	// HACK: if we're a local variable, return false. This function
             // only deals with static storage. Mostly the restriction is covered
-            // by the fact that only certain tags are with_runtime_location_dies,
+            // by the fact that only certain tags are with_static_location_dies,
             // but both locals and globals show up with DW_TAG_variable.
             if (this->get_tag() == DW_TAG_variable &&
             	!dynamic_cast<const variable_die *>(this)->has_static_storage())
@@ -217,7 +221,7 @@ namespace dwarf
             	auto rangelist = found_ranges->second.get_rangelist();
                 //std::cerr << "DIE at 0x" << std::hex << this->get_offset()
                 //	<< " has rangelist " << rangelist << std::endl;
-                auto nonconst_this = const_cast<with_runtime_location_die *>(this);
+                /* auto nonconst_this = const_cast<with_static_location_die *>(this); */
                 // rangelist::find_addr() requires a dieset-relative (i.e. file-relative) address
                 /*assert(nonconst_this->enclosing_compile_unit()->get_low_pc());*/
              	auto range_found = rangelist.find_addr(
@@ -337,6 +341,8 @@ namespace dwarf
             Dwarf_Unsigned opcodes[] 
             = { DW_OP_constu, low_pc, 
                 DW_OP_piece, high_pc - low_pc };
+			/* FIXME: I don't think we should be using the max Dwarf_Addr here -- 
+			 * the libdwarf manual claims we should set them both to zero. */
             encap::loclist list(encap::loc_expr(opcodes, 0, std::numeric_limits<Dwarf_Addr>::max())); 
             return list;
         }
@@ -345,12 +351,14 @@ namespace dwarf
         {
             Dwarf_Unsigned opcodes[] 
             = { DW_OP_constu, low_pc };
+			/* FIXME: I don't think we should be using the max Dwarf_Addr here -- 
+			 * the libdwarf manual claims we should set them both to zero. */
             encap::loclist list(encap::loc_expr(opcodes, 0, std::numeric_limits<Dwarf_Addr>::max())); 
             return list;
         }
-		encap::loclist with_runtime_location_die::get_runtime_location() const
+		encap::loclist with_static_location_die::get_static_location() const
         {
-        	auto attrs = const_cast<with_runtime_location_die *>(this)->get_attrs();
+        	auto attrs = const_cast<with_static_location_die *>(this)->get_attrs();
             if (attrs.find(DW_AT_location) != attrs.end())
             {
             	return attrs.find(DW_AT_location)->second.get_loclist();
@@ -371,19 +379,19 @@ namespace dwarf
             }
         } 
 /* from spec::subprogram_die */
-		boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<with_stack_location_die> > >
+		boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >
         subprogram_die::contains_addr_as_frame_local_or_argument( 
             	    Dwarf_Addr absolute_addr, 
                     Dwarf_Off dieset_relative_ip, 
                     Dwarf_Signed *out_frame_base,
                     dwarf::lib::regs *p_regs/* = 0*/) const
         {
-        	auto nonconst_this = const_cast<subprogram_die *>(this);
+        	/* auto nonconst_this = const_cast<subprogram_die *>(this); */
         	assert(this->get_frame_base());
         	/* First we calculate our frame base address. */
             auto frame_base_addr = dwarf::lib::evaluator(
                 *this->get_frame_base(),
-                dieset_relative_ip, // this is the vaddr which selects a loclist element
+                dieset_relative_ip - *this->enclosing_compile_unit()->get_low_pc(), // this is the vaddr which selects a loclist element
                 this->get_ds().get_spec(),
                 p_regs).tos();
             if (out_frame_base) *out_frame_base = frame_base_addr;
@@ -391,7 +399,7 @@ namespace dwarf
             if (!this->first_child_offset()) return 0;
          	/* Now we walk children
              * (not just immediate children, because more might hide under lexical_blocks), 
-             * looking for with_stack_location_dies, and 
+             * looking for with_dynamic_location_dies, and 
              * call contains_addr on what we find. */
             abstract_dieset::bfs_policy bfs_state;
             abstract_dieset::iterator start_iterator
@@ -403,7 +411,7 @@ namespace dwarf
                     i_bfs++)
             {
             	//std::cerr << "Considering whether DIE has stack location: " << **i_bfs << std::endl;
-            	auto with_stack_loc = boost::dynamic_pointer_cast<spec::with_stack_location_die>(
+            	auto with_stack_loc = boost::dynamic_pointer_cast<spec::with_dynamic_location_die>(
                 	*i_bfs);
                 if (!with_stack_loc) continue;
                 
@@ -413,7 +421,7 @@ namespace dwarf
                     p_regs);
                 if (result) return std::make_pair(*result, with_stack_loc);
             }
-            return boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<with_stack_location_die> > >();
+            return boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >();
         }
         bool subprogram_die::is_variadic() const
         {
@@ -431,24 +439,49 @@ namespace dwarf
             catch (No_entry) {}
             return false;
         }
+/* from spec::with_dynamic_location_die */
+		boost::shared_ptr<spec::program_element_die> 
+		with_dynamic_location_die::get_instantiating_definition() const
+		{
+			/* We want to return a parent DIE describing the thing whose instances
+			 * contain instances of us. 
+			 *
+			 * If we're a member or inheritance, it's our nearest enclosing type.
+			 * If we're a variable or fp, it's our enclosing subprogram.
+			 * This might be null if we're actually a static variable. */
+			// HACK: this should arguably be in overrides for formal_parameter and variable
+			if (this->get_tag() == DW_TAG_formal_parameter
+			||  this->get_tag() == DW_TAG_variable) 
+			{
+				return boost::dynamic_pointer_cast<dwarf::spec::program_element_die>(
+					nearest_enclosing(DW_TAG_subprogram));
+			}
+			else
+			{
+				boost::shared_ptr<dwarf::spec::basic_die> candidate = this->get_parent();
+				while (candidate 
+					&& !boost::dynamic_pointer_cast<dwarf::spec::type_die>(candidate))
+				{
+					candidate = candidate->get_parent();
+				}
+				return boost::dynamic_pointer_cast<dwarf::spec::program_element_die>(candidate);
+			}
+		}
 
-/* from spec::with_stack_location_die */
-		boost::optional<Dwarf_Off> with_stack_location_die::contains_addr(
+/* from spec::with_dynamic_location_die */
+		boost::optional<Dwarf_Off> with_dynamic_location_die::contains_addr_on_stack(
                     Dwarf_Addr absolute_addr,
                     Dwarf_Signed frame_base_addr,
                     Dwarf_Off dieset_relative_ip,
                     dwarf::lib::regs *p_regs) const
         {
-        	auto attrs = const_cast<with_stack_location_die *>(this)->get_attrs();
+        	auto attrs = const_cast<with_dynamic_location_die *>(this)->get_attrs();
+            auto base_addr = calculate_addr_on_stack(
+				frame_base_addr,
+				dieset_relative_ip,
+				p_regs);
             assert(attrs.find(DW_AT_type) != attrs.end());
-            assert(attrs.find(DW_AT_location) != attrs.end());
             auto size = *(attrs.find(DW_AT_type)->second.get_refdie_is_type()->calculate_byte_size());
-            auto base_addr = dwarf::lib::evaluator(
-                attrs.find(DW_AT_location)->second.get_loclist(),
-                dieset_relative_ip,
-                this->get_ds().get_spec(),
-                p_regs,
-                frame_base_addr).tos();
             if (absolute_addr >= base_addr
             &&  absolute_addr < base_addr + size)
             {
@@ -456,7 +489,63 @@ namespace dwarf
             }
             return boost::optional<Dwarf_Off>();
         }
-
+		
+/* from spec::with_dynamic_location_die */
+		boost::optional<Dwarf_Off> with_dynamic_location_die::contains_addr_in_object(
+                    Dwarf_Addr absolute_addr,
+                    Dwarf_Signed object_base_addr,
+                    Dwarf_Off dieset_relative_ip,
+                    dwarf::lib::regs *p_regs) const
+        {
+        	auto attrs = const_cast<with_dynamic_location_die *>(this)->get_attrs();
+            auto base_addr = calculate_addr_in_object(
+				object_base_addr, dieset_relative_ip, p_regs);
+            assert(attrs.find(DW_AT_type) != attrs.end());
+            auto size = *(attrs.find(DW_AT_type)->second.get_refdie_is_type()->calculate_byte_size());
+            if (absolute_addr >= base_addr
+            &&  absolute_addr < base_addr + size)
+            {
+ 				return absolute_addr - base_addr;
+            }
+            return boost::optional<Dwarf_Off>();
+        }
+/* from spec::with_dynamic_location_die */
+		Dwarf_Addr 
+		with_dynamic_location_die::calculate_addr_on_stack(
+				Dwarf_Addr frame_base_addr,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs/* = 0*/) const
+		{
+        	auto attrs = const_cast<with_dynamic_location_die *>(this)->get_attrs();
+            assert(attrs.find(DW_AT_location) != attrs.end());
+			assert(this->enclosing_compile_unit()->get_low_pc());
+			return (Dwarf_Addr) dwarf::lib::evaluator(
+				attrs.find(DW_AT_location)->second.get_loclist(),
+				dieset_relative_ip // needs to be CU-relative
+				 - (this->enclosing_compile_unit()->get_low_pc() ? 
+				    this->enclosing_compile_unit()->get_low_pc()->addr : 0 ),
+				this->get_ds().get_spec(),
+				p_regs,
+				frame_base_addr).tos();
+		}
+		Dwarf_Addr
+		with_dynamic_location_die::calculate_addr_in_object(
+				Dwarf_Addr object_base_addr,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs /*= 0*/) const
+		{
+        	auto attrs = const_cast<with_dynamic_location_die *>(this)->get_attrs();
+            assert(attrs.find(DW_AT_data_member_location) != attrs.end());
+			return (Dwarf_Addr) dwarf::lib::evaluator(
+				attrs.find(DW_AT_data_member_location)->second.get_loclist(),
+				dieset_relative_ip // needs to be CU-relative
+				 - (this->enclosing_compile_unit()->get_low_pc() ? 
+				 	this->enclosing_compile_unit()->get_low_pc()->addr : (Dwarf_Addr)0),
+				this->get_ds().get_spec(),
+				p_regs,
+				object_base_addr, // ignored
+				std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, object_base_addr))).tos();
+		}
 /* from spec::with_named_children_die */
         boost::shared_ptr<spec::basic_die>
         with_named_children_die::named_child(const std::string& name) 
@@ -819,6 +908,16 @@ namespace dwarf
         }
 
 /* from lib::compile_unit_die */
+		Dwarf_Half compile_unit_die::get_address_size() const
+		{
+			/* We can't easily add/initialize new fields to the compile_unit_die.
+			 * So instead, ask the file_toplevel_die. */
+			//auto parent = const_cast<const compile_unit_die *>(this)->get_parent();
+			// HACK: why can't I use get_parent() const ?
+			auto parent_toplevel = boost::dynamic_pointer_cast<file_toplevel_die>(
+				const_cast<compile_unit_die*>(this)->get_parent());
+			return parent_toplevel->get_address_size_for_cu(this);
+		}
 /*		Dwarf_Unsigned 
         compile_unit_die::get_language() const
         {
@@ -1314,6 +1413,12 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
     }
     namespace lib
     {
+		Dwarf_Half file_toplevel_die::get_address_size_for_cu(const compile_unit_die *cu) const
+		{ 
+			auto found = cu_info.find(cu->get_offset());
+			assert(found != cu_info.end());
+			return found->second.address_size; 
+		}
 
 		boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
 		{
@@ -1344,7 +1449,8 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
     		prev_version_stamp = version_stamp;
 
     		return boost::make_shared<compile_unit_die>(*p_ds, 
-        		boost::make_shared<dwarf::lib::die>(*p_ds->p_f));
+        		boost::make_shared<dwarf::lib::die>(*p_ds->p_f) /*,
+				version_stamp, address_size*/);
 		}
 
 		Dwarf_Off file_toplevel_die::get_first_child_offset() const
@@ -1365,6 +1471,8 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
 			Dwarf_Half version_stamp = prev_version_stamp;
 			Dwarf_Off next_cu_offset;
 
+			using boost::dynamic_pointer_cast;
+
 			// first reset the CU context (pesky stateful API)
 			retval = p_ds->p_f->reset_cu_context();
 			if (retval != DW_DLV_OK) // then it must be DW_DLV_ERROR
@@ -1375,18 +1483,25 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
 			}
 
 			// now find us
+			Dwarf_Half address_size;
 			for (retval = p_ds->p_f->next_cu_header(/*&cu_header_length*/0, &version_stamp,
 					/*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset);
 					retval != DW_DLV_NO_ENTRY; // termination condition (negated)
 					retval = p_ds->p_f->next_cu_header(/*&cu_header_length*/0, &version_stamp,
-									/*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset))
+									/*&abbrev_offset*/0, &address_size, &next_cu_offset))
 			{
 				// only support like-versioned CUs for now
 				assert(prev_version_stamp == version_stamp);
 				// now we can access the CU by constructing a lib::die under the current CU state
 				auto p_cu = boost::make_shared<die>(*p_ds->p_f);
 				Dwarf_Off off;
-				if ((p_cu->offset(&off), off) == this->get_offset()) // found us
+				p_cu->offset(&off); // retrieve the offset
+				// store the data for later
+				dynamic_pointer_cast<file_toplevel_die>(get_parent())
+				->cu_info[off].version_stamp = version_stamp;
+				dynamic_pointer_cast<file_toplevel_die>(get_parent())
+				->cu_info[off].address_size = address_size;
+				if (off == this->get_offset()) // found us
 				{
 					break;
 				}
@@ -1401,6 +1516,17 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
 			retval = p_ds->p_f->next_cu_header(/*&cu_header_length*/0, &version_stamp,
 					/*&abbrev_offset*/0, /*&address_size*/0, &next_cu_offset);
 			if (retval == DW_DLV_NO_ENTRY) throw No_entry();
+			else
+			{
+				auto p_cu = boost::make_shared<die>(*p_ds->p_f);
+				Dwarf_Off off;
+				p_cu->offset(&off); // retrieve the offset
+				// store the data for later
+				dynamic_pointer_cast<file_toplevel_die>(get_parent())
+				->cu_info[off].version_stamp = version_stamp;
+				dynamic_pointer_cast<file_toplevel_die>(get_parent())
+				->cu_info[off].address_size = address_size;
+			}
 
 			return boost::make_shared<compile_unit_die>(*p_ds, 
 			boost::make_shared<dwarf::lib::die>(*p_ds->p_f));

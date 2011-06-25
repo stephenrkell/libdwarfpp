@@ -27,6 +27,7 @@ namespace dwarf
         class program_element_die;
         struct basic_die;
         struct file_toplevel_die;
+		struct member_die;
         std::ostream& operator<<(std::ostream& s, const basic_die& d);
         
 		class abstract_dieset : public boost::enable_shared_from_this<abstract_dieset>
@@ -327,7 +328,7 @@ namespace dwarf
             virtual Dwarf_Half get_tag() const = 0;
             
             virtual boost::shared_ptr<basic_die> get_parent() = 0;
-			//boost::shared_ptr<basic_die> get_parent()
+ 			//boost::shared_ptr<basic_die> get_parent()
 			//{ return this->get_ds().move_up(get_this()); }
 			boost::shared_ptr<basic_die> get_parent() const
             { return const_cast<basic_die *>(this)->get_parent(); }           
@@ -448,23 +449,29 @@ namespace dwarf
              * because they need to be able to return references to mutable
              * found DIEs. FIXME: provide const overloads. */
             boost::shared_ptr<basic_die> 
-            nearest_enclosing(Dwarf_Half tag);
-
+            nearest_enclosing(Dwarf_Half tag) const;
+        	boost::shared_ptr<spec::basic_die> 
+        	nearest_enclosing(Dwarf_Half tag); /* non-const version */
             boost::shared_ptr<compile_unit_die> 
             enclosing_compile_unit();
+            boost::shared_ptr<const compile_unit_die> 
+            enclosing_compile_unit() const 
+			{ return boost::dynamic_pointer_cast<const compile_unit_die>(
+					const_cast<basic_die *>(this)->enclosing_compile_unit()); 
+			}
 
             boost::shared_ptr<basic_die>
             find_sibling_ancestor_of(boost::shared_ptr<basic_die> d);
         };
 
-        struct with_runtime_location_die : public virtual basic_die
+        struct with_static_location_die : public virtual basic_die
         {
         	struct sym_binding_t 
             { 
             	Dwarf_Off file_relative_start_addr; 
                 Dwarf_Unsigned size;
             };
-        	virtual encap::loclist get_runtime_location() const;
+        	virtual encap::loclist get_static_location() const;
             virtual boost::optional<Dwarf_Off> contains_addr(
             	Dwarf_Addr file_relative_addr,
                 sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
@@ -480,14 +487,48 @@ namespace dwarf
 			virtual boost::optional<boost::shared_ptr<spec::type_die> > get_type() const = 0;
 		};
 
-        struct with_stack_location_die : public virtual with_type_describing_layout_die
+        struct with_dynamic_location_die : public virtual with_type_describing_layout_die
         {
 			virtual boost::optional<Dwarf_Off> contains_addr(
 					Dwarf_Addr absolute_addr,
-					Dwarf_Signed frame_base_addr,
+					Dwarf_Signed instantiating_instance_addr,
+					Dwarf_Off dieset_relative_ip,
+					dwarf::lib::regs *p_regs = 0) const = 0;
+			/* We define two variants of the contains_addr logic: 
+			 * one suitable for stack-based locations (fp/variable)
+			 * and another for object-based locations (member/inheritance)
+			 * and each derived class should pick one! */
+		protected:
+			boost::optional<Dwarf_Off> contains_addr_on_stack(
+					Dwarf_Addr absolute_addr,
+					Dwarf_Signed instantiating_instance_addr,
 					Dwarf_Off dieset_relative_ip,
 					dwarf::lib::regs *p_regs = 0) const;
-			virtual boost::optional<encap::loclist> get_location() const = 0;
+			boost::optional<Dwarf_Off> contains_addr_in_object(
+					Dwarf_Addr absolute_addr,
+					Dwarf_Signed instantiating_instance_addr,
+					Dwarf_Off dieset_relative_ip,
+					dwarf::lib::regs *p_regs = 0) const;
+		public:
+			virtual boost::shared_ptr<spec::program_element_die> 
+			get_instantiating_definition() const;
+			
+			virtual Dwarf_Addr calculate_addr(
+				Dwarf_Addr instantiating_instance_location,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs = 0) const = 0;
+		protected:
+			/* ditto */
+			virtual Dwarf_Addr calculate_addr_on_stack(
+				Dwarf_Addr instantiating_instance_location,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs = 0) const;
+			virtual Dwarf_Addr calculate_addr_in_object(
+				Dwarf_Addr instantiating_instance_location,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs = 0) const;
+		public:
+			
 			/* virtual Dwarf_Addr calculate_addr(
 				Dwarf_Signed frame_base_addr,
 				Dwarf_Off dieset_relative_ip,
@@ -556,14 +597,14 @@ namespace dwarf
 /****************************************************************/
 #define forward_decl(t) class t ## _die;
 #define declare_base(base) virtual base ## _die
-#define base_fragment(base) base ## _die(ds, p_d) {}
+#define base_fragment(base) base ## _die(ds, p_d) {} /* unused */
 #define initialize_base(fragment) fragment ## _die(ds, p_d)
-#define constructor(fragment, ...) 
+#define constructor(fragment) 
         
 #define begin_class(fragment, base_inits, ...) \
 	struct fragment ## _die : __VA_ARGS__ { \
-    	constructor(fragment, base_inits)
-#define base_initializations(...) __VA_ARGS__
+    	constructor(fragment)
+/* #define base_initializations(...) __VA_ARGS__ */
 #define end_class(fragment) \
 	};
 
@@ -711,11 +752,39 @@ begin_class(type_chain, base_initializations(initialize_base(type)), declare_bas
         boost::optional<Dwarf_Unsigned> calculate_byte_size() const;
         boost::shared_ptr<type_die> get_concrete_type() const;
 end_class(type_chain)
+begin_class(with_data_members, base_initializations(initialize_base(type)), declare_base(type))
+        child_tag(member)
+end_class(with_data_members)
 
+#define has_stack_based_location \
+	boost::optional<Dwarf_Off> contains_addr( \
+                    Dwarf_Addr aa, \
+                    Dwarf_Signed fb, \
+                    Dwarf_Off dr_ip, \
+                    dwarf::lib::regs *p_regs) const \
+					{ return contains_addr_on_stack(aa, fb, dr_ip, p_regs); } \
+	Dwarf_Addr calculate_addr( \
+				Dwarf_Addr fb, \
+				Dwarf_Off dr_ip, \
+				dwarf::lib::regs *p_regs = 0) const \
+				{ return calculate_addr_on_stack(fb, dr_ip, p_regs); }
+#define has_object_based_location \
+	boost::optional<Dwarf_Off> contains_addr( \
+                    Dwarf_Addr aa, \
+                    Dwarf_Signed io, \
+                    Dwarf_Off dr_ip, \
+                    dwarf::lib::regs *p_regs) const \
+					{ return contains_addr_in_object(aa, io, dr_ip, p_regs); } \
+	Dwarf_Addr calculate_addr( \
+				Dwarf_Addr io, \
+				Dwarf_Off dr_ip, \
+				dwarf::lib::regs *p_regs = 0) const \
+				{ return calculate_addr_in_object(io, dr_ip, p_regs); }
 #define extra_decls_compile_unit \
-		boost::optional<Dwarf_Unsigned> implicit_array_base() const; 
+		boost::optional<Dwarf_Unsigned> implicit_array_base() const; \
+		virtual Dwarf_Half get_address_size() const = 0; 
 #define extra_decls_subprogram \
-        boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<spec::with_stack_location_die> > > \
+        boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<spec::with_dynamic_location_die> > > \
         contains_addr_as_frame_local_or_argument( \
             	    Dwarf_Addr absolute_addr, \
                     Dwarf_Off dieset_relative_ip, \
@@ -723,7 +792,10 @@ end_class(type_chain)
                     dwarf::lib::regs *p_regs = 0) const; \
         bool is_variadic() const;
 #define extra_decls_variable \
-        bool has_static_storage() const;
+        bool has_static_storage() const; \
+		has_stack_based_location
+#define extra_decls_formal_parameter \
+		has_stack_based_location
 #define extra_decls_array_type \
 		boost::optional<Dwarf_Unsigned> element_count() const; \
         boost::optional<Dwarf_Unsigned> calculate_byte_size() const; \
@@ -749,9 +821,11 @@ end_class(type_chain)
 #define extra_decls_subroutine_type \
 		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_member \
-		boost::optional<Dwarf_Unsigned> byte_offset_in_enclosing_type() const;
+		boost::optional<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
+		has_object_based_location
 #define extra_decls_inheritance \
-		boost::optional<Dwarf_Unsigned> byte_offset_in_enclosing_type() const;
+		boost::optional<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
+		has_object_based_location
 
 #include "dwarf3-adt.h"
 
@@ -767,6 +841,7 @@ end_class(type_chain)
 #undef extra_decls_pointer_type
 #undef extra_decls_array_type
 #undef extra_decls_variable
+#undef extra_decls_formal_parameter
 #undef extra_decls_compile_unit
 
 #undef forward_decl

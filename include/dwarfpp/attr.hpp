@@ -130,6 +130,8 @@ namespace dwarf
                 }
             };
             struct address 
+			/* FIXME: why do we have this? 
+			 * There must be a good reason or I wouldn't have added it. */
             { 
             	Dwarf_Addr addr; 
                 bool operator==(const address& arg) const { return this->addr == arg.addr; }
@@ -145,6 +147,7 @@ namespace dwarf
                 bool operator>(Dwarf_Addr arg) const { return this->addr > addr; }
                 bool operator>=(Dwarf_Addr arg) const { return this->addr >= addr; }
                 //Dwarf_Addr operator Dwarf_Addr() { return addr; }
+				/* FIXME: why *not* have the above? There must be a good reason....*/
             };
 			/*static const attribute_value& DOES_NOT_EXIST() {
 				if (dne_val == 0) dne_val = new attribute_value(); // FIXME: delete this anywhere?

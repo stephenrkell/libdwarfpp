@@ -105,6 +105,9 @@ namespace dwarf
         }
 
 #include "encap_src_gen.inc"
-
+		Dwarf_Half compile_unit_die::get_address_size() const
+		{
+			return 8; // HACK, FIXME, ...
+		}
 	} // end namespace encap
 } // end namespace dwarf
