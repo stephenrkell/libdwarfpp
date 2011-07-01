@@ -31,6 +31,9 @@
 namespace dwarf {
 	namespace encap {
 		using namespace dwarf::lib;
+		
+		using srk31::conjoining_sequence;
+		using srk31::conjoining_iterator;
         
         // forward declarations
         class die;

@@ -314,7 +314,7 @@ namespace dwarf
 		|| (arg1.p_ds == arg2.p_ds
 			&& arg1.off <= arg2.off); }
 		inline bool operator<(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
-		{ return arg1 < arg2 && arg1 != arg2; }
+		{ return arg1 <= arg2 && arg1 != arg2; }
 		inline bool operator>(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
 		{ return !(arg1 <= arg2); }
 		inline bool operator>=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
