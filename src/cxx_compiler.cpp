@@ -294,9 +294,12 @@ namespace dwarf { namespace tool {
                 catch (lib::No_entry) { s << ")"; }
                 return s.str();
             }
-            case DW_TAG_const_type:
-        	    return "const " + cxx_declarator_from_type_die(
-                    *boost::dynamic_pointer_cast<spec::const_type_die>(p_d)->get_type());
+            case DW_TAG_const_type: {
+				/* Note that many DWARF emitters record C/C++ "const void" (as in "const void *")
+				 * as a const type with no "type" attribute. So handle this case. */
+        	    auto chained_type =  boost::dynamic_pointer_cast<spec::const_type_die>(p_d)->get_type();
+				return "const " + (chained_type ? cxx_declarator_from_type_die(*chained_type) : " void ");
+				}
             case DW_TAG_structure_type:
         	    name_prefix = "struct ";
                 goto handle_named_type;

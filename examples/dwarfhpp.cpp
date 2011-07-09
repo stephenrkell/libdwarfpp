@@ -3,12 +3,14 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <cmath>
 
 #include <indenting_ostream.hpp>
 #include <dwarfpp/abstract.hpp>
 #include <dwarfpp/encap.hpp>
 #include <dwarfpp/cxx_compiler.hpp>
 #include "dwarfhpp.hpp"
+#include <srk31/algorithm.hpp>
 
 using namespace srk31;
 using namespace dwarf;
@@ -512,7 +514,9 @@ proto_for_specialization(member)
             	// << " and smaller than " << candidate_factor << std::endl;
             
         	// a better factor would be smaller...            
-            while (--next_factor > 1 && offset % next_factor != 0);
+            do { --next_factor; } while (next_factor > 1 && 
+				// no good if either it doesn't divide offset, or not a power of two
+				(offset % next_factor != 0 || !is_power_of_two(next_factor) ));
             
             //std::cerr << "Considering factor " << next_factor << std::endl;
             
