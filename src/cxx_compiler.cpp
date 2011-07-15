@@ -300,6 +300,11 @@ namespace dwarf { namespace tool {
         	    auto chained_type =  boost::dynamic_pointer_cast<spec::const_type_die>(p_d)->get_type();
 				return "const " + (chained_type ? cxx_declarator_from_type_die(*chained_type) : " void ");
 				}
+            case DW_TAG_volatile_type: {
+				/* Ditto as for const_type. */
+        	    auto chained_type =  boost::dynamic_pointer_cast<spec::volatile_type_die>(p_d)->get_type();
+				return "volatile " + (chained_type ? cxx_declarator_from_type_die(*chained_type) : " void ");
+				}
             case DW_TAG_structure_type:
         	    name_prefix = "struct ";
                 goto handle_named_type;

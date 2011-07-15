@@ -5,6 +5,8 @@
 #include <sstream>
 #include <cmath>
 
+#include <boost/algorithm/string.hpp>
+
 #include <indenting_ostream.hpp>
 #include <dwarfpp/abstract.hpp>
 #include <dwarfpp/encap.hpp>
@@ -19,16 +21,17 @@ using namespace dwarf::lib;
 namespace dwarf { namespace tool {
 typedef dwarf::abstract::Die_abstract_base<dwarf::encap::die> adie;
 
-//static std::string name_for_subprogram(dwarf::tool::cxx_compiler& compiler,
-//	adie& d);
 static std::string name_for_type(dwarf::tool::cxx_compiler& compiler,
 	dwarf::encap::Die_encap_is_type& d, 
     boost::optional<const std::string&> infix_typedef_name = boost::optional<const std::string&>(),
     bool use_friendly_names = true);
+
 static std::string name_for_argument(dwarf::tool::cxx_compiler& compiler,
 	adie& d, int argnum);
+
 static void emit_typedef(std::ostream& out, dwarf::tool::cxx_compiler& compiler, 
 	const std::string& name, encap::Die_encap_is_type& d);
+
 static std::string create_ident_for_anonymous_die(adie& d);
 static std::string create_ident_for_anonymous_die(adie& d)
 {
@@ -37,7 +40,33 @@ static std::string create_ident_for_anonymous_die(adie& d)
     s << "_dwarfhpp_anon_" << std::hex << d.get_offset();
     return s.str();
 }
+
+static std::string protect_ident(const std::string& ident)
+{
+	/* In at least one reported case, the DWARF name of a declaration
+	 * appearing in a standard header (pthread.h) conflicts with a macro (__WAIT_STATUS). 
+	 * We could protect every ident with an #if defined(...)-type block, but
+	 * that would make the header unreadable. Instead, we make a crude HACK
+	 * of a guess: protect the ident if it uses a reserved identifier
+	 * (for now: beginning '__')
+	 * and is all caps (because most macros are all caps). */
+	
+	std::ostringstream s;
+	if (ident.find("__") == 0 && ident == boost::to_upper_copy(ident))
+	{
+		s << std::endl << "#if defined(" << ident << ")" << std::endl
+			<< "_dwarfhpp_protect_" << ident << std::endl
+			<< "#else" << std::endl
+			<< ident << std::endl
+			<< "#define _dwarfhpp_protect_" << ident << " " << ident << std::endl
+			<< "#endif" << std::endl;
+	}
+	else s << ident;
+	return s.str();
+}
+
 static std::string cxx_type_of_untyped_arguments;
+
 template <typename Value>
 skip_edge_iterator<Value>::skip_edge_iterator(
 	Base p, Base begin, Base end, const cpp_dependency_order& deps)
@@ -229,7 +258,7 @@ void emit_forward_decls(std::vector<dwarf::encap::Die_encap_base *> fds)
     {
     	assert((*i)->get_tag() == DW_TAG_structure_type
         	&& (*i)->get_name());
-        std::cout << "struct " << *(*i)->get_name() << "; // forward decl" << std::endl;
+        std::cout << "struct " << protect_ident(*(*i)->get_name()) << "; // forward decl" << std::endl;
     }
 	std::cout << "// end a group of forward decls" << std::endl;
 }
@@ -343,8 +372,8 @@ proto_for_specialization(base_type)
 
     if (our_name_for_this_type != *type_name_in_compiler)
     {
-        out << "typedef " << *type_name_in_compiler 
-        	<< ' ' << our_name_for_this_type
+        out << "typedef " << *type_name_in_compiler
+        	<< ' ' << protect_ident(our_name_for_this_type)
             << ';' << std::endl;
     }
 }        
@@ -373,7 +402,7 @@ proto_for_specialization(subprogram)
     }
 
     out 	<< (d.get_type() 
-        	? name_for_type(compiler, dynamic_cast<dwarf::encap::Die_encap_is_type&>(**d.get_type())) 
+        	? protect_ident(name_for_type(compiler, dynamic_cast<dwarf::encap::Die_encap_is_type&>(**d.get_type()))) 
             : std::string("void"))
         << ' '
         << *d.get_name()
@@ -399,13 +428,13 @@ proto_for_specialization(formal_parameter)
     if (argpos != 0) out << ", ";
 
     out	<< (d.get_type() 
-			? name_for_type(
+			? protect_ident(name_for_type(
 				compiler, 
 				dynamic_cast<encap::Die_encap_is_type&>(**d.get_type())
-			  )
+			  ))
 			: cxx_type_of_untyped_arguments)
         << ' '
-        << name_for_argument(compiler, d, argpos);
+        << protect_ident(name_for_argument(compiler, d, argpos));
 }
 proto_for_specialization(unspecified_parameters)
 {
@@ -419,13 +448,13 @@ proto_for_specialization(array_type)
 {
 	// use typedef again, and infix the name
     out << "typedef ";
-    if (d.get_name()) out << name_for_type(compiler, d, *d.get_name());
-    else out << name_for_type(compiler, d, create_ident_for_anonymous_die(d));
+    if (d.get_name()) out << protect_ident(name_for_type(compiler, d, *d.get_name()));
+    else out << protect_ident(name_for_type(compiler, d, create_ident_for_anonymous_die(d)));
     out << ";" << std::endl;
 }
 proto_for_specialization(enumeration_type) 
 {
-	out << "enum " << (d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
+	out << "enum " << protect_ident((d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d)))
     	<< " { " << std::endl;
     recurse_on_children(d);
     out << std::endl << "};" << std::endl;
@@ -487,10 +516,10 @@ proto_for_specialization(member)
     }
     //std::cerr << "Calculated next available offset is " << cur_offset << std::endl;
      
-	if (d.get_name()) out << name_for_type(compiler, member_type, *d.get_name());
-    else out << name_for_type(compiler, member_type, boost::optional<const std::string&>());
+	if (d.get_name()) out << protect_ident(name_for_type(compiler, member_type, *d.get_name()));
+    else out << protect_ident(name_for_type(compiler, member_type, boost::optional<const std::string&>()));
     out	<< " ";
-    if (!compiler.type_infixes_name(member_type.get_this())) out << *d.get_name();
+    if (!compiler.type_infixes_name(member_type.get_this())) out << protect_ident(*d.get_name());
     
     if (d.get_data_member_location() && (*d.get_data_member_location()).size() == 1)
     {
@@ -499,33 +528,38 @@ proto_for_specialization(member)
             // push zero as the initial stack value
             std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, 0UL))).tos();
             
-		/* Calculate a sensible align value for this. We could just use the offset,
-         * but that might upset the compiler if it's larger than what it considers
-         * the reasonable biggest alignment for the architecture. So pick a factor
-         * of the alignment s.t. no other factors exist between cur_off and offset.*/
-	    //std::cerr << "Aligning member to offset " << offset << std::endl;
-        
-        Dwarf_Unsigned candidate_factor, next_factor = offset;
-        do
-        {
-        	candidate_factor = next_factor;
-            
-            //std::cerr << "Looking for a factor strictly greater than " << (offset - cur_offset)
-            	// << " and smaller than " << candidate_factor << std::endl;
-            
-        	// a better factor would be smaller...            
-            do { --next_factor; } while (next_factor > 1 && 
-				// no good if either it doesn't divide offset, or not a power of two
-				(offset % next_factor != 0 || !is_power_of_two(next_factor) ));
-            
-            //std::cerr << "Considering factor " << next_factor << std::endl;
-            
-            // ... but not too small        
-        } while (next_factor > (offset - cur_offset) && next_factor < candidate_factor);
-        
-        //std::cerr << "Settled on factor " << candidate_factor << std::endl;
-        
-        if (candidate_factor != 0) out << " __attribute__((aligned(" << candidate_factor << ")))";
+		if (offset > 0)
+		{
+			/* Calculate a sensible align value for this. We could just use the offset,
+        	 * but that might upset the compiler if it's larger than what it considers
+        	 * the reasonable biggest alignment for the architecture. So pick a factor
+        	 * of the alignment s.t. no other factors exist between cur_off and offset.*/
+	    	//std::cerr << "Aligning member to offset " << offset << std::endl;
+
+        	Dwarf_Unsigned candidate_factor, next_factor = offset;
+        	do
+        	{
+        		candidate_factor = next_factor;
+
+            	//std::cerr << "Looking for a factor strictly greater than " << (offset - cur_offset)
+            		// << " and smaller than " << candidate_factor << std::endl;
+
+        		// a better factor would be smaller...            
+            	do { --next_factor; } while (next_factor > 1 && 
+					// no good if either it doesn't divide offset, or not a power of two
+					(offset % next_factor != 0 || !is_power_of_two(next_factor) ));
+
+            	//std::cerr << "Considering factor " << next_factor << std::endl;
+
+            	// ... but not too small        
+        	} while (next_factor > (offset - cur_offset) && next_factor < candidate_factor);
+
+			assert(candidate_factor == 0 || is_power_of_two(candidate_factor));
+
+        	//std::cerr << "Settled on factor " << candidate_factor << std::endl;
+
+        	out << " __attribute__((aligned(" << candidate_factor << ")))";
+		}
 	    out << ";" << " // offset: " << offset << std::endl;
     }
     else 
@@ -549,7 +583,7 @@ proto_for_specialization(pointer_type)
     // we expect a pointed-to type, but might be void
     std::string name_to_use = d.get_name() ? compiler.cxx_name_from_string(*d.get_name(), "_dwarfhpp_") : 
     	create_ident_for_anonymous_die(d);
-    if (!d.get_type()) out << "typedef void *" << name_to_use << ";" << std::endl;
+    if (!d.get_type()) out << "typedef void *" << protect_ident(name_to_use) << ";" << std::endl;
     else emit_typedef(out, compiler, name_to_use, d);
 //     out << name_for_type(compiler, d, d.get_name());
 //     	//<< (d.get_type() ? compiler.name_for_type(*d.get_type()) : "void")
@@ -567,7 +601,7 @@ proto_for_specialization(pointer_type)
 }
 proto_for_specialization(structure_type) 
 {
-	out << "struct " << (d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
+	out << "struct " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
     	<< " { " << std::endl;
     recurse_on_children(d);
     out << "} __attribute__((packed));" << std::endl;
@@ -586,13 +620,13 @@ void emit_typedef(std::ostream& out,
     std::string name_to_use = compiler.cxx_name_from_string(name, "_dwarfhpp_");
             
     out << "typedef " 
-    	<< name_for_type(compiler, d,
-        	name_to_use);
+    	<< protect_ident(name_for_type(compiler, d,
+        	name_to_use));
     // HACK: we use the infix for subroutine types
     if (!compiler.type_infixes_name(d.get_this()))
     {
         out << " "
-	    	<< name_to_use;
+	    	<< protect_ident(name_to_use);
     }
     out << ";" << std::endl;
 }
@@ -603,14 +637,14 @@ proto_for_specialization(typedef)
     {
     	//std::cerr << "Warning: assuming `int' for typeless typedef: " << d << std::endl;
 		std::cerr << "Warning: using `void' for typeless typedef: " << d << std::endl;		
-        out << "typedef void " << *d.get_name() << ";" << std::endl;
+        out << "typedef void " << protect_ident(*d.get_name()) << ";" << std::endl;
         return;
     }
     emit_typedef(out, compiler, *d.get_name(), dynamic_cast<encap::Die_encap_is_type&>(**d.get_type()));
 }
 proto_for_specialization(union_type) 
 {
-	out << "union " << (d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
+	out << "union " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
     	<< " { " << std::endl;
     recurse_on_children(d);
     out << "};" << std::endl;
@@ -619,8 +653,17 @@ proto_for_specialization(const_type)
 {
     // we always emit a typedef with synthetic name
     // (but the user could just use the pointed-to type and "const")
-    out << "typedef " << name_for_type(compiler, d) << " ";
-    out << create_ident_for_anonymous_die(d)
+    out << "typedef " << protect_ident(name_for_type(compiler, d)) << " ";
+    out << protect_ident(create_ident_for_anonymous_die(d))
+        << ";" << std::endl;
+
+}
+proto_for_specialization(volatile_type) 
+{
+    // we always emit a typedef with synthetic name
+    // (but the user could just use the pointed-to type and "const")
+    out << "typedef " << protect_ident(name_for_type(compiler, d)) << " ";
+    out << protect_ident(create_ident_for_anonymous_die(d))
         << ";" << std::endl;
 
 }
@@ -632,17 +675,16 @@ proto_for_specialization(enumerator)
     	.enumerators_begin())
         	->get_offset() != d.get_offset()) // .. then we're not the first, so
             out << ", " << std::endl;
-    out << *d.get_name();
+    out << protect_ident(*d.get_name());
 }
 proto_for_specialization(variable) {}
-proto_for_specialization(volatile_type) {}
 proto_for_specialization(restrict_type) {}
 proto_for_specialization(subrange_type) 
 {
 	// Since we can't express subranges directly in C++, we just
     // emit a typedef of the underlying type.
-    out << "typedef " << name_for_type(compiler, dynamic_cast<encap::Die_encap_is_type&>(*d.get_type()))
-    	<< " " << (d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
+    out << "typedef " << protect_ident(name_for_type(compiler, dynamic_cast<encap::Die_encap_is_type&>(*d.get_type())))
+    	<< " " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
         << ";" << std::endl;
 }
 

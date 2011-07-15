@@ -1,0 +1,36 @@
+API changes: 
+eliminate abstract::
+remove boost::optional from shared_ptr 
+change "contains_addr_" wording
+(and maybe produce a more general version of the stack-based contains_addr API, wrt members &c.)
+
+work in progress:
+Doxygen
+expression evaluator doesn't support many opcodes
+dwarfppdump doesn't prettyprint everything
+
+multi-standard stuff:
+DWARF3 or DEFAULT_DWARF_SPEC is hardcoded in places
+DW_AT_MIPS_linkage_name is used where it shouldn't be
+no support for guessing vendor extensions using compile unit string
+spec should be per-CU not per dieset
+
+semantics:
+testing equality on p_ds meaning "is this the same DIE?" should be defined (by position()?)
+
+performance:
+iterators should cache parent info in their owning dieset
+do a gprof run
+
+other bits of DWARF:
+line number program
+source file identifiers
+
+possible future stuff:
+make operator* on iterators dereference pointers too? arguments...
+ -- YES. analogue with  containers
+ -- NO. analogue with containers-of-pointers
+ -- can we hide the fact that we contain pointers from the user completely?
+ -- possibly YES, making iterators the *only* public interface, but this is a big change;
+    for now NO; the user should understand it as a container of pointers
+	BUT this is a future-work API change
