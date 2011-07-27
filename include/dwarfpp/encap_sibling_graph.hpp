@@ -21,7 +21,8 @@ namespace dwarf { namespace encap {
             return head.children_begin() != head.children_end()
             	&& (*head.children_begin())->find_sibling_ancestor_of(deep.get_ds()[deep.get_offset()]);
         }
-    } is_under;
+    };
+	const is_under_t is_under = {};
 	struct project_to_sibling_of_t : public std::binary_function<Die_encap_base&, Die_encap_base&, 
     	boost::optional<Die_encap_base&> >
     {
@@ -36,7 +37,9 @@ namespace dwarf { namespace encap {
                  );
             else return 0;
         }
-    } project_to_sibling_of;
+    };
+	const project_to_sibling_of_t project_to_sibling_of = {};
+	
 	struct ref_points_under_t : public std::binary_function<die::attribute_map::value_type, Die_encap_base *, bool>
     {
     	bool operator()(const die::attribute_map::value_type& ref, Die_encap_base * p_head) const
@@ -48,7 +51,8 @@ namespace dwarf { namespace encap {
             return target_die_iter != ds.map_end()
             	&& is_under(dynamic_cast<Die_encap_base&>(*(target_die_iter->second)), *p_head);
         }
-    } ref_points_under;
+    };
+	const ref_points_under_t ref_points_under = {};
      
     //typedef dwarf::encap::sibling_dep_edge_iterator<> out_edge_iterator;
     // We need this one because std::binder2nd is not defaul-constructible, but
@@ -56,11 +60,13 @@ namespace dwarf { namespace encap {
     struct ref_points_under_bound_t : public std::binder2nd<dwarf::encap::ref_points_under_t>
     {
         ref_points_under_bound_t() 
-         : std::binder2nd<dwarf::encap::ref_points_under_t>(
-            dwarf::encap::ref_points_under_t::ref_points_under_t(), 0) {}
+        : std::binder2nd<dwarf::encap::ref_points_under_t>(
+            ref_points_under, 0) {}
         ref_points_under_bound_t(std::binder2nd<dwarf::encap::ref_points_under_t> binder)
          : std::binder2nd<dwarf::encap::ref_points_under_t>(binder) {}
-    };    
+
+    };
+	const ref_points_under_bound_t ref_points_under_bound = {};
 //     template<typename Value = dwarf::encap::attribute_value::weak_ref>
 //     struct sibling_dep_edge_iterator
 //     	: public boost::iterator_adaptor<sibling_dep_edge_iterator<Value>, // Derived

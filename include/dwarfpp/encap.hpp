@@ -618,6 +618,7 @@ namespace dwarf {
 			}
 			attribute_value& put_attr(Dwarf_Half attr, attribute_value val) 
 			{ 
+				m_attrs.erase(attr);
 				m_attrs.insert(std::make_pair(attr, val)); 
 				return m_attrs.find(attr)->second; 
 			}

@@ -145,7 +145,7 @@ dwarf3_tags = [ \
 ("member", ( prog_el_attrs + decl_attrs + [("type", False), ("data_member_location", False)], [], ["is_program_element"]  ) ), \
 ("pointer_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
 ("reference_type", ( type_chain_attrs + [], [], ["is_type_chain"]  ) ), \
-("compile_unit", ( [ ("language", True), ("low_pc", False), ("high_pc", False) ], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["has_named_children"]  ) ), \
+("compile_unit", ( [ ("language", True), ("low_pc", False), ("high_pc", False) ], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["has_named_children", "with_static_location"]  ) ), \
 ("string_type", ( type_attrs + decl_attrs + [], [], ["is_type"]  ) ), \
 ("structure_type", ( prog_el_attrs + decl_attrs + [("byte_size", False)], [ "member", "access_declaration" ] + member_types, ["is_type", "has_named_children"]  ) ), \
 ("subroutine_type", ( type_attrs + [("type", False)], [], ["is_type"]  ) ), \

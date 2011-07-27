@@ -1,3 +1,5 @@
+CXX ?= g++
+
 HDRS := $(wildcard *.hpp)
 SRC := $(wildcard *.cpp)
 OBJS := $(patsubst %.cpp,%.o,$(SRC))
@@ -17,12 +19,12 @@ test: dwarfppdump
 
 # our builtin depends on our library
 %: %.o ../src/libdwarfpp.so
-	g++ $(CXXFLAGS) $(LDFLAGS) \
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) \
 	-Wl,-R$(realpath ../src) \
 	-o "$@" "$<" -ldwarfpp -ldwarf -lelf -lsrk31c++ -lboost_regex -lc++fileno
 
 %.o: %.cpp $(HDRS)
-	g++ $(CXXFLAGS) -c -o "$@" "$<"
+	$(CXX) $(CXXFLAGS) -c -o "$@" "$<"
 
 .PHONY: clean
 clean:
