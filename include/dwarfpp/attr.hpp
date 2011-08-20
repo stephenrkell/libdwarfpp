@@ -79,6 +79,7 @@ namespace dwarf
 		class attribute_value {
 				friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
 				friend std::ostream& dwarf::spec::operator<<(std::ostream& o, const dwarf::spec::basic_die& d);                
+				friend class encap::die; // for the "convert to strong references" hack
 		public: 
 			struct weak_ref { 
 				friend class attribute_value;
@@ -130,8 +131,11 @@ namespace dwarf
                 }
             };
             struct address 
-			/* FIXME: why do we have this? 
-			 * There must be a good reason or I wouldn't have added it. */
+			/* Why do we have this? 
+			 * Hmm -- I think it was about overload resolution. Dwarf_Addr
+			 * is just a typedef for some integer type. And one of the other
+			 * constructors of attribute_value was taking that integer type.
+			 * So to disambiguate, we create an encapsulated address data type. */
             { 
             	Dwarf_Addr addr; 
                 bool operator==(const address& arg) const { return this->addr == arg.addr; }
@@ -147,7 +151,8 @@ namespace dwarf
                 bool operator>(Dwarf_Addr arg) const { return this->addr > addr; }
                 bool operator>=(Dwarf_Addr arg) const { return this->addr >= addr; }
                 //Dwarf_Addr operator Dwarf_Addr() { return addr; }
-				/* FIXME: why *not* have the above? There must be a good reason....*/
+				/* FIXME: why *not* have the above? There must be a good reason....
+				 *  ambiguity maybe? */
             };
 			/*static const attribute_value& DOES_NOT_EXIST() {
 				if (dne_val == 0) dne_val = new attribute_value(); // FIXME: delete this anywhere?
@@ -205,6 +210,9 @@ namespace dwarf
 // 			attribute_value(Dwarf_Off off, bool abs) : f(REF), v_ref(new ref(off, abs)) {}
 //			attribute_value(die& d) : orig_form(DW_FORM_ref_addr), f(REF), v_ref(new ref(d.m_ds, d.m_offset, true, 
  			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : m_ds(ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
+ 			attribute_value(spec::abstract_dieset& ds, boost::shared_ptr<spec::basic_die> ref_target);
+ 			//attribute_value(spec::abstract_dieset& ds, boost::shared_ptr<spec::basic_die> p_r)
+			// : m_ds(ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
 //			attribute_value(lib::abstract_dieset& ds, spec::basic_die& d) : orig_form(DW_FORM_ref_addr), f(REF)
 //            { assert(dynamic_cast<encap::dieset *>(ds)); this->v_ref = new ref(d.m_ds, d.m_offset, true, 
 			attribute_value(spec::abstract_dieset& ds, const loclist& l) : m_ds(ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new loclist(l)) {}
@@ -219,7 +227,7 @@ namespace dwarf
             address get_address() const { assert(f == ADDR); return v_addr; }
             boost::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
 			//spec::basic_die& get_refdie() const; // defined in cpp file
-            boost::shared_ptr<spec::type_die> get_refdie_is_type() { return boost::dynamic_pointer_cast<spec::type_die>(get_refdie()); }
+            boost::shared_ptr<spec::type_die> get_refdie_is_type() const { return boost::dynamic_pointer_cast<spec::type_die>(get_refdie()); }
             //spec::type_die& get_refdie_is_type() { return dynamic_cast<spec::type_die&>(get_refdie()); }
             /* ^^^ I think a plain reference is okay here because the "this" pointer
              * (i.e. whatever pointer we'll be accessing the attribute through)

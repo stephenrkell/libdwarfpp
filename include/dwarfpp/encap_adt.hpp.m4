@@ -31,86 +31,34 @@ namespace dwarf {
         // forward declarations
         //class Die_encap_base;
         class die;
-        class Die_encap_all_compile_units;
-        class Die_encap_base;
+        class file_toplevel_die;
+        class basic_die;
 
         typedef die Rep;
-        typedef abstract::Die_abstract_base<Rep> basic_die;
 
-#define stored_type_string std::string
-#define stored_type_flag bool
-#define stored_type_unsigned Dwarf_Unsigned
-#define stored_type_signed Dwarf_Signed
-#define stored_type_offset Dwarf_Off
-#define stored_type_half Dwarf_Half
-#define stored_type_ref Dwarf_Off
-#define stored_type_tag Dwarf_Half
-#define stored_type_loclist dwarf::encap::loclist
-#define stored_type_address Dwarf_Addr
-#define stored_type_refdie boost::shared_ptr<spec::basic_die> 
-#define stored_type_refdie_is_type boost::shared_ptr<spec::type_die> 
-#define stored_type_rangelist dwarf::encap::rangelist
-        
-include(`encap_preamble_gen.inc')
-
-#define define_getters_optional(stored_t, name) \
-	boost::optional<stored_type_ ## stored_t> get_ ## name() const \
-    { if (has_attr(DW_AT_ ## name)) return (*this)[DW_AT_ ## name].get_ ## stored_t (); \
-    else return boost::optional<stored_type_ ## stored_t>(); }
-
-#define define_getset_optional(stored_t, name, ...) \
-	define_getters_optional(stored_t, name) \
-    self& set_ ## name(boost::optional<stored_type_ ## stored_t> arg) \
-    { if (arg) put_attr(DW_AT_ ## name, *arg, ## __VA_ARGS__ ); \
-    else m_attrs.erase(DW_AT_ ## name); return *this; }
-        
-#define define_getters_mandatory(stored_t, name) \
-	stored_type_ ## stored_t get_ ## name() const \
-    { return (*this)[DW_AT_ ## name].get_ ## stored_t (); }
-
-#define define_getset_mandatory(stored_t, name, ...) \
-	define_getters_mandatory(stored_t, name) \
-  	self& set_ ## name(stored_type_ ## stored_t arg) \
-    { put_attr(DW_AT_ ## name, arg, ## __VA_ARGS __); }
-
-        template <Dwarf_Half Tag, typename Iter>
-        struct tag_equal;
-    } namespace abstract {
-    	// specialise tag (using forward declarations above)
-        template <> struct tag<encap::die, 0>
-        { typedef encap::Die_encap_base type; };
-
-    } namespace encap {
-        class Die_encap_base : public encap::die, public virtual spec::basic_die,
-        	public virtual abstract::Die_abstract_base<encap::die>//, 
-        	
+        class basic_die : public encap::die, public virtual spec::basic_die
         {
         	friend class factory;
             typedef Die_encap_base self;
         public:
 
-#define declare_iter_types(fragment_sg, fragment_pl) \
-            typedef abstract::iters<encap::die, DW_TAG_ ## fragment_sg>::base_iterator fragment_pl ## _base_iterator; \
-            typedef abstract::iters<encap::die, DW_TAG_ ## fragment_sg>::iterator fragment_pl ## _iterator;
-			
-//don't m4-include ---encap_typedefs_gen.inc--- -- it's broken
 
         	// special constructor used by all_compile_units
-            Die_encap_base
+            basic_die
             (encap::dieset& ds, Dwarf_Off parent, Dwarf_Half tag, 
 				Dwarf_Off offset, Dwarf_Off cu_offset, 
 				const encap::die::attribute_map& attrs, 
                 const encap::die_off_list& children)
              :	encap::die(ds, parent, tag, offset, cu_offset, attrs, children) {}
             // "encap" constructor
-            Die_encap_base
+            basic_die
             (encap::dieset& ds, dwarf::lib::die& d, Dwarf_Off parent_off)
              :  encap::die(ds, d, parent_off) {}
-            Die_encap_base
+            basic_die
             (Dwarf_Half tag, encap::dieset& ds, dwarf::lib::die& d, Dwarf_Off parent_off)
              :  encap::die(ds, d, parent_off) { Dwarf_Half t; d.tag(&t); assert(t == tag); }
             // "create" constructor
-            Die_encap_base
+            basic_die
             (Dwarf_Half tag,
             	self& parent, 
             	boost::optional<const std::string&> name)
@@ -126,8 +74,6 @@ include(`encap_preamble_gen.inc')
 			}
             
             const dwarf::spec::abstract_def& get_spec() { return get_ds().get_spec(); }           
-             
-            define_getters_optional(string, name);
 
             // manually defined because they don't map to DWARF attributes
             Dwarf_Off get_offset() const { return m_offset; }
@@ -139,40 +85,8 @@ include(`encap_preamble_gen.inc')
             children_iterator children_end()
             { return children_base_iterator(m_children.end(), encap::die_ptr_offset_lens(m_ds)); }
 		};
-    } namespace abstract {
-        // partially specialise iterator template
-        // 1. iters<die, Tag> defines an iterator type that 
-        //    *only* yields children of tag Tag.
-        // 2. iters<die, 0> defines only named_children_iterator (and base).
-        //    Note that tag 0 has several meanings:
-        //    it might mean Die_encap_base, or Die_encap_all_compile_units,
-        //    or any of the Die_encap_is_ types.
-        template <Dwarf_Half Tag> class iters<encap::die, Tag>
-        {
-        public:
-            typedef selective_iterator<encap::Die_encap_base::children_iterator, 
-            	encap::tag_equal<Tag, encap::Die_encap_base::children_iterator> > 
-            	base_iterator;
-            typedef downcasting_iterator<base_iterator, 
-            	typename tag<encap::die, Tag>::type > iterator;
-            typedef selective_iterator<encap::Die_encap_base::children_iterator, 
-            	typename encap::has_name<encap::Die_encap_base::children_iterator> > 
-            	named_children_base_iterator;
-            typedef downcasting_iterator<named_children_base_iterator, 
-            	Die_abstract_base<encap::die> > 
-            	named_children_iterator;            
-        };
-        // again for tag = 0
-        template <> class iters<encap::die, 0>
-        {
-        public:
-            //typedef selective_iterator<encap::Die_encap_base::children_iterator, encap::has_name> 
-            //	named_children_base_iterator;
-            //typedef downcasting_iterator<named_children_base_iterator, Die_abstract_base<encap::die> > 
-            //	named_children_iterator;            
-        };
-	} namespace encap {
-        typedef Die_encap_base::children_iterator
+
+        typedef basic_die::children_iterator
             	adt_children_iterator;
         // typedefs for ADT implementation
         template <Dwarf_Half Tag, typename Iter = adt_children_iterator>
@@ -181,19 +95,6 @@ include(`encap_preamble_gen.inc')
             bool operator()(const Iter i) const 
             { return (*i)->get_tag() == Tag; }
 		};
-
-// 		template <typename Iter = adt_children_iterator>
-//         struct has_name
-//         {
-//             bool operator()(const Iter i) const 
-//             { return (*i)->has_attr(DW_AT_name); }
-//             bool operator==(const has_name& arg) const { return true; }
-// 		};
-        typedef encap::die Rep;
-		typedef abstract::Die_abstract_has_named_children<Rep> Die_encap_has_named_children;
-		typedef abstract::Die_abstract_is_program_element<Rep> Die_encap_is_program_element;
-		typedef abstract::Die_abstract_is_type<Rep> Die_encap_is_type;
-        typedef abstract::Die_abstract_is_type_chain<Rep> Die_encap_is_type_chain;
 
 // define the typedefs in this scope, then
 typedef die::children_iterator children_iterator;
@@ -204,16 +105,13 @@ typedef die::named_children_iterator named_children_iterator;
 	Dwarf_Half get_address_size() const;
 include(`encap_typedefs_gen.inc')
 
-include(`encap_hdr_gen.inc')
-#undef compile_unit_EXTRA_FUNCTION_DECLS
-        class Die_encap_all_compile_units 
-            : public Die_encap_base, 
-              public virtual dwarf::abstract::Die_abstract_all_compile_units <die>
+        class file_toplevel_die 
+            : public basic_die 
 		{ 
-        	typedef Die_encap_all_compile_units self;
+        	typedef file_toplevel_die self;
 		public:
-            Die_encap_all_compile_units(dieset& ds, const die_off_list& cu_off_list) : 
-                Die_encap_base(
+            file_toplevel_die(dieset& ds, const die_off_list& cu_off_list) : 
+                basic_die(
                     ds, 0UL, 0, 0UL, 0UL, encap::die::attribute_map(), cu_off_list) {}
                        
             abstract::iters<Rep, DW_TAG_compile_unit>::iterator compile_units_begin()
@@ -271,7 +169,7 @@ include(`encap_hdr_gen.inc')
             	    encap::tag_equal<DW_TAG_subprogram, children_iterator> > 
             	    subprograms_base_iterator;
             typedef downcasting_iterator<subprograms_base_iterator, 
-            	    Die_encap_subprogram > subprograms_iterator;
+            	    subprogram_die > subprograms_iterator;
 
             typedef selective_iterator<children_iterator,
         		    encap::tag_equal<DW_TAG_base_type, children_iterator> >
@@ -391,65 +289,6 @@ include(`encap_hdr_gen.inc')
             	compile_units_begin())->language(); 
             }
             
-            bool integrity_check()
-            {
-            	bool retval = true;
-                auto p_seq = this->all_refs_dfs_seq();
-            	for (auto i = p_seq->begin(p_seq); i != p_seq->end(p_seq); i++)
-                {
-                	Dwarf_Off target = i->second.get_ref().off;
-                    bool abs = i->second.get_ref().abs;
-                    assert(abs);
-                	bool is_valid = this->get_ds().map_find(target) != this->get_ds().map_end();
-                    retval &= is_valid;
-                    if (!is_valid)
-                    {
-#define CAST_TO_DIE(arg) \
-	boost::dynamic_pointer_cast<encap::die, spec::basic_die>(arg)
-                    	std::cerr << "Warning: referential integrity violation in dieset: "
-                        	<< "attribute " 
-                            << this->get_ds().get_spec().attr_lookup(i->first)
-                            << " refers to nonexistent DIE offset 0x" << std::hex << target
-                            << " in " << *(CAST_TO_DIE(this->get_ds()[i->second.get_ref().referencing_off]))
-                            << std::endl;
-#undef CAST_TO_DIE
-                    }
-                }
-                return retval;
-            }
-        };
-
-        // encap factory
-        class factory : public abstract::factory
-        {
-        	friend class dwarf::abstract::factory;
-        	static encap::factory *const dwarf3_factory;
-        public:
-        	// convenience forwarder
-            static factory& get_factory(const dwarf::spec::abstract_def& spec); 
-
-            virtual boost::shared_ptr<die> encapsulate_die(Dwarf_Half tag, 
-            	dieset& ds, lib::die& d, Dwarf_Off parent_off) const = 0;
-            
-            // this assumes a two-argument constructor
-            // which does the work of plumbing in to the dieset
-            template <
-            	Dwarf_Half Tag, 
-            	typename Created = typename dwarf::abstract::tag<die,Tag >::type
-            > 
-            Die_encap_base& create(
-            	Die_encap_base& parent,
-                boost::optional<const std::string&> name)
-            { 	return *(new Created(parent, name)); }
-            template <
-            	Dwarf_Half Tag, 
-            	typename Created = typename dwarf::abstract::tag<die,Tag >::type
-            > 
-            boost::shared_ptr<spec::basic_die> create( // FIXME: use Tag as index to precise type
-            	boost::shared_ptr<die> p_parent,
-                boost::optional<const std::string&> name)
-            { 	return (new Created(dynamic_cast<Die_encap_base&>(*p_parent), name))->get_this(); }
-        };
 #undef stored_type_string
 #undef stored_type_flag
 #undef stored_type_unsigned
@@ -470,8 +309,6 @@ include(`encap_hdr_gen.inc')
 
 #undef extra_decls_subprogram
 
-/* HACK: typedef nicer names, until I can be bothered removing the whole 
- * Die_encap and Die_abstract stuff. */
 /****************************************************************/
 /* begin generated ADT includes                                 */
 /****************************************************************/

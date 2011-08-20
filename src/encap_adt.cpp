@@ -5,109 +5,125 @@
  * Copyright (c) 2010, Stephen Kell.
  */
 
-#include "encap_adt.hpp"
+#include "encap.hpp" // no more encap_adt!
 #include <iostream>
 
 namespace dwarf
 {
-    // specialise the get_factory template in its originating namespace
-	namespace abstract
-    {
-        // specialisation for encap
-        template<> encap::die::factory_type& abstract::factory::get_factory<encap::die>(
-        	const dwarf::spec::abstract_def& spec)
-        {
-            assert(&spec == &dwarf::spec::dwarf3); return *encap::factory::dwarf3_factory;
-        }
-    }
 	namespace encap
     {
-        factory& factory::get_factory(const dwarf::spec::abstract_def& spec)
-        { return abstract::factory::get_factory<die>(spec); }
+		using boost::shared_ptr;
+		
+        //factory& factory::get_factory(const dwarf::spec::abstract_def& spec)
+        //{ return abstract::factory::get_factory<die>(spec); }
         class dwarf3_factory_t : public factory
         {
             boost::shared_ptr<die> encapsulate_die(Dwarf_Half tag, 
 	            dieset& ds, lib::die& d, Dwarf_Off parent_off) const 
             {
                 switch(tag)
-                { 	// FIXME: don't ALLOC_SHARED here!
-                    case 0: assert(false); // all_compile_units isn't instantiated from here
-#include "encap_factory_gen.inc"
+                {
+                    case 0: assert(false); // toplevel isn't instantiated from here
+#define factory_case(name, ...) \
+case DW_TAG_ ## name: return my_make_shared<encap:: name ## _die>(ds, d, parent_off);
+#include "dwarf3-factory.h" // HACK: here ^ we avoid make_shared because of its private constructor problem
+#undef factory_case
                     default: assert(false);
                 }
 	        }
+			shared_ptr<basic_die>
+			create_die(Dwarf_Half tag, shared_ptr<basic_die> parent,
+				boost::optional<const std::string&> die_name 
+					/* = boost::optional<const std::string&>()*/) const
+			{
+                switch(tag)
+                {
+                    case 0: assert(false); // toplevel isn't instantiated from here
+#define factory_case(name, ...) \
+case DW_TAG_ ## name: return my_make_shared<encap:: name ## _die>(parent, die_name);
+#include "dwarf3-factory.h" // HACK: here ^ we avoid make_shared because of its private constructor problem
+#undef factory_case
+                    default: assert(false);
+                }
+			}
 		} the_dwarf3_factory;        
         factory *const factory::dwarf3_factory = &the_dwarf3_factory;
-        
-        Die_encap_all_compile_units::subprograms_iterator
-        Die_encap_all_compile_units::subprograms_begin()
-        { 
-            auto p_seq = all_cus_sequence();    
-        	return subprograms_base_iterator(
-            	p_seq->begin(p_seq),
-                p_seq->end(p_seq));
-        }
-        Die_encap_all_compile_units::subprograms_iterator
-        Die_encap_all_compile_units::subprograms_end()
-        { 
-            auto p_seq = all_cus_sequence();    
-        	return subprograms_base_iterator(
-                p_seq->end(p_seq),
-                p_seq->end(p_seq));
-        }
-        Die_encap_all_compile_units::named_children_iterator 
-        Die_encap_all_compile_units::all_named_children_begin()
-        { 
-            auto p_seq = all_cus_sequence();    
-        	return named_children_iterator(
-            	p_seq->begin(p_seq),
-                p_seq->end(p_seq));
-        }
-        Die_encap_all_compile_units::named_children_iterator 
-        Die_encap_all_compile_units::all_named_children_end()
-        { 
-            auto p_seq = all_cus_sequence();    
-        	return named_children_iterator(
-                p_seq->end(p_seq),
-                p_seq->end(p_seq));
-        }
-        Die_encap_all_compile_units::base_types_iterator
-        Die_encap_all_compile_units::base_types_begin()
-        { 
-            auto p_seq = all_cus_sequence();    
-        	return base_types_base_iterator(
-            	p_seq->begin(p_seq),
-                p_seq->end(p_seq));
-        }
-        Die_encap_all_compile_units::base_types_iterator
-        Die_encap_all_compile_units::base_types_end()
-        { 
-            auto p_seq = all_cus_sequence();    
-        	return base_types_base_iterator(
-                p_seq->end(p_seq),
-                p_seq->end(p_seq));
-        }
-        Die_encap_all_compile_units::pointer_types_iterator
-        Die_encap_all_compile_units::pointer_types_begin()
-        { 
-            auto p_seq = all_cus_sequence();    
-        	return pointer_types_base_iterator(
-            	p_seq->begin(p_seq),
-                p_seq->end(p_seq));
-        }
-        Die_encap_all_compile_units::pointer_types_iterator 
-        Die_encap_all_compile_units::pointer_types_end()
-        { 
-            auto p_seq = all_cus_sequence();    
-        	return pointer_types_base_iterator(
-                p_seq->end(p_seq),
-                p_seq->end(p_seq));        
-        }
+		
 
-#include "encap_src_gen.inc"
+		
+		// toplevel die
+		
+//         
+//         Die_encap_all_compile_units::subprograms_iterator
+//         Die_encap_all_compile_units::subprograms_begin()
+//         { 
+//             auto p_seq = all_cus_sequence();    
+//         	return subprograms_base_iterator(
+//             	p_seq->begin(p_seq),
+//                 p_seq->end(p_seq));
+//         }
+//         Die_encap_all_compile_units::subprograms_iterator
+//         Die_encap_all_compile_units::subprograms_end()
+//         { 
+//             auto p_seq = all_cus_sequence();    
+//         	return subprograms_base_iterator(
+//                 p_seq->end(p_seq),
+//                 p_seq->end(p_seq));
+//         }
+//         Die_encap_all_compile_units::named_children_iterator 
+//         Die_encap_all_compile_units::all_named_children_begin()
+//         { 
+//             auto p_seq = all_cus_sequence();    
+//         	return named_children_iterator(
+//             	p_seq->begin(p_seq),
+//                 p_seq->end(p_seq));
+//         }
+//         Die_encap_all_compile_units::named_children_iterator 
+//         Die_encap_all_compile_units::all_named_children_end()
+//         { 
+//             auto p_seq = all_cus_sequence();    
+//         	return named_children_iterator(
+//                 p_seq->end(p_seq),
+//                 p_seq->end(p_seq));
+//         }
+//         Die_encap_all_compile_units::base_types_iterator
+//         Die_encap_all_compile_units::base_types_begin()
+//         { 
+//             auto p_seq = all_cus_sequence();    
+//         	return base_types_base_iterator(
+//             	p_seq->begin(p_seq),
+//                 p_seq->end(p_seq));
+//         }
+//         Die_encap_all_compile_units::base_types_iterator
+//         Die_encap_all_compile_units::base_types_end()
+//         { 
+//             auto p_seq = all_cus_sequence();    
+//         	return base_types_base_iterator(
+//                 p_seq->end(p_seq),
+//                 p_seq->end(p_seq));
+//         }
+//         Die_encap_all_compile_units::pointer_types_iterator
+//         Die_encap_all_compile_units::pointer_types_begin()
+//         { 
+//             auto p_seq = all_cus_sequence();    
+//         	return pointer_types_base_iterator(
+//             	p_seq->begin(p_seq),
+//                 p_seq->end(p_seq));
+//         }
+//         Die_encap_all_compile_units::pointer_types_iterator 
+//         Die_encap_all_compile_units::pointer_types_end()
+//         { 
+//             auto p_seq = all_cus_sequence();    
+//         	return pointer_types_base_iterator(
+//                 p_seq->end(p_seq),
+//                 p_seq->end(p_seq));        
+//         }
+
 		Dwarf_Half compile_unit_die::get_address_size() const
 		{
 			return 8; // HACK, FIXME, ...
 		}
+		
+		// we now define getters and setters in the header only
 	} // end namespace encap
 } // end namespace dwarf

@@ -31,6 +31,8 @@
 namespace dwarf {
 	namespace encap {
 		using namespace dwarf::lib;
+		using boost::dynamic_pointer_cast;
+		using boost::shared_ptr;
 		
 		using srk31::conjoining_sequence;
 		using srk31::conjoining_iterator;
@@ -38,8 +40,7 @@ namespace dwarf {
         // forward declarations
         class die;
         class factory;
-        class Die_encap_base;
-        class Die_encap_all_compile_units;
+        class file_toplevel_die;
         template <typename Iter> 
         struct has_name
         {
@@ -86,7 +87,8 @@ namespace dwarf {
             virtual ~dieset() { destructing = true; }
             const ::dwarf::spec::abstract_def& spec() const { return *p_spec; }
             const ::dwarf::spec::abstract_def& get_spec() const { return *p_spec; }            
-            Die_encap_all_compile_units& all_compile_units();
+            boost::shared_ptr<file_toplevel_die> all_compile_units();
+            /* boost::shared_ptr<file_toplevel_die> toplevel() { return all_compile_units(); } */
             struct pair_compare_by_key
             {
             	bool operator()(const value_type& v1, const value_type& v2) const
@@ -219,7 +221,7 @@ namespace dwarf {
             void walk_depthfirst_const(Dwarf_Off start, A& a, M& m, S& s) const;
             
             
-	    };
+	    }; // end class dieset
         std::ostream& operator<<(std::ostream& o, const dieset& ds);
         std::ostream& print_artificial(std::ostream& o, const dieset& ds);
         
@@ -234,7 +236,7 @@ namespace dwarf {
             //die_off_list cu_off_list;
             std::map<Dwarf_Off, Dwarf_Half> cu_version_stamps;
         	
-            void encapsulate_die(dwarf::lib::die& d, Dwarf_Off parent_off);
+            void encapsulate_die(lib::die& d, Dwarf_Off parent_off);
             const dwarf::spec::abstract_def *p_spec;
             file() {} // private constructor
         public:
@@ -252,7 +254,7 @@ namespace dwarf {
             /* DWARF info often omits imported function prototypes, so we hackily
              * add these back in using libelf. */
             void add_imported_function_descriptions();
-        };
+        }; // end class file
         
 
 		template <typename Value> struct die_out_edge_iterator; // forward decl
@@ -318,6 +320,7 @@ namespace dwarf {
             get_type get;
         };
 
+		class basic_die; // forward decl
 		class die : public virtual spec::basic_die
         {
 	        friend struct die_out_edge_iterator<attribute_value::weak_ref>; // in encap_graph.hpp
@@ -548,8 +551,13 @@ namespace dwarf {
 			{
 				std::cerr << "Warning: created dummy encap::die" << std::endl;
 			} // dummy to support std::map<_, die> and []
-            
-			die(dieset& ds, dwarf::lib::die& d, Dwarf_Off parent_off); 
+        protected:
+			die(dieset& ds, lib::die& d, Dwarf_Off parent_off); 
+		public:
+			die(dieset& ds, shared_ptr<lib::die> p_d, Dwarf_Off parent_off); 
+		private:
+			void initialize_from_lib_die(lib::die& d);
+		public:
 			die(const die& d); // copy constructor
 			
 			die& operator=(const die& d)
@@ -616,16 +624,11 @@ namespace dwarf {
 				if (has_attr(at)) return m_attrs.find(at)->second; 
 				else throw No_entry();
 			}
-			attribute_value& put_attr(Dwarf_Half attr, attribute_value val) 
-			{ 
-				m_attrs.erase(attr);
-				m_attrs.insert(std::make_pair(attr, val)); 
-				return m_attrs.find(attr)->second; 
-			}
+			attribute_value& put_attr(Dwarf_Half attr, attribute_value val); 
+            //attribute_value& put_attr(Dwarf_Half attr, 
+            //	Die_encap_base& target);
             attribute_value& put_attr(Dwarf_Half attr, 
-            	Die_encap_base& target);
-            attribute_value& put_attr(Dwarf_Half attr, 
-            	boost::shared_ptr<Die_encap_base> target);
+            	boost::shared_ptr<basic_die> target);
 
             boost::optional<std::string> 
             get_name() const { 
@@ -634,7 +637,7 @@ namespace dwarf {
             }
             const spec::abstract_def& get_spec() const { return m_ds.get_spec(); }
 
-        	typedef iterator_with_lens<encap::die_off_list::iterator, encap::die_ptr_offset_lens>
+/*        	typedef iterator_with_lens<encap::die_off_list::iterator, encap::die_ptr_offset_lens>
             	children_base_iterator;
 
         	typedef downcasting_iterator<
@@ -648,7 +651,7 @@ namespace dwarf {
 			typedef downcasting_iterator<
             	named_children_base_iterator, 
                 Die_encap_base> 
-            named_children_iterator;
+            named_children_iterator; */
             
 			friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
 			void print(std::ostream& o) const
@@ -658,42 +661,290 @@ namespace dwarf {
 		};
 
         // action, matcher, selector
-   		template<typename A, typename M, typename S>
-        void dieset::walk_depthfirst(Dwarf_Off start, A& a, M& m, S& s)
-        {
-            map_iterator i = map_find(start);
-            if (m(i)) a(*i);
+//    		template<typename A, typename M, typename S>
+//         void dieset::walk_depthfirst(Dwarf_Off start, A& a, M& m, S& s)
+//         {
+//             map_iterator i = map_find(start);
+//             if (m(i)) a(*i);
+// 
+//             for (die_off_list::iterator iter = i->second->children().begin();
+//                     iter != i->second->children().end();
+//                     iter++)
+//             {
+//                 if (s(map_find(*iter))) walk_depthfirst(*iter, a, m, s);
+//             }
+//        }
+//         
+//         // action, matcher, selector
+//    		template<typename A, typename M, typename S>
+//         void dieset::walk_depthfirst_const(Dwarf_Off start, A& a, M& m, S& s) const
+//         {
+//             const_iterator i = map_find(start);
+//             if (m(i)) a(*i); // if it matches, action it
+// 
+//             for (die_off_list::const_iterator iter = i->second->const_children().begin();
+//                     iter != i->second->const_children().end();
+//                     iter++)
+//             {
+//             	// if we select this child, recurse
+//                 if (s(map_find(*iter))) walk_depthfirst_const(*iter, a, m, s);
+//             }
+// 
+//         }
+// 		struct dieset::Match_Offset_Greater_Equal
+//         {
+//             const dieset& ds;
+//             const Dwarf_Off off;
+//             Match_Offset_Greater_Equal(const dieset *pds, Dwarf_Off off) : ds(*pds), off(off) {}
+//             bool operator()(dieset::const_iterator i) const { return (i->first >= off); }
+//         };
+		
+		
+/****************************************************************/
+/* begin generated ADT includes                                 */
+/****************************************************************/
+#define forward_decl(t) struct t ## _die;
+/* #define declare_base(base) base ## _die */
+/* #define base_fragment(base) base ## _die(ds, p_d) {} */
+/*#define initialize_base(fragment) virtual spec:: fragment ## _die(ds, p_d) */
+#define constructor(fragment) \
+			/* "full" constructor */ \
+	fragment ## _die(dieset& ds, Dwarf_Off parent, \
+				Dwarf_Off offset, Dwarf_Off cu_offset, \
+				const encap::die::attribute_map& attrs, \
+				const encap::die_off_list& children) \
+			 :	basic_die(ds, parent, DW_TAG_ ## fragment, offset, cu_offset, attrs, children) {} \
+			/* "encap" constructor */ \
+	protected: fragment ## _die(dieset& ds, lib::die& d, Dwarf_Off parent_off) \
+			 :  basic_die(ds, d, parent_off) \
+			    { Dwarf_Half t; d.tag(&t); assert(t == DW_TAG_ ## fragment); } \
+	public: \
+			/* "create" constructor */ \
+	fragment ## _die(shared_ptr<encap::basic_die> parent, \
+				boost::optional<const std::string&> name = boost::optional<const std::string&>()) \
+			 :	basic_die(parent->get_ds(), parent->get_offset(), DW_TAG_ ## fragment, \
+			 	parent->get_ds().next_free_offset(),  \
+			 	0, encap::die::attribute_map(), encap::die_off_list()) {} 
+				
+#define begin_class(fragment, base_inits, ...) \
+	struct fragment ## _die : public encap::basic_die, public virtual spec:: fragment ## _die { \
+		typedef fragment ## _die self_type; \
+		friend class factory; \
+    	constructor(fragment)
+/* #define base_initializations(...) __VA_ARGS__ */
+#define end_class(fragment) \
+	};
 
-            for (die_off_list::iterator iter = i->second->children().begin();
-                    iter != i->second->children().end();
-                    iter++)
+#define stored_type_string std::string
+#define stored_type_flag bool
+#define stored_type_unsigned Dwarf_Unsigned
+#define stored_type_signed Dwarf_Signed
+#define stored_type_offset Dwarf_Off
+#define stored_type_half Dwarf_Half
+#define stored_type_ref Dwarf_Off
+#define stored_type_tag Dwarf_Half
+#define stored_type_loclist dwarf::encap::loclist
+#define stored_type_address dwarf::encap::attribute_value::address
+#define stored_type_refdie boost::shared_ptr<spec::basic_die> 
+#define stored_type_refdie_is_type boost::shared_ptr<spec::type_die> 
+#define stored_type_rangelist dwarf::encap::rangelist
+
+#define attr_optional(name, stored_t) \
+	boost::optional<stored_type_ ## stored_t> get_ ## name() const \
+	{ if (has_attr(DW_AT_ ## name)) return (*this)[DW_AT_ ## name].get_ ## stored_t (); \
+	  else return boost::optional< stored_type_ ## stored_t>(); } \
+	boost::shared_ptr<self_type> set_ ## name(boost::optional<stored_type_ ## stored_t> arg) { \
+	if (arg) put_attr(DW_AT_ ## name, encap::attribute_value(this->m_ds, *arg)); \
+	else m_attrs.erase(DW_AT_ ## name); \
+	return boost::dynamic_pointer_cast<self_type>(this->shared_from_this()); }
+
+#define super_attr_optional(name, stored_t) attr_optional(name, stored_t)
+
+#define attr_mandatory(name, stored_t) \
+	stored_type_ ## stored_t get_ ## name() const \
+	{ assert (has_attr(DW_AT_ ## name)); return (*this)[DW_AT_ ## name].get_ ## stored_t (); } \
+	boost::shared_ptr<self_type> set_ ## name(stored_type_ ## stored_t arg) { \
+	put_attr(DW_AT_ ## name, encap::attribute_value(this->m_ds, arg)); \
+	return boost::dynamic_pointer_cast<self_type>(this->shared_from_this()); }
+
+#define super_attr_mandatory(name, stored_t) attr_mandatory(name, stored_t)
+// NOTE: super_attr distinction is necessary because
+// we do inherit from virtual DIEs in the abstract (spec) realm
+// -- so we don't need to repeat definitions of attribute accessor functions there
+// we *don't* inherit from virtual DIEs in the concrete realm
+// -- so we *do* need to repeat definitions of these attribute accessor functions
+
+#define child_tag(arg) 
+
+// compile_unit_die has an override for get_next_sibling()
+#define extra_decls_compile_unit \
+		boost::shared_ptr<spec::basic_die> get_next_sibling(); \
+		Dwarf_Half get_address_size() const; 
+        class basic_die : public die, public virtual spec::basic_die
+        {
+		private:
+        	friend class factory;
+            typedef basic_die self;
+			typedef basic_die self_type;
+        public:
+
+        	// special constructor used by all_compile_units
+            basic_die(encap::dieset& ds, Dwarf_Off parent, Dwarf_Half tag, 
+				Dwarf_Off offset, Dwarf_Off cu_offset, 
+				const encap::die::attribute_map& attrs, 
+                const encap::die_off_list& children)
+             :	encap::die(ds, parent, tag, offset, cu_offset, attrs, children) {}
+            // "encap" constructor
+		protected:
+            basic_die(encap::dieset& ds, lib::die& d, Dwarf_Off parent_off)
+             :  encap::die(ds, d, parent_off) {}
+		public:
+            basic_die(Dwarf_Half tag, encap::dieset& ds, shared_ptr<lib::die> p_d, Dwarf_Off parent_off)
+             :  encap::die(ds, p_d, parent_off)
+			{ Dwarf_Half t; p_d->tag(&t); assert(t == tag); }
+            // "create" constructor
+            basic_die(Dwarf_Half tag,
+            	self& parent, 
+            	boost::optional<const std::string&> name)
+             :	encap::die(parent.m_ds, parent.m_offset, tag, parent.m_ds.next_free_offset(), 
+             	0, encap::die::attribute_map(), encap::die_off_list())
+                // FIXME: don't pass 0 as cu_offset
             {
-                if (s(map_find(*iter))) walk_depthfirst(*iter, a, m, s);
-            }
-       }
-        
-        // action, matcher, selector
-   		template<typename A, typename M, typename S>
-        void dieset::walk_depthfirst_const(Dwarf_Off start, A& a, M& m, S& s) const
-        {
-            const_iterator i = map_find(start);
-            if (m(i)) a(*i); // if it matches, action it
+            	cu_offset = 0;
+                m_ds.insert(std::make_pair(m_offset, boost::shared_ptr<dwarf::encap::die>(this)));
+                parent.m_children.push_back(m_offset);
+                if (name) m_attrs.insert(std::make_pair(DW_AT_name, dwarf::encap::attribute_value(
+                	parent.m_ds, std::string(*name))));
+			}
+            
+            const dwarf::spec::abstract_def& get_spec() { return get_ds().get_spec(); }           
+             
+            attr_optional(name, string);
 
-            for (die_off_list::const_iterator iter = i->second->const_children().begin();
-                    iter != i->second->const_children().end();
-                    iter++)
+            // manually defined because they don't map to DWARF attributes
+            Dwarf_Off get_offset() const { return m_offset; }
+            boost::shared_ptr<self> get_parent() const 
+			{ 
+				auto found = m_ds.map_find(m_parent); 
+				assert(found != m_ds.map_end()); 
+				return dynamic_pointer_cast<basic_die>(found->second); 
+			}
+            Dwarf_Half get_tag() const { return m_tag; }
+			
+            bool integrity_check()
             {
-            	// if we select this child, recurse
-                if (s(map_find(*iter))) walk_depthfirst_const(*iter, a, m, s);
+            	bool retval = true;
+                auto p_seq = this->all_refs_dfs_seq();
+            	for (auto i = p_seq->begin(p_seq); i != p_seq->end(p_seq); i++)
+                {
+                	Dwarf_Off target = i->second.get_ref().off;
+                    bool abs = i->second.get_ref().abs;
+                    assert(abs);
+                	bool is_valid = this->get_ds().map_find(target) != this->get_ds().map_end();
+                    retval &= is_valid;
+                    if (!is_valid)
+                    {
+#define CAST_TO_DIE(arg) \
+	boost::dynamic_pointer_cast<encap::die, spec::basic_die>(arg)
+                    	std::cerr << "Warning: referential integrity violation in dieset: "
+                        	<< "attribute " 
+                            << this->get_ds().get_spec().attr_lookup(i->first)
+                            << " refers to nonexistent DIE offset 0x" << std::hex << target
+                            << " in " << *(CAST_TO_DIE(this->get_ds()[i->second.get_ref().referencing_off]))
+                            << std::endl;
+#undef CAST_TO_DIE
+                    }
+                }
+                return retval;
             }
+		};
 
-        }
-		struct dieset::Match_Offset_Greater_Equal
+#include "dwarf3-adt.h"
+		class file_toplevel_die : public basic_die, public virtual spec::file_toplevel_die
+		{
+			friend class dieset;
+#define DW_TAG_file_toplevel 0
+			constructor(file_toplevel)
+#undef DW_TAG_file_toplevel
+			child_tag(compile_unit)
+		};
+
+#undef extra_decls_subprogram
+#undef extra_decls_compile_unit
+
+#undef forward_decl
+#undef declare_base
+#undef base_fragment
+#undef initialize_base
+#undef constructor
+#undef begin_class
+#undef base_initializations
+#undef end_class
+#undef stored_type_string
+#undef stored_type_flag
+#undef stored_type_unsigned
+#undef stored_type_signed
+#undef stored_type_offset
+#undef stored_type_half
+#undef stored_type_ref
+#undef stored_type_tag
+#undef stored_type_loclist
+#undef stored_type_address
+#undef stored_type_refdie
+#undef stored_type_refdie_is_type
+#undef stored_type_rangelist
+#undef attr_optional
+#undef attr_mandatory
+#undef super_attr_optional
+#undef super_attr_mandatory
+#undef child_tag
+
+/****************************************************************/
+/* end generated ADT includes                                   */
+/****************************************************************/
+
+
+        // encap factory
+        class factory //: public abstract::factory
         {
-            const dieset& ds;
-            const Dwarf_Off off;
-            Match_Offset_Greater_Equal(const dieset *pds, Dwarf_Off off) : ds(*pds), off(off) {}
-            bool operator()(dieset::const_iterator i) const { return (i->first >= off); }
+        	//friend class dwarf::abstract::factory;
+			friend class dwarf::encap::file;
+        	static encap::factory *const dwarf3_factory;
+        public:
+        	// convenience forwarder
+            static factory& for_spec(const dwarf::spec::abstract_def& spec); 
+		protected:
+			template<typename T, typename... Args > boost::shared_ptr<T>
+			my_make_shared(Args&&... args) const
+			{ boost::shared_ptr<T> p(new T(std::forward<Args>(args)...)); return p; }
+            virtual boost::shared_ptr<die> encapsulate_die(Dwarf_Half tag, 
+            	dieset& ds, lib::die& d, Dwarf_Off parent_off) const = 0;
+		public:
+			virtual 
+			boost::shared_ptr<basic_die> 
+			create_die(Dwarf_Half tag, shared_ptr<basic_die> parent,
+				boost::optional<const std::string&> name 
+					= boost::optional<const std::string&>()) const = 0;
+//             
+//             // this assumes a two-argument constructor
+//             // which does the work of plumbing in to the dieset
+//             template <
+//             	Dwarf_Half Tag, 
+//             	typename Created = typename dwarf::abstract::tag<die,Tag >::type
+//             > 
+//             basic_die& create(
+//             	basic_die& parent,
+//                 boost::optional<const std::string&> name)
+//             { 	return *(new Created(parent, name)); }
+// 			
+//             template <
+//             	Dwarf_Half Tag, 
+//             	typename Created = typename dwarf::abstract::tag<die,Tag >::type
+//             > 
+//             boost::shared_ptr<spec::basic_die> create( // FIXME: use Tag as index to precise type
+//             	boost::shared_ptr<die> p_parent,
+//                 boost::optional<const std::string&> name)
+//             { 	return (new Created(dynamic_cast<basic_die&>(*p_parent), name))->get_this(); }
         };
 	} // end namespace encap
 } // end namespace dwarf

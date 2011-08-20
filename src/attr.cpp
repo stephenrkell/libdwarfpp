@@ -1,5 +1,6 @@
 #include "attr.hpp"
 #include "encap.hpp"
+#include "spec_adt.hpp" /* for basic_die methods */
 
 namespace dwarf
 {
@@ -365,6 +366,14 @@ namespace dwarf
 					break;
 			}
 		}
+ 		
+		attribute_value::attribute_value(spec::abstract_dieset& ds, 
+				boost::shared_ptr<spec::basic_die> ref_target)
+		 : m_ds(ds), orig_form(DW_FORM_ref_addr), f(REF), 
+		   v_ref(new weak_ref(ref_target->get_ds(), 
+		        ref_target->get_offset(), false,
+				/* HACK! */ std::numeric_limits<lib::Dwarf_Off>::max(),
+						    std::numeric_limits<lib::Dwarf_Half>::max())) {}
 		
 		attribute_value::ref::ref(spec::abstract_dieset& ds, Dwarf_Off off, bool abs, 
 			Dwarf_Off referencing_off, Dwarf_Half referencing_attr)	

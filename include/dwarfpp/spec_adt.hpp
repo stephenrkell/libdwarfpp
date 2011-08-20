@@ -320,7 +320,7 @@ namespace dwarf
 		inline bool operator>=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
 		{ return arg1 == arg2 || arg1 > arg2; }
         
-	    struct basic_die
+	    struct basic_die : public boost::enable_shared_from_this<basic_die>
         {
         	friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
         
@@ -953,7 +953,16 @@ end_class(with_data_members)
             }
             if (found) return found; else return boost::shared_ptr<basic_die>();
         }
-    }
+		
+// 		class factory
+// 		{
+// 		public:
+// 			template<class Rep>  // specialise this on a per-rep basis
+// 			static typename Rep::factory_type& 
+// 				get_factory(const dwarf::spec::abstract_def& spec) //__attribute__((no_return))
+// 			{ throw Bad_spec(); }
+// 		};
+	}
 }
 
 #endif
