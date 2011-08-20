@@ -29,7 +29,8 @@ namespace dwarf
         struct file_toplevel_die;
 		struct member_die;
         std::ostream& operator<<(std::ostream& s, const basic_die& d);
-        
+        std::ostream& operator<<(std::ostream& s, const abstract_dieset& ds);
+       
 		class abstract_dieset : public boost::enable_shared_from_this<abstract_dieset>
         {
         public:
@@ -229,6 +230,8 @@ namespace dwarf
         	virtual iterator find(Dwarf_Off off) = 0;
             virtual iterator begin() = 0;
             virtual iterator end() = 0;
+            virtual iterator begin(policy& pol);
+            virtual iterator end(policy& pol) ;
             
             virtual std::deque< position >
             path_from_root(Dwarf_Off off) = 0;
@@ -419,10 +422,11 @@ namespace dwarf
                 }
                 else
                 {
-                	return this->get_ds().end();
+                	return this->get_ds().end(abstract_dieset::siblings_policy_sg);
                 }
             }
-            abstract_dieset::iterator children_end() { return this->get_ds().end(); }
+            abstract_dieset::iterator children_end() 
+			{ return this->get_ds().end(abstract_dieset::siblings_policy_sg); }
 
         protected: // public interface is to downcast
             virtual std::map<Dwarf_Half, encap::attribute_value> get_attrs() = 0;

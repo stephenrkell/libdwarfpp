@@ -49,7 +49,12 @@ case DW_TAG_ ## name: return my_make_shared<encap:: name ## _die>(parent, die_na
 		} the_dwarf3_factory;        
         factory *const factory::dwarf3_factory = &the_dwarf3_factory;
 		
-
+		factory&
+		factory::for_spec(spec::abstract_def const& arg)
+		{
+			assert(&arg == &spec::DEFAULT_DWARF_SPEC);
+			return the_dwarf3_factory;
+		}
 		
 		// toplevel die
 		

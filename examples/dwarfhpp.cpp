@@ -8,7 +8,6 @@
 #include <boost/algorithm/string.hpp>
 
 #include <indenting_ostream.hpp>
-#include <dwarfpp/abstract.hpp>
 #include <dwarfpp/encap.hpp>
 #include <dwarfpp/cxx_compiler.hpp>
 #include "dwarfhpp.hpp"
@@ -17,27 +16,32 @@
 using namespace srk31;
 using namespace dwarf;
 using namespace dwarf::lib;
+using boost::shared_ptr;
+using boost::dynamic_pointer_cast;
 
+/* FIXME: this file is a mess because it was written in a direct dwarf::encap::die& style 
+ * and pieces of it have since migrated to use shared_ptr, whereas others haven't. 
+ * I should fix it sometime. */
+ 
 namespace dwarf { namespace tool {
-typedef dwarf::abstract::Die_abstract_base<dwarf::encap::die> adie;
 
 static std::string name_for_type(dwarf::tool::cxx_compiler& compiler,
-	dwarf::encap::Die_encap_is_type& d, 
+	shared_ptr<spec::type_die> p_d, 
     boost::optional<const std::string&> infix_typedef_name = boost::optional<const std::string&>(),
     bool use_friendly_names = true);
 
 static std::string name_for_argument(dwarf::tool::cxx_compiler& compiler,
-	adie& d, int argnum);
+	shared_ptr<spec::formal_parameter_die> p_d, int argnum);
 
 static void emit_typedef(std::ostream& out, dwarf::tool::cxx_compiler& compiler, 
-	const std::string& name, encap::Die_encap_is_type& d);
+	const std::string& name, shared_ptr<spec::type_die> p_d);
 
-static std::string create_ident_for_anonymous_die(adie& d);
-static std::string create_ident_for_anonymous_die(adie& d)
+static std::string create_ident_for_anonymous_die(shared_ptr<spec::basic_die> p_d);
+static std::string create_ident_for_anonymous_die(shared_ptr<spec::basic_die> p_d)
 {
-	assert(!d.get_name());
+	assert(!p_d->get_name());
     std::ostringstream s;
-    s << "_dwarfhpp_anon_" << std::hex << d.get_offset();
+    s << "_dwarfhpp_anon_" << std::hex << p_d->get_offset();
     return s.str();
 }
 
@@ -128,10 +132,11 @@ void skip_edge_iterator<Value>::decrement()
 template <class Edge, class Graph>
 void cycle_detector::back_edge(Edge e, Graph& g)
 {
-	std::cerr << "Found a back-edge! Declaration of DIEe at 0x" << std::hex << e.referencing_off << std::dec;
-    encap::Die_encap_base *my_source = source(e, g);
+	std::cerr << "Found a back-edge! Declaration of DIEe at 0x" 
+		<< std::hex << e.referencing_off << std::dec;
+    encap::basic_die *my_source = source(e, g);
         //&dynamic_cast<dwarf::encap::Die_encap_base&>(*(*(e.p_ds))[e.referencing_off]);
-    encap::Die_encap_base *my_target = target(e, g);
+    encap::basic_die *my_target = target(e, g);
         //&dynamic_cast<dwarf::encap::Die_encap_base&>(*(*(e.p_ds))[e.off]);
      std::cerr << ", name " <<
             	( my_source->has_attr(DW_AT_name) ?
@@ -150,7 +155,7 @@ void cycle_detector::back_edge(Edge e, Graph& g)
 	assert(e.p_ds != 0);
     // BFS from the target node...
     std::map<
-    	dwarf::encap::Die_encap_base *, 
+    	dwarf::encap::basic_die *, 
     	typename boost::default_color_type
     > underlying_bfs_node_color_map;
 	auto bfs_color_map = boost::make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
@@ -251,7 +256,7 @@ void cycle_detector::back_edge(Edge e, Graph& g)
 }
 }}
 namespace dwarf { namespace tool {
-void emit_forward_decls(std::vector<dwarf::encap::Die_encap_base *> fds)
+void emit_forward_decls(std::vector<dwarf::encap::basic_die *> fds)
 {
 	std::cout << "// begin a group of forward decls" << std::endl;
     for (auto i = fds.begin(); i != fds.end(); i++)
@@ -266,33 +271,32 @@ void emit_forward_decls(std::vector<dwarf::encap::Die_encap_base *> fds)
 // until I have g++ 4.5 for_each + lambda...
 #define recurse_on_children(d) \
 	{ out.inc_level(); \
-	for (dwarf::encap::Die_encap_base::children_iterator i = d.children_begin(); \
+	for (dwarf::spec::abstract_dieset::iterator i = d.children_begin(); \
     		i != d.children_end(); \
             i++) \
     { \
     	auto new_context = context; \
         new_context.push_back(&d); \
-        emit_decls<0>(out, compiler, \
-        	dynamic_cast<abstract::tag<encap::die, 0>::type&>(**i), new_context); \
+        emit_decls(out, compiler, \
+        	*dynamic_pointer_cast<encap::basic_die>(*i), new_context); \
     } \
 	out.dec_level(); }
 #define recurse_on_toplevel_children(d) \
-	for (dwarf::encap::Die_encap_base::children_iterator cu = d.children_begin(); \
+	for (dwarf::spec::abstract_dieset::iterator cu = d.children_begin(); \
     		cu != d.children_end(); \
             cu++) \
     { \
-        cpp_dependency_order order(**cu); \
+        cpp_dependency_order order(*dynamic_pointer_cast<encap::basic_die>(*cu)); \
         emit_forward_decls(order.forward_decls); \
 	    for (cpp_dependency_order::container::iterator i = order.topsorted_container.begin(); \
     		    i != order.topsorted_container.end(); \
                 i++) \
         { \
-    	    if (!dwarf::encap::Die_encap_all_compile_units::is_visible()(dynamic_cast<dwarf::encap::Die_encap_base&>( \
-        	    **i))) continue; \
+    	    if (!dwarf::spec::file_toplevel_die::is_visible()((*i)->shared_from_this())) continue; \
     	    auto new_context = context; \
             new_context.push_back(&d); \
-            emit_decls<0>(out, compiler, \
-        	    dynamic_cast<abstract::tag<encap::die, 0>::type&>(**i), new_context); \
+            emit_decls(out, compiler, \
+        	    *dynamic_pointer_cast<encap::basic_die>((*i)->shared_from_this()), new_context); \
         } \
     }
 #define recurse_on_topsorted_children(d) \
@@ -304,39 +308,28 @@ void emit_forward_decls(std::vector<dwarf::encap::Die_encap_base *> fds)
             i++) \
     { \
     	auto new_context = context; \
-        dwarf::encap::Die_encap_base& encap = dynamic_cast<dwarf::encap::Die_encap_base&>( \
-        	**i); \
+        dwarf::encap::basic_die& encap = *dynamic_pointer_cast<encap::basic_die>( \
+        	*i); \
         new_context.push_back(&d); \
-        emit_decls<0>(out, compiler, \
-        	dynamic_cast<abstract::tag<encap::die, 0>::type&>(encap), new_context); \
+        emit_decls(out, compiler, \
+        	encap, new_context); \
     } \
 	out.dec_level(); }
 
 // our emitter is a function template
-template <Dwarf_Half Tag> 
+template <typename T> 
 void emit_decls(
 	indenting_ostream& out, dwarf::tool::cxx_compiler& compiler,
-	typename abstract::tag<encap::die, Tag>::type& d, 
-	std::vector<dwarf::encap::Die_encap_base *>& context);
-// default does nothing except warn us
-template <Dwarf_Half Tag> 
-void emit_decls(
-	indenting_ostream& out, dwarf::tool::cxx_compiler& compiler,
-	typename abstract::tag<encap::die, Tag>::type& d, 
-	std::vector<dwarf::encap::Die_encap_base *>& context)
-{
-	std::cerr << "Warning: hit unsupported tag: " << d.get_tag() << std::endl;
-}
+	T& d, 
+	std::vector<dwarf::encap::basic_die *>& context);
+// default does the switch {} 
 // declare specializations here
-template <> 
-void emit_decls<0>(indenting_ostream& out, dwarf::tool::cxx_compiler& compiler,
-	abstract::tag<encap::die, 0>::type& d, 
-	std::vector<dwarf::encap::Die_encap_base *>& context);
 #define proto_for_specialization(fragment) \
 template<> \
-void emit_decls<DW_TAG_ ## fragment>(indenting_ostream& out, dwarf::tool::cxx_compiler& compiler, \
-	abstract::tag<encap::die, DW_TAG_ ## fragment>::type& d, \
-    std::vector<dwarf::encap::Die_encap_base*>& context)
+void emit_decls<encap:: fragment ## _die>(indenting_ostream& out, \
+	dwarf::tool::cxx_compiler& compiler, \
+	encap:: fragment ## _die & d, \
+    std::vector<dwarf::encap::basic_die*>& context)
 
 proto_for_specialization(base_type);
 proto_for_specialization(subprogram);
@@ -368,7 +361,9 @@ proto_for_specialization(base_type)
     if (!type_name_in_compiler) return; // FIXME: could define a C++ ADT!
 
     std::string our_name_for_this_type = name_for_type(compiler,
-    	dynamic_cast<encap::Die_encap_is_type&>(d), 0 /* no infix */, false /* no friendly names*/);
+    	dynamic_pointer_cast<spec::type_die>(d.shared_from_this()), 
+		0 /* no infix */, 
+		false /* no friendly names*/);
 
     if (our_name_for_this_type != *type_name_in_compiler)
     {
@@ -383,8 +378,8 @@ proto_for_specialization(subprogram)
     if (!d.get_name() || (*d.get_name()).empty()) return;
 
     // wrap with extern "lang"
-    switch(dynamic_cast<dwarf::encap::Die_encap_compile_unit&>(
-        d.get_parent()).get_language())
+    switch(dynamic_pointer_cast<encap::compile_unit_die>(
+        d.get_parent())->get_language())
     {
         case DW_LANG_C:
         case DW_LANG_C89:
@@ -401,9 +396,10 @@ proto_for_specialization(subprogram)
             assert(false);
     }
 
-    out 	<< (d.get_type() 
-        	? protect_ident(name_for_type(compiler, dynamic_cast<dwarf::encap::Die_encap_is_type&>(**d.get_type()))) 
-            : std::string("void"))
+    out 	<< (d.get_type() 	? protect_ident(name_for_type(
+					compiler, 
+					dynamic_pointer_cast<spec::type_die>(*d.get_type()))) 
+								: std::string("void"))
         << ' '
         << *d.get_name()
         << '(';        
@@ -419,42 +415,48 @@ proto_for_specialization(formal_parameter)
 {
     // recover arg position
     int argpos = 0;
-    dwarf::encap::Die_encap_subprogram *p_subp = 
-        dynamic_cast<dwarf::encap::Die_encap_subprogram*>(context.back());
-    dwarf::encap::formal_parameters_iterator i = p_subp->formal_parameters_begin();
-    while (i != p_subp->formal_parameters_end() && (*i)->get_offset() != d.get_offset()) { argpos++; i++; }
-    assert(i != p_subp->formal_parameters_end());
+    dwarf::encap::subprogram_die *p_subp = 
+        dynamic_cast<encap::subprogram_die *>(context.back());
+    auto i = p_subp->formal_parameter_children_begin();
+    while (i != p_subp->formal_parameter_children_end() && (*i)->get_offset() != d.get_offset()) { argpos++; i++; }
+    assert(i != p_subp->formal_parameter_children_end());
 
     if (argpos != 0) out << ", ";
 
     out	<< (d.get_type() 
 			? protect_ident(name_for_type(
 				compiler, 
-				dynamic_cast<encap::Die_encap_is_type&>(**d.get_type())
+				dynamic_pointer_cast<spec::type_die>(*d.get_type())
 			  ))
 			: cxx_type_of_untyped_arguments)
         << ' '
-        << protect_ident(name_for_argument(compiler, d, argpos));
+        << protect_ident(name_for_argument(compiler, 
+			dynamic_pointer_cast<spec::formal_parameter_die>(d.shared_from_this()), argpos));
 }
 proto_for_specialization(unspecified_parameters)
 {
     // were there any specified args?
-    dwarf::encap::Die_encap_subprogram *p_subp = 
-        dynamic_cast<dwarf::encap::Die_encap_subprogram*>(context.back());
+    dwarf::encap::subprogram_die *p_subp = 
+        dynamic_cast<encap::subprogram_die *>(context.back());
 
-    if (p_subp->formal_parameters_begin() != p_subp->formal_parameters_end()) out << ", ";
+	if (p_subp->formal_parameter_children_begin() != p_subp->formal_parameter_children_end())
+	{
+		out << ", ";
+	}
 }
 proto_for_specialization(array_type) 
 {
 	// use typedef again, and infix the name
     out << "typedef ";
-    if (d.get_name()) out << protect_ident(name_for_type(compiler, d, *d.get_name()));
-    else out << protect_ident(name_for_type(compiler, d, create_ident_for_anonymous_die(d)));
+	auto p_type = dynamic_pointer_cast<spec::type_die>(d.shared_from_this());
+    if (d.get_name()) out << protect_ident(name_for_type(compiler, 
+		p_type, *d.get_name()));
+    else out << protect_ident(name_for_type(compiler, p_type, create_ident_for_anonymous_die(d.shared_from_this())));
     out << ";" << std::endl;
 }
 proto_for_specialization(enumeration_type) 
 {
-	out << "enum " << protect_ident((d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d)))
+	out << "enum " << protect_ident((d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d.shared_from_this())))
     	<< " { " << std::endl;
     recurse_on_children(d);
     out << std::endl << "};" << std::endl;
@@ -464,27 +466,25 @@ proto_for_specialization(member)
 	/* To reproduce the member's alignment, we always issue an align attribute. 
      * We choose our alignment so as to ensure that the emitted field is located
      * at the offset specified in DWARF. */
-	encap::Die_encap_is_type& member_type = 
-    	dynamic_cast<encap::Die_encap_is_type&>(**d.get_type());
+	shared_ptr<spec::type_die> member_type = 
+    	dynamic_pointer_cast<spec::type_die>(*d.get_type());
 
 	// recover the previous formal parameter's offset and size
-    dwarf::encap::Die_encap_has_named_children *p_type = 
-        dynamic_cast<dwarf::encap::Die_encap_has_named_children*>(context.back());
+    shared_ptr<spec::with_data_members_die> p_type = 
+        dynamic_pointer_cast<spec::with_data_members_die>(context.back()->shared_from_this());
     assert(p_type);
-    dwarf::encap::named_children_iterator i = p_type->named_children_begin();
-    dwarf::encap::named_children_iterator prev_i = p_type->named_children_begin();
-    // HACK: "initialize" prev_i to end (if we do this straight up, it breaks the copy constructor)
-    while (prev_i != p_type->named_children_end()) prev_i++;
+    auto i = p_type->member_children_begin();
+    auto prev_i = p_type->member_children_end();
     
-    while (i != p_type->named_children_end() && ((*i)->get_tag() != DW_TAG_member || 
-    	dynamic_cast<encap::Die_encap_member*>(*i)->get_offset() != d.get_offset())) 
-        { prev_i = i; i++; }
-    assert(i != p_type->named_children_end()); // would mean we failed to find ourselves
+	while (i != p_type->member_children_end() && (*i)->get_offset() != d.get_offset()) 
+	{ prev_i = i; i++; }
+	// now i points to us, and prev_i to our predecessor
+    assert(i != p_type->member_children_end()); // would mean we failed to find ourselves
     Dwarf_Unsigned cur_offset;
-    if (prev_i == p_type->named_children_end()) cur_offset = 0;
+    if (prev_i == p_type->member_children_end()) cur_offset = 0;
     else 
     {
-    	encap::Die_encap_member& prev_member = dynamic_cast<encap::Die_encap_member&>(**prev_i);
+    	encap::member_die& prev_member = dynamic_cast<encap::member_die&>(**prev_i);
 
 		//std::cerr << "Previous member actual type: " << dynamic_cast<encap::die&>((*prev_member.get_type())) << std::endl;
         //std::cerr << "Previous member concrete type: " << dynamic_cast<encap::die&>((*prev_member.get_type()).get_concrete_type()) << std::endl;
@@ -519,7 +519,7 @@ proto_for_specialization(member)
 	if (d.get_name()) out << protect_ident(name_for_type(compiler, member_type, *d.get_name()));
     else out << protect_ident(name_for_type(compiler, member_type, boost::optional<const std::string&>()));
     out	<< " ";
-    if (!compiler.type_infixes_name(member_type.get_this())) out << protect_ident(*d.get_name());
+    if (!compiler.type_infixes_name(member_type->get_this())) out << protect_ident(*d.get_name());
     
     if (d.get_data_member_location() && (*d.get_data_member_location()).size() == 1)
     {
@@ -536,10 +536,10 @@ proto_for_specialization(member)
         	 * of the alignment s.t. no other factors exist between cur_off and offset.*/
 	    	//std::cerr << "Aligning member to offset " << offset << std::endl;
 
-        	Dwarf_Unsigned candidate_factor, next_factor = offset;
+        	Dwarf_Unsigned candidate_factor = offset, next_factor;
         	do
         	{
-        		candidate_factor = next_factor;
+        		next_factor = candidate_factor;
 
             	//std::cerr << "Looking for a factor strictly greater than " << (offset - cur_offset)
             		// << " and smaller than " << candidate_factor << std::endl;
@@ -550,9 +550,10 @@ proto_for_specialization(member)
 					(offset % next_factor != 0 || !is_power_of_two(next_factor) ));
 
             	//std::cerr << "Considering factor " << next_factor << std::endl;
+				candidate_factor = next_factor;
 
             	// ... but not too small        
-        	} while (next_factor > (offset - cur_offset) && next_factor < candidate_factor);
+        	} while (candidate_factor > (offset - cur_offset));
 
 			assert(candidate_factor == 0 || is_power_of_two(candidate_factor));
 
@@ -582,9 +583,10 @@ proto_for_specialization(pointer_type)
     //out << "typedef ";
     // we expect a pointed-to type, but might be void
     std::string name_to_use = d.get_name() ? compiler.cxx_name_from_string(*d.get_name(), "_dwarfhpp_") : 
-    	create_ident_for_anonymous_die(d);
+    	create_ident_for_anonymous_die(d.shared_from_this());
     if (!d.get_type()) out << "typedef void *" << protect_ident(name_to_use) << ";" << std::endl;
-    else emit_typedef(out, compiler, name_to_use, d);
+    else emit_typedef(out, compiler, name_to_use, 
+		dynamic_pointer_cast<spec::type_die>(d.shared_from_this()));
 //     out << name_for_type(compiler, d, d.get_name());
 //     	//<< (d.get_type() ? compiler.name_for_type(*d.get_type()) : "void")
 //         //<< " * "
@@ -601,7 +603,9 @@ proto_for_specialization(pointer_type)
 }
 proto_for_specialization(structure_type) 
 {
-	out << "struct " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
+	out << "struct " << protect_ident(d.get_name() ? 
+							*d.get_name() 
+						: 	create_ident_for_anonymous_die(d.shared_from_this()))
     	<< " { " << std::endl;
     recurse_on_children(d);
     out << "} __attribute__((packed));" << std::endl;
@@ -615,15 +619,15 @@ proto_for_specialization(subroutine_type)
     	<< std::dec << " is the target of some pointer type; skipping." << std::endl;
 }
 void emit_typedef(std::ostream& out, 
-	dwarf::tool::cxx_compiler& compiler, const std::string& name, encap::Die_encap_is_type& d)
+	dwarf::tool::cxx_compiler& compiler, const std::string& name, shared_ptr<spec::type_die> p_d)
 {
     std::string name_to_use = compiler.cxx_name_from_string(name, "_dwarfhpp_");
             
     out << "typedef " 
-    	<< protect_ident(name_for_type(compiler, d,
+    	<< protect_ident(name_for_type(compiler, p_d,
         	name_to_use));
     // HACK: we use the infix for subroutine types
-    if (!compiler.type_infixes_name(d.get_this()))
+    if (!compiler.type_infixes_name(p_d->get_this()))
     {
         out << " "
 	    	<< protect_ident(name_to_use);
@@ -640,11 +644,11 @@ proto_for_specialization(typedef)
         out << "typedef void " << protect_ident(*d.get_name()) << ";" << std::endl;
         return;
     }
-    emit_typedef(out, compiler, *d.get_name(), dynamic_cast<encap::Die_encap_is_type&>(**d.get_type()));
+    emit_typedef(out, compiler, *d.get_name(), dynamic_pointer_cast<spec::type_die>(*d.get_type()));
 }
 proto_for_specialization(union_type) 
 {
-	out << "union " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
+	out << "union " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d.shared_from_this()))
     	<< " { " << std::endl;
     recurse_on_children(d);
     out << "};" << std::endl;
@@ -653,8 +657,8 @@ proto_for_specialization(const_type)
 {
     // we always emit a typedef with synthetic name
     // (but the user could just use the pointed-to type and "const")
-    out << "typedef " << protect_ident(name_for_type(compiler, d)) << " ";
-    out << protect_ident(create_ident_for_anonymous_die(d))
+    out << "typedef " << protect_ident(name_for_type(compiler, dynamic_pointer_cast<spec::type_die>(d.shared_from_this()))) << " ";
+    out << protect_ident(create_ident_for_anonymous_die(d.shared_from_this()))
         << ";" << std::endl;
 
 }
@@ -662,8 +666,8 @@ proto_for_specialization(volatile_type)
 {
     // we always emit a typedef with synthetic name
     // (but the user could just use the pointed-to type and "const")
-    out << "typedef " << protect_ident(name_for_type(compiler, d)) << " ";
-    out << protect_ident(create_ident_for_anonymous_die(d))
+    out << "typedef " << protect_ident(name_for_type(compiler, dynamic_pointer_cast<spec::type_die>(d.shared_from_this()))) << " ";
+    out << protect_ident(create_ident_for_anonymous_die(d.shared_from_this()))
         << ";" << std::endl;
 
 }
@@ -671,8 +675,8 @@ proto_for_specialization(constant) {}
 proto_for_specialization(enumerator) 
 {
 	// FIXME
-    if ((*dynamic_cast<encap::Die_encap_enumeration_type&>(*context.back())
-    	.enumerators_begin())
+    if ((*dynamic_cast<encap::enumeration_type_die&>(*context.back())
+    	.enumerator_children_begin())
         	->get_offset() != d.get_offset()) // .. then we're not the first, so
             out << ", " << std::endl;
     out << protect_ident(*d.get_name());
@@ -682,27 +686,29 @@ proto_for_specialization(restrict_type) {}
 proto_for_specialization(subrange_type) 
 {
 	// Since we can't express subranges directly in C++, we just
-    // emit a typedef of the underlying type.
-    out << "typedef " << protect_ident(name_for_type(compiler, dynamic_cast<encap::Die_encap_is_type&>(*d.get_type())))
-    	<< " " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d))
-        << ";" << std::endl;
+	// emit a typedef of the underlying type.
+	out << "typedef " 
+		<< protect_ident(name_for_type(compiler, 
+			*dynamic_pointer_cast<spec::type_chain_die>(d.shared_from_this())->get_type()))
+		<< " " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d.shared_from_this()))
+		<< ";" << std::endl;
 }
 
 // this is the zero case
-template <> 
-void emit_decls<0>(
+template <typename T> 
+void emit_decls(
 	indenting_ostream& out, dwarf::tool::cxx_compiler& compiler,
-	abstract::tag<encap::die, 0>::type& d, 
-	std::vector<dwarf::encap::Die_encap_base *>& context)
+	T& d, 
+	std::vector<dwarf::encap::basic_die *>& context)
 {
 #define CASE(fragment) \
 	case DW_TAG_ ## fragment:	\
     { void (*func)(srk31::indenting_ostream&, dwarf::tool::cxx_compiler&, \
-    	dwarf::abstract::tag<encap::die, DW_TAG_ ## fragment>::type &, \
-        std::vector<dwarf::encap::Die_encap_base *>&) \
-        = emit_decls<DW_TAG_ ## fragment> ; assert(func); } \
-	emit_decls<DW_TAG_ ## fragment>(out, compiler, \
-    	dynamic_cast<dwarf::abstract::tag<encap::die, DW_TAG_ ## fragment>::type &>(d), context); break;
+    	encap:: fragment ## _die &, \
+        std::vector<dwarf::encap::basic_die *>&) \
+        = emit_decls<encap:: fragment ## _die> ; assert(func); } \
+	emit_decls(out, compiler, \
+    	dynamic_cast<encap:: fragment ## _die &>(d), context); break;
 
     //if (context.size() > 0 && context.back() == &d) 
     //{
@@ -719,7 +725,7 @@ void emit_decls<0>(
     {
     	case 0: {
 			// got an all_compile_units; recurse on children
-            recurse_on_toplevel_children((dynamic_cast<encap::Die_encap_all_compile_units&>(d)));
+            recurse_on_toplevel_children(dynamic_cast<encap::file_toplevel_die&>(d));
             } break;
         case DW_TAG_compile_unit: // we use all_compile_units so this shouldn't happen
         	assert(false);
@@ -771,8 +777,8 @@ int main(int argc, char **argv)
     
     // encapsulate the DIEs
     dwarf::encap::file def(fileno(f));    
-    dwarf::encap::Die_encap_all_compile_units all_cus = def.ds().all_compile_units();
-    dwarf::abstract::tag<encap::die, 0>::type & all_cus_as_base = all_cus;
+    shared_ptr<dwarf::encap::file_toplevel_die> all_cus = def.ds().all_compile_units();
+    auto all_cus_as_base = all_cus;
     
     /* Build a repertoire of DWARF base types out of our compiler-native
      * builtin types. */
@@ -823,8 +829,8 @@ int main(int argc, char **argv)
      */
     indenting_ostream& s = srk31::indenting_cout;
     
-    std::vector<dwarf::encap::Die_encap_base *> initial_context_vec;
-	dwarf::tool::emit_decls<0>(s, compiler, all_cus_as_base, initial_context_vec);
+    std::vector<encap::basic_die *> initial_context_vec;
+	dwarf::tool::emit_decls(s, compiler, *all_cus, initial_context_vec);
 
     // for each
     return 0;
@@ -838,12 +844,11 @@ namespace dwarf { namespace tool {
 //    std::vector<dwarf::encap::Die_encap_base*>& context)
 
 static std::string name_for_type(dwarf::tool::cxx_compiler& compiler,
-	encap::Die_encap_is_type& d, 
+	shared_ptr<spec::type_die> p_d, 
     boost::optional<const std::string&> infix_typedef_name /*= none*/,
     bool use_friendly_names/*= true*/)
 {
-	return compiler.cxx_declarator_from_type_die(
-    	boost::dynamic_pointer_cast<spec::type_die>(d.get_this()), 
+	return compiler.cxx_declarator_from_type_die(p_d, 
         infix_typedef_name,
         use_friendly_names);
 }    
@@ -859,16 +864,16 @@ static std::string name_for_type(dwarf::tool::cxx_compiler& compiler,
 // 	return our_name_for_this_subprogram;
 // }    
 static std::string name_for_argument(dwarf::tool::cxx_compiler& compiler,
-	adie& d, int argnum)
+	shared_ptr<spec::formal_parameter_die> p_d, int argnum)
 {
 	std::ostringstream s;
     //std::cerr << "called name_for_argument on argument position " << argnum << ", ";
-    if (d.get_name()) { /*std::cerr << "named ";*/ s << "_dwarfhpp_arg_" << *d.get_name(); /*std::cerr << *d.get_name();*/ }
+    if (p_d->get_name()) { /*std::cerr << "named ";*/ s << "_dwarfhpp_arg_" << *p_d->get_name(); /*std::cerr << *d.get_name();*/ }
     else { /*std::cerr << "anonymous";*/ s << "_dwarfhpp_anon_arg_" << argnum; }
     //std::cerr << std::endl;
     return s.str();
 } 
-cpp_dependency_order::cpp_dependency_order(dwarf::encap::Die_encap_base& parent)
+cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
     : /*is_initialized(false),*/ p_parent(&parent)//, cycle_det(paths, *this)
 {
 	unsigned old_skipped_edges_count = 0;
@@ -877,18 +882,18 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::Die_encap_base& parent)
     {
     	old_skipped_edges_count = new_skipped_edges_count; 
 	    cycle_detector::PathMap paths;
-	    std::vector<dwarf::encap::Die_encap_base *> new_forward_decls;
+	    std::vector<dwarf::encap::basic_die *> new_forward_decls;
         std::vector<dwarf::encap::attribute_value::weak_ref> new_skipped_edges;
 	 	cycle_detector cycle_det(paths, new_forward_decls, new_skipped_edges);
         
 	    // DEBUG: print all edges
         unsigned total_edge_count = 0;
         auto vs = boost::vertices(parent);
-        for (boost::graph_traits<encap::Die_encap_base>::vertex_iterator i_v =
+        for (boost::graph_traits<encap::basic_die>::vertex_iterator i_v =
     		    vs.first; i_v != vs.second; i_v++)
         {
     	    auto es = boost::out_edges(*i_v, parent);
-    	    for (boost::graph_traits<encap::Die_encap_base>::out_edge_iterator i_e =
+    	    for (boost::graph_traits<encap::basic_die>::out_edge_iterator i_e =
         	    es.first; i_e != es.second; i_e++)
             {
         	    //std::cerr << "Node at " << std::hex << boost::source(*i_e, parent)->get_offset()
@@ -903,7 +908,7 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::Die_encap_base& parent)
 	    }    
 	    /* Find cycles and remove edges. */
         std::map<
-    	    boost::graph_traits<encap::Die_encap_base>::vertex_descriptor, 
+    	    boost::graph_traits<encap::basic_die>::vertex_descriptor, 
     	    boost::default_color_type
         > underlying_dfs_node_color_map;
        auto dfs_color_map = boost::make_assoc_property_map( // ColorMap provides a mutable "Color" property per node

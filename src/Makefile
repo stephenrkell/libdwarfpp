@@ -10,6 +10,14 @@ OBJS := $(patsubst %.cpp,%.o,$(SRC))
 
 default: libdwarfpp.so 
 
+$(DEPS): .%.d : %.cpp
+	$(CXX) -MM $(CXXFLAGS) "$<"  > "$@"
+
+-include $(DEPS)
+
+%.o: %.cpp #$(HDRS)
+	$(CXX) $(CXXFLAGS) -c -o "$@" "$<"
+
 libdwarfpp.a: $(OBJS)
 	ar r "$@" $^
 
@@ -24,12 +32,4 @@ libdwarfpp.so: $(OBJS)
 .PHONY: clean
 clean:
 	rm -f *.o *.a *.inc .*.d *.so
-
-$(DEPS): .%.d : %.cpp
-	$(CXX) -MM $(CXXFLAGS) "$<"  > "$@"
-
--include $(DEPS)
-
-%.o: %.cpp #$(HDRS)
-	$(CXX) $(CXXFLAGS) -c -o "$@" "$<"
 

@@ -6,16 +6,16 @@
 #include <boost/iterator_adaptors.hpp>
 #include <boost/iterator/transform_iterator.hpp>
 #include <boost/graph/graph_traits.hpp>
-#include "encap_adt.hpp"
+#include "encap.hpp"
 
 /* This graph represents dependencies within a sibling set of DIEs. Dependencies
  * can come from attributes of a sibling, or from one of the sibling's children. */
 
 namespace dwarf { namespace encap {
 
-	struct is_under_t : public std::binary_function<Die_encap_base, Die_encap_base, bool>
+	struct is_under_t : public std::binary_function<encap::basic_die, encap::basic_die, bool>
     {
-    	bool operator()(Die_encap_base& deep, Die_encap_base& head) const
+    	bool operator()(encap::basic_die& deep, encap::basic_die& head) const
         {
             // return true if arg1 is under arg2
             return head.children_begin() != head.children_end()
@@ -23,13 +23,13 @@ namespace dwarf { namespace encap {
         }
     };
 	const is_under_t is_under = {};
-	struct project_to_sibling_of_t : public std::binary_function<Die_encap_base&, Die_encap_base&, 
-    	boost::optional<Die_encap_base&> >
+	struct project_to_sibling_of_t : public std::binary_function<encap::basic_die&, encap::basic_die&, 
+    	boost::optional<encap::basic_die&> >
     {
-    	boost::optional<Die_encap_base&> operator()(Die_encap_base& deep, Die_encap_base& head) const
+    	boost::optional<encap::basic_die&> operator()(encap::basic_die& deep, encap::basic_die& head) const
         {
             if (is_under(deep, head)) return 
-            	dynamic_cast<Die_encap_base&>(
+            	dynamic_cast<encap::basic_die&>(
                 	*(
                     	(*head.children_begin())
                     		->find_sibling_ancestor_of(deep.get_ds()[deep.get_offset()])
@@ -40,16 +40,16 @@ namespace dwarf { namespace encap {
     };
 	const project_to_sibling_of_t project_to_sibling_of = {};
 	
-	struct ref_points_under_t : public std::binary_function<die::attribute_map::value_type, Die_encap_base *, bool>
+	struct ref_points_under_t : public std::binary_function<die::attribute_map::value_type, encap::basic_die *, bool>
     {
-    	bool operator()(const die::attribute_map::value_type& ref, Die_encap_base * p_head) const
+    	bool operator()(const die::attribute_map::value_type& ref, encap::basic_die * p_head) const
         {
         	assert(p_head);
             // return true if arg1 is under arg2
             dieset& ds = p_head->get_ds();
             auto target_die_iter = ds.map_find(ref.second.get_ref().off);
             return target_die_iter != ds.map_end()
-            	&& is_under(dynamic_cast<Die_encap_base&>(*(target_die_iter->second)), *p_head);
+            	&& is_under(dynamic_cast<encap::basic_die&>(*(target_die_iter->second)), *p_head);
         }
     };
 	const ref_points_under_t ref_points_under = {};
@@ -79,8 +79,8 @@ namespace dwarf { namespace encap {
 //          * that DIE the "sibling" to distinguish it from the patriarch "parent"
 //          * that defines the graph. */
 //     
-//     	Die_encap_base *p_parent;
-//         Die_encap_base *p_sibling;
+//     	encap::basic_die *p_parent;
+//         encap::basic_die *p_sibling;
 //     	typedef dwarf::encap::die::attribute_map::iterator Base;
 //         
 //         die::depthfirst_iterator die_pos;
@@ -89,7 +89,7 @@ namespace dwarf { namespace encap {
 //         sibling_dep_edge_iterator()
 //           : sibling_dep_edge_iterator::iterator_adaptor_() {}
 // 
-//         explicit sibling_dep_edge_iterator(Base p, Die_encap_base& parent, Die_encap_base& sibling)
+//         explicit sibling_dep_edge_iterator(Base p, encap::basic_die& parent, encap::basic_die& sibling)
 //           : sibling_dep_edge_iterator::iterator_adaptor_(p), p_parent(&parent), p_sibling(&sibling)
 //             {
 //             	assert(p == sibling.m_attrs.end() // either it's the "parked" end sentinel, or...
@@ -102,7 +102,7 @@ namespace dwarf { namespace encap {
 //                         )
 //                     )) == &parent);
 //             }
-//         explicit sibling_dep_edge_iterator(Die_encap_base& parent, Die_encap_base& sibling)
+//         explicit sibling_dep_edge_iterator(encap::basic_die& parent, encap::basic_die& sibling)
 //           : p_parent(&parent), p_sibling(&sibling)
 //         {
 //         	move_to_next(p_parent->get_ds(), p_sibling->depthfirst_begin(), false);
@@ -129,21 +129,21 @@ namespace dwarf { namespace encap {
 //         	return i_attr->second.get_form() == attribute_value::form::REF
 //             	&& i_attr->first != DW_AT_sibling // and isn't a sibling "dependency" (not a real dep)
 //             	&& is_under( // ...and the target offset falls under our patriarchal slice
-//                 	dynamic_cast<Die_encap_base&>(*ds[i_attr->second.get_ref().off]),
+//                 	dynamic_cast<encap::basic_die&>(*ds[i_attr->second.get_ref().off]),
 //                     *p_sibling)
 //                 && &*project_to_sibling_of(
-//                 	dynamic_cast<Die_encap_base&>(*ds[i_attr->second.get_ref().off],
+//                 	dynamic_cast<encap::basic_die&>(*ds[i_attr->second.get_ref().off],
 //                     *p_sibling) != p_sibling; // and isn't a reflexive edge
 //         }
 // // 
 // //             if ()
 // //             {
 // //                 
-// //                 Die_encap_base& deep_target = 
-// //                     dynamic_cast<Die_encap_base&>(
+// //                 encap::basic_die& deep_target = 
+// //                     dynamic_cast<encap::basic_die&>(
 // //                         *(ds[i_attr->second.get_ref().off]));
-// //                 Die_encap_base& deep_source = 
-// //                     dynamic_cast<Die_encap_base&>(
+// //                 encap::basic_die& deep_source = 
+// //                     dynamic_cast<encap::basic_die&>(
 // //                         *(ds[i_attr->second.get_ref().referencing_off]));
 // //                 boost::optional<abstract::Die_abstract_base<die>&> target_sibling =
 // //                     (*p_parent->children_begin())->find_sibling_ancestor_of(deep_target);
@@ -291,14 +291,38 @@ namespace dwarf { namespace encap {
 //     };
     
     /*struct Address_of_child : 
-    	public std::unary_function<Die_encap_base::children_iterator, 
-        		Die_encap_base *>
+    	public std::unary_function<encap::basic_die::children_iterator, 
+        		encap::basic_die *>
     {
-		Die_encap_base * operator()(Die_encap_base::children_iterator& arg) const 
+		encap::basic_die * operator()(encap::basic_die::children_iterator& arg) const 
         { return &(**arg); }	
 	};*/
-    typedef /*boost::transform_iterator<Address_of_child,
-    	*/Die_encap_base::children_iterator/*>*/ die_base_ptr_iterator;
+	
+	struct getter : public std::unary_function<Dwarf_Off, 
+		encap::basic_die * >
+	{
+		const encap::dieset *p_ds;
+		getter(const dieset& ds) : p_ds(&ds) {}
+		getter() {}
+		encap::basic_die * operator()(Dwarf_Off arg) const
+		{ assert(p_ds);
+		  auto found = p_ds->map_find(arg);
+		  assert(found != p_ds->map_end());
+		  return const_cast<encap::basic_die *>(
+		  	dynamic_cast<const encap::basic_die*>(found->second.get())); 
+		}
+	};
+    struct die_base_ptr_iterator
+	 : public boost::transform_iterator<getter,
+    	encap::die_off_list::const_iterator> 
+	{
+		typedef boost::transform_iterator<getter,
+	    	encap::die_off_list::const_iterator> super;
+		die_base_ptr_iterator(const dieset& ds, die_off_list::const_iterator i) : super(i, getter(ds)) {}
+		
+		die_base_ptr_iterator() : super() {}
+	};
+
     
 } } // end namespace dwarf::encap::
 
@@ -306,8 +330,8 @@ namespace boost
 {
 	// specialise the boost graph_traits class for encap::dieset
     template <>
-    struct graph_traits<dwarf::encap::Die_encap_base> {
-        typedef dwarf::encap::Die_encap_base *vertex_descriptor;
+    struct graph_traits<dwarf::encap::basic_die> {
+        typedef dwarf::encap::basic_die *vertex_descriptor;
         typedef dwarf::encap::attribute_value::weak_ref edge_descriptor;
           
         typedef boost::filter_iterator<        	
@@ -346,47 +370,47 @@ namespace boost
 	/* FIXME: get rid of the casts in here by overloading the children_begin() and sim.
      * iterator functions with const and non-const versions. */
 
-    graph_traits<dwarf::encap::Die_encap_base>::vertex_descriptor
+    graph_traits<dwarf::encap::basic_die>::vertex_descriptor
     source(
-        graph_traits<dwarf::encap::Die_encap_base>::edge_descriptor e,
-        const dwarf::encap::Die_encap_base& g)
+        graph_traits<dwarf::encap::basic_die>::edge_descriptor e,
+        const dwarf::encap::basic_die& g)
     {
     	// project the edge's source up to a child of the patriarch
-        return &dynamic_cast<dwarf::encap::Die_encap_base&>(
+        return &dynamic_cast<dwarf::encap::basic_die&>(
             *( // deref boost::optional
-                dynamic_cast<dwarf::encap::Die_encap_base&>(
+                dynamic_cast<dwarf::encap::basic_die&>(
                 	*(
-                    	*const_cast<dwarf::encap::Die_encap_base&>(g).children_begin()
+                    	*const_cast<dwarf::encap::basic_die&>(g).children_begin()
                       )
 	        	).find_sibling_ancestor_of(
-                    boost::dynamic_pointer_cast<dwarf::encap::Die_encap_base>((*e.p_ds)[e.referencing_off])
+                    boost::dynamic_pointer_cast<dwarf::encap::basic_die>((*e.p_ds)[e.referencing_off])
                 )
             )
         );
     }
 
-    graph_traits<dwarf::encap::Die_encap_base>::vertex_descriptor
+    graph_traits<dwarf::encap::basic_die>::vertex_descriptor
     target(
-        graph_traits<dwarf::encap::Die_encap_base>::edge_descriptor e,
-        const dwarf::encap::Die_encap_base& g)
+        graph_traits<dwarf::encap::basic_die>::edge_descriptor e,
+        const dwarf::encap::basic_die& g)
     {
     	// project the edge's target up to a child of the patriarch
-        dwarf::encap::Die_encap_base& g_nonconst = const_cast<dwarf::encap::Die_encap_base&>(g);
+        dwarf::encap::basic_die& g_nonconst = const_cast<dwarf::encap::basic_die&>(g);
         auto begin_iter = g_nonconst.children_begin();
-        dwarf::encap::Die_encap_base *begin_ptr = *begin_iter;
-        dwarf::encap::Die_encap_base& base_ref = *begin_ptr;
-        return boost::dynamic_pointer_cast<dwarf::encap::Die_encap_base>(
+        dwarf::encap::basic_die *begin_ptr = dynamic_cast<dwarf::encap::basic_die *>(begin_iter->get());
+        dwarf::encap::basic_die& base_ref = *begin_ptr;
+        return boost::dynamic_pointer_cast<dwarf::encap::basic_die>(
         	base_ref.find_sibling_ancestor_of(
-        		boost::dynamic_pointer_cast<dwarf::encap::Die_encap_base>((*e.p_ds)[e.off]))
+        		boost::dynamic_pointer_cast<dwarf::encap::basic_die>((*e.p_ds)[e.off]))
                 ).get();
     }
     
     inline std::pair<
-        graph_traits<dwarf::encap::Die_encap_base>::out_edge_iterator,
-        graph_traits<dwarf::encap::Die_encap_base>::out_edge_iterator >  
+        graph_traits<dwarf::encap::basic_die>::out_edge_iterator,
+        graph_traits<dwarf::encap::basic_die>::out_edge_iterator >  
     out_edges(
-        graph_traits<dwarf::encap::Die_encap_base>::vertex_descriptor u, 
-        const dwarf::encap::Die_encap_base& g)
+        graph_traits<dwarf::encap::basic_die>::vertex_descriptor u, 
+        const dwarf::encap::basic_die& g)
     {
 //     	return std::make_pair(
 //         	dwarf::encap::sibling_dep_edge_iterator<>(
@@ -400,29 +424,29 @@ namespace boost
 	return std::make_pair(
 	boost::make_filter_iterator(
           dwarf::encap::ref_points_under_bound_t(std::bind2nd(dwarf::encap::ref_points_under, 
-          	const_cast<dwarf::encap::Die_encap_base *>(&g))), 
+          	const_cast<dwarf::encap::basic_die *>(&g))), 
           u->all_refs_dfs_begin(), 
           u->all_refs_dfs_end()
           ),
 	boost::make_filter_iterator(
           dwarf::encap::ref_points_under_bound_t(std::bind2nd(dwarf::encap::ref_points_under, 
-          	const_cast<dwarf::encap::Die_encap_base *>(&g))), 
+          	const_cast<dwarf::encap::basic_die *>(&g))), 
           u->all_refs_dfs_end(), 
           u->all_refs_dfs_end()
           )
 	);
 
     }
-    inline graph_traits<dwarf::encap::Die_encap_base>::degree_size_type
+    inline graph_traits<dwarf::encap::basic_die>::degree_size_type
     out_degree(
-    	graph_traits<dwarf::encap::Die_encap_base>::vertex_descriptor u,
-        const dwarf::encap::Die_encap_base& g)
+    	graph_traits<dwarf::encap::basic_die>::vertex_descriptor u,
+        const dwarf::encap::basic_die& g)
     {
     	// HACK: we shouldn't really do this
         unsigned count = 0;
-        dwarf::encap::Die_encap_base& vg = const_cast<dwarf::encap::Die_encap_base&>(g);
+        dwarf::encap::basic_die& vg = const_cast<dwarf::encap::basic_die&>(g);
         dwarf::encap::die::attribute_map::iterator attrs_end = vg.m_attrs.end();
-        for (graph_traits<dwarf::encap::Die_encap_base>::out_edge_iterator i = 
+        for (graph_traits<dwarf::encap::basic_die>::out_edge_iterator i = 
         		out_edges(u, g).first;
         			///*i != attrs_end*/true;
                     i != out_edges(u, g).second;
@@ -431,17 +455,19 @@ namespace boost
     }
 
 	inline std::pair<
-        graph_traits<dwarf::encap::Die_encap_base>::vertex_iterator,
-        graph_traits<dwarf::encap::Die_encap_base>::vertex_iterator >  
-	vertices(const dwarf::encap::Die_encap_base& parent)
+        graph_traits<dwarf::encap::basic_die>::vertex_iterator,
+        graph_traits<dwarf::encap::basic_die>::vertex_iterator >  
+	vertices(const dwarf::encap::basic_die& parent)
     {
     	return std::make_pair(
-        	const_cast<dwarf::encap::Die_encap_base&>(parent).children_begin(),
-        	const_cast<dwarf::encap::Die_encap_base&>(parent).children_end()
+        	dwarf::encap::die_base_ptr_iterator(parent.get_ds(),
+				const_cast<dwarf::encap::basic_die&>(parent).children().begin()),
+			dwarf::encap::die_base_ptr_iterator(parent.get_ds(),
+        	const_cast<dwarf::encap::basic_die&>(parent).children().end())
         );
 	}    
-    inline graph_traits<dwarf::encap::Die_encap_base>::vertices_size_type 
-    num_vertices(const dwarf::encap::Die_encap_base& parent)
+    inline graph_traits<dwarf::encap::basic_die>::vertices_size_type 
+    num_vertices(const dwarf::encap::basic_die& parent)
     {
     	return const_cast<dwarf::encap::die&>(
         	dynamic_cast<const dwarf::encap::die&>(

@@ -1,8 +1,14 @@
 API changes: 
-eliminate abstract::
 remove boost::optional from shared_ptr 
 change "contains_addr_" wording
-(and maybe produce a more general version of the stack-based contains_addr API, wrt members &c.)
+
+code cleanup:
+remove commented-out old code
+remove/verbosify unwanted debug printouts
+fix tabs
+remove std:: and boost:: and dwarf:: where appropriate
+eliminate deprecation warnings
+minimal autotoolification
 
 work in progress:
 Doxygen
@@ -11,14 +17,15 @@ dwarfppdump doesn't prettyprint everything
 
 multi-standard stuff:
 DWARF3 or DEFAULT_DWARF_SPEC is hardcoded in places
+spec should be per-CU or per DIE not per dieset
 DW_AT_MIPS_linkage_name is used where it shouldn't be
-no support for guessing vendor extensions using compile unit string
-spec should be per-CU not per dieset
+add support for guessing vendor extensions using compile unit string
 
 semantics:
 testing equality on p_ds meaning "is this the same DIE?" should be defined (by position()?)
 
 performance:
+slow start-up in dwarfppdump
 iterators should cache parent info in their owning dieset
 do a gprof run
 

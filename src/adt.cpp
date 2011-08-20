@@ -6,6 +6,8 @@
 #include "adt.hpp"
 #include "attr.hpp"
 
+#include <srk31/indenting_ostream.hpp>
+
 namespace dwarf
 {
 	namespace spec
@@ -178,7 +180,28 @@ namespace dwarf
 
 			return o;
         }
-        
+        std::ostream& operator<<(std::ostream& s, const abstract_dieset& ds)
+		{
+			srk31::indenting_ostream wrapped_stream(s);
+			// HACK
+			abstract_dieset& nonconst_ds = const_cast<abstract_dieset&>(ds);
+			for (auto i_dfs = nonconst_ds.begin(); i_dfs != nonconst_ds.end(); i_dfs++)
+			{
+				// fix up our indent level
+				int indent_level = (int) i_dfs.base().path_from_root.size();
+				if (indent_level > wrapped_stream.level()) 
+				{
+ 					while (wrapped_stream.level() < indent_level) 
+					{ wrapped_stream.inc_level(); }
+				}
+ 				else while (wrapped_stream.level() > indent_level)
+				{ wrapped_stream.dec_level(); }
+				
+				wrapped_stream << **i_dfs;
+			}
+			
+			return s;
+		}
 /* from spec::with_static_location_die */
 		boost::optional<Dwarf_Off> // returns *offset within the element*
         with_static_location_die::contains_addr(Dwarf_Addr file_relative_address,
@@ -1042,6 +1065,11 @@ namespace dwarf
 	}
     namespace spec
     {
+        abstract_dieset::iterator abstract_dieset::begin(policy& pol)
+		{ auto i_begin = begin(); return iterator(i_begin, pol); }
+        abstract_dieset::iterator abstract_dieset::end(policy& pol)
+		{ auto i_end = end(); return iterator(i_end, pol); }
+	
         abstract_dieset::basic_iterator_base::basic_iterator_base(
         	abstract_dieset& ds, Dwarf_Off off,
             const std::deque<position>& path_from_root,
