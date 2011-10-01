@@ -175,7 +175,7 @@ tags = [ \
 ("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["with_data_members", "with_named_children"] ) ), \
 ("entry_point", ( [], [] , ["basic"] ) ), \
 ("enumeration_type", ( [("type", False)], ["enumerator"] , ["type", "with_named_children"] ) ), \
-("formal_parameter", ( [], [] , ["program_element", "with_dynamic_location"] ) ), \
+("formal_parameter", ( [("location", False)], [] , ["program_element", "with_dynamic_location"] ) ), \
 ("imported_declaration", ( [], [], ["basic"]  ) ), \
 ("label", ( [], [], ["basic"]  ) ), \
 ("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_static_location"] ) ), \

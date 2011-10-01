@@ -28,6 +28,9 @@ namespace dwarf
 {
 	namespace lib
     {
+		using boost::dynamic_pointer_cast;
+		using boost::shared_ptr;
+	
     	typedef spec::abstract_dieset abstract_dieset;
         class dieset;
         class basic_die : public virtual spec::basic_die
@@ -89,7 +92,7 @@ namespace dwarf
        		Dwarf_Off get_next_sibling_offset() const;
             boost::optional<std::string> get_name() const { return 0; }
             const spec::abstract_def& get_spec() const { assert(p_spec); return *p_spec; }
-			Dwarf_Half get_address_size_for_cu(const compile_unit_die *cu) const;
+			Dwarf_Half get_address_size_for_cu(shared_ptr<compile_unit_die> cu) const;
 		};
         class dieset : public virtual abstract_dieset // virtual s.t. can derive from std::map
         {                                             // and have its methods satisfy interface
@@ -98,7 +101,7 @@ namespace dwarf
             boost::shared_ptr<basic_die> get(boost::shared_ptr<die> p_d);
             file *p_f; // optional
             boost::shared_ptr<basic_die> m_toplevel;
-            std::map<Dwarf_Off, Dwarf_Off> parent_cache;
+            std::map<Dwarf_Off, Dwarf_Off> parent_cache; // HACK: doesn't evict
             friend class basic_die;
             friend class file_toplevel_die;
             friend class compile_unit_die;
@@ -134,6 +137,19 @@ namespace dwarf
             boost::shared_ptr<spec::file_toplevel_die> toplevel(); /* NOT const */
 
             const spec::abstract_def& get_spec() const { return spec::DEFAULT_DWARF_SPEC; } // FIXME
+			
+			// get the address size
+			Dwarf_Half get_address_size() const
+			{
+				auto nonconst_this = const_cast<dieset *>(this); // HACK
+				auto nonconst_toplevel = dynamic_pointer_cast<file_toplevel_die>(
+					nonconst_this->m_toplevel);
+				assert(nonconst_toplevel->compile_unit_children_begin()
+					!= nonconst_toplevel->compile_unit_children_end());
+				return nonconst_toplevel->get_address_size_for_cu(
+					dynamic_pointer_cast<lib::compile_unit_die>(
+						*(nonconst_toplevel->compile_unit_children_begin())));
+			}
         };
         
         

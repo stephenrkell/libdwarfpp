@@ -71,14 +71,15 @@ namespace dwarf
                     	this->off = std::numeric_limits<Dwarf_Off>::max();
                     }*/ // FIXME: why is this function necessary?
                 }
-            };
+            }; // end class position
+			typedef std::deque<position> path_type; 
             
             struct order_policy
             {
             	virtual int increment(position& pos, 
-                	std::deque<position>& path) = 0;
+                	path_type& path) = 0;
                 virtual int decrement(position& pos,
-                	std::deque<position>& path) = 0;
+                	path_type& path) = 0;
 			protected:
 				const int behaviour; // used for equality comparison
 				
@@ -93,6 +94,7 @@ namespace dwarf
 				
 				order_policy(int behaviour) : behaviour(behaviour) {}
 			public:
+				bool is_undefined() const { return behaviour == NO_BEHAVIOUR; }
 				
 				/* Equality of policies: 
 				 * By default, policies are tested only for behavioural equality.
@@ -119,7 +121,7 @@ namespace dwarf
 				{
 					return this->half_equal(arg) && arg.half_equal(*this);
 				}
-			};
+			}; // end class order_policy
             
             // FIXME: remember what this is for....
             struct die_pred : public std::unary_function<spec::basic_die, bool>
@@ -134,14 +136,30 @@ namespace dwarf
 			public:
 				policy() : order_policy(PREDICATED_BEHAVIOUR) {}
 			};
+			/* Dummy policy: okay to assign over! */
+			struct dummy_policy : policy
+			{
+				// depth-first iteration
+				int increment(position& pos,
+					path_type& path) { assert(false); }
+				int decrement(position& pos,
+					path_type& path) { assert(false); }
+			public:
+				dummy_policy() : policy(NO_BEHAVIOUR) {}
+
+				// always true
+				bool operator()(const spec::basic_die& d) const { return true; }
+			};
+			static dummy_policy dummy_policy_sg;
+			
             /* Default policy: depth-first order, all match. */
             struct default_policy : policy
             {
             	// depth-first iteration
             	int increment(position& pos,
-                	std::deque<position>& path);
+                	path_type& path);
                 int decrement(position& pos,
-                	std::deque<position>& path);
+                	path_type& path);
 			protected:
 				default_policy(int behaviour) : policy(behaviour) {}
 			public:
@@ -150,30 +168,48 @@ namespace dwarf
                 // always true
                 bool operator()(const spec::basic_die& d) const { return true; }
 			};
-            static default_policy default_policy_sg;
-            /* Breadth-first policy: breadth-first order, all match. */
-            struct bfs_policy : policy
-            {
-            	// a queue of paths
-            	std::deque<std::deque<position> > m_queue;
-            	// breadth-first iteration
-            	int increment(position& pos,
-                	std::deque<position>& path);
-                int decrement(position& pos,
-                	std::deque<position>& path);
+			static default_policy default_policy_sg;
+			/* Breadth-first policy: breadth-first order, all match. */
+			struct bfs_policy : policy
+			{
+				// helper functions
+			protected:
+				void enqueue_children(position& pos,
+					path_type& path);
+				void advance_to_next_sibling(position& pos,
+					path_type& path);
+				int take_from_queue_or_terminate(position& pos,
+					path_type& path);
+			
+			public:
+				// a queue of paths
+				std::deque<path_type> m_queue;
+
+				// breadth-first iteration
+				int increment(position& pos,
+					path_type& path);
+				int decrement(position& pos,
+					path_type& path);
+
+				// special functions for tweaking the breadth-first exploration
+				int increment_skipping_subtree(position& pos,
+					path_type& path);
+				int decrement_skipping_subtree(position& pos,
+					path_type& path);
+					
 			protected:
 				bfs_policy(int behaviour) : policy(behaviour), m_queue() {}
 			public:
-            	bfs_policy() : policy(BREADTHFIRST_BEHAVIOUR), m_queue() {}
+				bfs_policy() : policy(BREADTHFIRST_BEHAVIOUR), m_queue() {}
 				
 				bool half_equal(const order_policy& arg) const
 				{
 					return dynamic_cast<const bfs_policy*>(&arg)
 						&& dynamic_cast<const bfs_policy*>(&arg)->m_queue == this->m_queue;
 				}
-                
-                // always true
-                bool operator()(const spec::basic_die& d) const { return true; }
+				
+				// always true
+				bool operator()(const spec::basic_die& d) const { return true; }
 			};
             //static bfs_policy bfs_policy_sg;
             // we *don't* create a bfs policy singleton because each BFS traversal
@@ -182,9 +218,9 @@ namespace dwarf
             struct siblings_policy : policy 
             {
             	int increment(position& pos,
-                	std::deque<position>& path);
+                	path_type& path);
                 int decrement(position& pos,
-                	std::deque<position>& path);
+                	path_type& path);
 			protected:
 				siblings_policy(int behaviour) : policy(behaviour) {}
 			public:
@@ -195,11 +231,18 @@ namespace dwarf
             };
             static siblings_policy siblings_policy_sg;
             
+			struct position_and_path : position
+			{
+				path_type path_from_root;
+				position_and_path(const position& pos): position(pos) {}
+				position_and_path(const position& pos, const path_type& path)
+				: position(pos), path_from_root(path) {}
+			};
+			
             struct basic_iterator_base 
-            : public position
+            : public position_and_path
             {
             	typedef std::pair<Dwarf_Off, boost::shared_ptr<spec::basic_die> > pair_type;
-                std::deque<position> path_from_root;
             	policy& m_policy;
                 bool operator==(const basic_iterator_base& arg) const
                 { return this->off == arg.off && this->p_ds == arg.p_ds
@@ -208,10 +251,13 @@ namespace dwarf
                 }
                 bool operator!=(const basic_iterator_base& arg) const { return !(*this == arg); }
                 basic_iterator_base(abstract_dieset& ds, Dwarf_Off off,
-                	 const std::deque<position>& path_from_root,
+                	 const path_type& path_from_root,
                 	 policy& pol = default_policy_sg);
                 basic_iterator_base() // path_from_root is empty
-                : position({0, 0UL}), m_policy(default_policy_sg) { canonicalize_position(); } 
+				: position_and_path((position){0, 0UL}), 
+				  m_policy(dummy_policy_sg) { canonicalize_position(); } 
+				basic_iterator_base(const position_and_path& arg)
+				: position_and_path(arg), m_policy(dummy_policy_sg) { canonicalize_position(); } 
                 typedef std::bidirectional_iterator_tag iterator_category;
                 typedef spec::basic_die value_type;
                 typedef Dwarf_Off difference_type;
@@ -220,11 +266,12 @@ namespace dwarf
 				
 				basic_iterator_base& operator=(const basic_iterator_base& arg)
 				{
-					assert(m_policy == arg.m_policy);
+					assert(m_policy.is_undefined() || m_policy == arg.m_policy);
 					this->path_from_root = arg.path_from_root;
+					*static_cast<position*>(this) = arg;
 					return *this;
 				}
-            };
+            }; // end basic_iterator_base
 
             struct iterator;
         	virtual iterator find(Dwarf_Off off) = 0;
@@ -233,7 +280,7 @@ namespace dwarf
             virtual iterator begin(policy& pol);
             virtual iterator end(policy& pol) ;
             
-            virtual std::deque< position >
+            virtual path_type
             path_from_root(Dwarf_Off off) = 0;
             
             virtual boost::shared_ptr<spec::basic_die> operator[](Dwarf_Off off) const = 0;
@@ -256,17 +303,22 @@ namespace dwarf
                 iterator(Base p) : iterator::iterator_adaptor_(p) {}
             	
                 iterator(abstract_dieset& ds, Dwarf_Off off, 
-                	const std::deque<position>& path_from_root, 
+                	const path_type& path_from_root, 
                     policy& pol = default_policy_sg)  
                 : iterator::iterator_adaptor_(
                 	basic_iterator_base(ds, off, path_from_root, pol)) {}
 
                 iterator(const position& pos, 
-                	const std::deque<position>& path_from_root,
+                	const path_type& path_from_root,
                     policy& pol = default_policy_sg)  
                 : iterator::iterator_adaptor_(basic_iterator_base(
                 	*pos.p_ds, pos.off, path_from_root, pol)) {}
-                
+
+                 iterator(const position_and_path& pos, 
+                    policy& pol = default_policy_sg)  
+                : iterator::iterator_adaptor_(basic_iterator_base(
+                	*pos.p_ds, pos.off, pos.path_from_root, pol)) {}
+               
                 // copy-like constructor that changes policy
                 iterator(const iterator& arg, policy& pol) : 
                 	iterator::iterator_adaptor_(basic_iterator_base(
@@ -279,7 +331,7 @@ namespace dwarf
                 Value dereference() { return this->base().p_ds->operator[](this->base().off); }
                 Value dereference() const { return this->base().p_ds->operator[](this->base().off); }
                 position& pos() { return this->base_reference(); }
-                const std::deque<position>& path() { return this->base_reference().path_from_root; }
+                const path_type& path() { return this->base_reference().path_from_root; }
 				
 				/* iterator_adaptor implements <, <=, >, >= using distance_to.
 				 * However, that's more precise than we need: we can't cheaply
@@ -303,9 +355,12 @@ namespace dwarf
 				{ return this->shares_parent_pos(i) && !(*this < i); }
 				
 					
-            };
+            }; // end iterator
             virtual boost::shared_ptr<spec::file_toplevel_die> toplevel() = 0; /* NOT const */
             virtual const spec::abstract_def& get_spec() const = 0;
+			
+			// we return the host address size by default
+			virtual Dwarf_Half get_address_size() const { return sizeof (void*); }
         };        
 		// overloads moved outside struct definition above....
 		inline bool operator==(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2) 
@@ -786,7 +841,7 @@ end_class(with_data_members)
 				{ return calculate_addr_in_object(io, dr_ip, p_regs); }
 #define extra_decls_compile_unit \
 		boost::optional<Dwarf_Unsigned> implicit_array_base() const; \
-		virtual Dwarf_Half get_address_size() const = 0; 
+		virtual Dwarf_Half get_address_size() const { return this->get_ds().get_address_size(); }
 #define extra_decls_subprogram \
         boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<spec::with_dynamic_location_die> > > \
         contains_addr_as_frame_local_or_argument( \

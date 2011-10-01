@@ -146,16 +146,17 @@ class bfs_path_recorder : public boost::default_bfs_visitor
 		const dwarf::tool::cpp_dependency_order& g
 		)
 	{
+		auto u_all_refs_seq = u->all_refs_dfs_seq();
 		auto relevant_begin = graph_traits<dwarf::encap::basic_die>::relevant_ref_attrs_iterator(
 					std::bind2nd(dwarf::encap::ref_points_under, 
 						const_cast<dwarf::encap::basic_die *>(g.p_parent)),
-					u->all_refs_dfs_begin(), 
-					u->all_refs_dfs_end());
+					u_all_refs_seq->begin(), 
+					u_all_refs_seq->end());
 		auto relevant_end = graph_traits<dwarf::encap::basic_die>::relevant_ref_attrs_iterator(
 					std::bind2nd(dwarf::encap::ref_points_under, 
 						const_cast<dwarf::encap::basic_die *>(g.p_parent)),
-					u->all_refs_dfs_end(), 
-					u->all_refs_dfs_end());
+					u_all_refs_seq->end(), 
+					u_all_refs_seq->end());
 					
 		graph_traits<dwarf::encap::basic_die>::out_edge_iterator transformed_begin(
 			relevant_begin, graph_traits<dwarf::encap::basic_die>::get_ref_t());

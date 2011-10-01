@@ -25,10 +25,12 @@ namespace dwarf
                 {
                     case 0: assert(false); // toplevel isn't instantiated from here
 #define factory_case(name, ...) \
-case DW_TAG_ ## name: return my_make_shared<encap:: name ## _die>(ds, d, parent_off);
+case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(ds, d, parent_off); attach_to_ds(p); return p; }
 #include "dwarf3-factory.h" // HACK: here ^ we avoid make_shared because of its private constructor problem
 #undef factory_case
-                    default: assert(false);
+					default: 
+					 /* Probably a vendor extension. We create a basic_die instead. */ 
+						{ auto p = my_make_shared<encap::basic_die>(ds, d, parent_off); attach_to_ds(p); return p; }
                 }
 	        }
 			shared_ptr<basic_die>
@@ -40,7 +42,7 @@ case DW_TAG_ ## name: return my_make_shared<encap:: name ## _die>(ds, d, parent_
                 {
                     case 0: assert(false); // toplevel isn't instantiated from here
 #define factory_case(name, ...) \
-case DW_TAG_ ## name: return my_make_shared<encap:: name ## _die>(parent, die_name);
+case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(parent, die_name); attach_to_ds(p); return p; }
 #include "dwarf3-factory.h" // HACK: here ^ we avoid make_shared because of its private constructor problem
 #undef factory_case
                     default: assert(false);
@@ -56,7 +58,9 @@ case DW_TAG_ ## name: return my_make_shared<encap:: name ## _die>(parent, die_na
 			return the_dwarf3_factory;
 		}
 		
-		// toplevel die
+		// compile unit
+		Dwarf_Half compile_unit_die::get_address_size() const
+		{ return this->dwarf::spec::compile_unit_die::get_address_size(); }
 		
 //         
 //         Die_encap_all_compile_units::subprograms_iterator
@@ -124,11 +128,6 @@ case DW_TAG_ ## name: return my_make_shared<encap:: name ## _die>(parent, die_na
 //                 p_seq->end(p_seq));        
 //         }
 
-		Dwarf_Half compile_unit_die::get_address_size() const
-		{
-			return 8; // HACK, FIXME, ...
-		}
-		
 		// we now define getters and setters in the header only
 	} // end namespace encap
 } // end namespace dwarf

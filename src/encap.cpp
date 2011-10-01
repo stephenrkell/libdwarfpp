@@ -33,8 +33,7 @@ namespace dwarf
 		void dieset::create_toplevel_entry()
 		{
 			// create a fake toplevel parent die
-			shared_ptr<die> spd(new file_toplevel_die(
-				*this, 0UL, 0UL, 0UL, die::attribute_map(), die_off_list()));
+			shared_ptr<die> spd(new file_toplevel_die(*this));
 			// HACK: can't use make_shared because this is a protected constructor
 
 			this->insert(
@@ -132,7 +131,9 @@ namespace dwarf
 			// NOTE: this will create m_ds[parent_off] using the default constructor,
 			// generating a warning, if it hasn't been created already. Typically this is
 			// when passing 0UL as the toplevel parent, without creating it first.
-			m_ds.super::operator[](parent_off)->children().push_back(offset);
+			
+			// this is now done by attach_child, called from encapsulate_die
+			//m_ds.super::operator[](parent_off)->children().push_back(offset);
 
 			shared_ptr<die> p_encap_d;
 			p_encap_d = encap::factory::for_spec(get_spec()).encapsulate_die(
@@ -273,21 +274,14 @@ namespace dwarf
 		shared_ptr<dwarf::spec::basic_die> 
 		dieset::operator[](dwarf::lib::Dwarf_Off off) const
 		{ 
-			using namespace boost;
-			assert(dynamic_cast<spec::basic_die*>(
-				const_cast<dieset *>(this)->super::operator[](off).get()));
-			return dynamic_pointer_cast<
-				spec::basic_die,
-				die>(const_cast<dieset *>(this)->super::operator[](off)); 
+			auto found = this->super::find(off);
+			assert(found != this->super::end());
+			return found->second;
 		}
 		shared_ptr<spec::file_toplevel_die> 
 		dieset::toplevel()
 		{ 
-			using namespace boost;
-			assert(dynamic_cast<spec::file_toplevel_die*>(((*this)[0UL]).get()));
-			return dynamic_pointer_cast<
-				spec::file_toplevel_die,
-				die>(this->super::operator[](0UL));
+			return dynamic_pointer_cast<spec::file_toplevel_die>(operator[](0UL));
 		}	
 //		 encap::rangelist dieset::rangelist_at(Dwarf_Unsigned i) const
 //		 {
@@ -439,6 +433,14 @@ namespace dwarf
 				// so parents might get destroyed before children
 				assert(m_ds.destructing);
 			}
+		}
+		
+		void die::attach_child(boost::shared_ptr<encap::basic_die> p)
+		{ 
+			assert(m_ds.find(p->get_offset()) == m_ds.end());
+			assert(p->parent_offset() == m_offset);
+			m_ds.super::operator[](p->get_offset()) = p;
+			m_children.push_back(p->get_offset());
 		}
 							
 // 		// TODO: remove this now that we have operator<< on spec::basic_die

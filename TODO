@@ -1,12 +1,21 @@
 API changes: 
 remove boost::optional from shared_ptr 
 change "contains_addr_" wording
+replace dfs iterator use of conjoining_sequence with shared_from_this
+iterator_here, get_this -- both necessary?
+
+code changes:
+fix performance of iteration
+
+API completion:
+more const+nonconst completeness (accessors, iterators)
 
 code cleanup:
 remove commented-out old code
 remove/verbosify unwanted debug printouts
 fix tabs
 remove std:: and boost:: and dwarf:: where appropriate
+move stuff from headers to cpp files
 eliminate deprecation warnings
 minimal autotoolification
 

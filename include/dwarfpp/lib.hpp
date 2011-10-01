@@ -330,7 +330,7 @@ namespace dwarf
             {
             	if (error == 0) error = p_last_error;
                 int retval = dwarf_get_aranges(f.get_dbg(), &p_aranges, &cnt, error);
-                if (retval == DW_DLV_NO_ENTRY) throw No_entry();
+                if (retval == DW_DLV_NO_ENTRY) { cnt = 0; p_aranges = 0; return; }
                 else if (retval != DW_DLV_OK) throw Error(*error, f.get_dbg());
             }
 			Dwarf_Signed count() { return cnt; }		

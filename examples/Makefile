@@ -1,5 +1,12 @@
 CXX ?= g++
 
+CXXFLAGS += -std=c++0x
+ifeq ($(DEBUG),)
+CXXFLAGS += -O4 -g3
+else
+CXXFLAGS += -O0 -g3 
+endif
+
 HDRS := $(wildcard *.hpp)
 SRC := $(wildcard *.cpp)
 OBJS := $(patsubst %.cpp,%.o,$(SRC))

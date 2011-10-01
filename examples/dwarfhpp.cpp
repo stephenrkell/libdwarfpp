@@ -533,35 +533,63 @@ proto_for_specialization(member)
 			/* Calculate a sensible align value for this. We could just use the offset,
         	 * but that might upset the compiler if it's larger than what it considers
         	 * the reasonable biggest alignment for the architecture. So pick a factor
-        	 * of the alignment s.t. no other factors exist between cur_off and offset.*/
+        	 * of the alignment s.t. no other multiples exist between cur_off and offset. */
 	    	//std::cerr << "Aligning member to offset " << offset << std::endl;
 
-        	Dwarf_Unsigned candidate_factor = offset, next_factor;
-        	do
-        	{
-        		next_factor = candidate_factor;
+			// just search linearly upwards through powers of two...
+			// until we find one s.t.
+			// searching upwards from cur_offset to factors of this power of two,
+			// our target offset is the first one we find
+			unsigned power = 1;
+			bool is_good = false;
+			do
+			{
+				unsigned test_offset = cur_offset;
+				while (test_offset % power != 0) test_offset++;
+				// now test_offset is a multiple of power -- check it's our desired offset
+				is_good = (test_offset == offset);
+			} while (!is_good && (power <<= 1, true));
 
-            	//std::cerr << "Looking for a factor strictly greater than " << (offset - cur_offset)
-            		// << " and smaller than " << candidate_factor << std::endl;
+//         	Dwarf_Unsigned candidate_factor = offset, next_factor;
+//         	do
+//         	{
+//         		next_factor = candidate_factor;
+// 
+//             	//std::cerr << "Looking for a factor strictly greater than " << (offset - cur_offset)
+//             		// << " and smaller than " << candidate_factor << std::endl;
+// 
+//         		// a better factor would be smaller... 
+// 				while (!is_power_of_two(next_factor) && next_factor > 1)
+// 				{
+// 					--next_factor;
+// 					if (offset % next_factor == 0
+// 					&& is_power_of_two(next_factor)
+// 				}           
+//             	//do { --next_factor; } while (next_factor > 1 && 
+// 				//	// no good if either it doesn't divide offset, or not a power of two
+// 				//	(offset % next_factor != 0 || !is_power_of_two(next_factor) ));
+// 
+//             	//std::cerr << "Considering factor " << next_factor << std::endl;
+// 				candidate_factor = next_factor;
+// 
+//             	// ... but not too small        
+//         	} while (candidate_factor > (offset - cur_offset));
+// 
+// 			// how do we get candidate_factor == 0?
+// 			// it starts at offset, which is >0,
+// 			// then 
+// 			assert(candidate_factor == 0 || is_power_of_two(candidate_factor));
+// 
+//         	//std::cerr << "Settled on factor " << candidate_factor << std::endl;
 
-        		// a better factor would be smaller...            
-            	do { --next_factor; } while (next_factor > 1 && 
-					// no good if either it doesn't divide offset, or not a power of two
-					(offset % next_factor != 0 || !is_power_of_two(next_factor) ));
-
-            	//std::cerr << "Considering factor " << next_factor << std::endl;
-				candidate_factor = next_factor;
-
-            	// ... but not too small        
-        	} while (candidate_factor > (offset - cur_offset));
-
-			assert(candidate_factor == 0 || is_power_of_two(candidate_factor));
-
-        	//std::cerr << "Settled on factor " << candidate_factor << std::endl;
-
-        	out << " __attribute__((aligned(" << candidate_factor << ")))";
+        	out << " __attribute__((aligned(" << /*candidate_factor*/ power << ")))";
 		}
-	    out << ";" << " // offset: " << offset << std::endl;
+	    out << ";" 
+		    /*<< " static_assert(offsetof(" 
+			<< name_for_type(compiler, p_type, boost::optional<const std::string&>())
+			<< ", "
+			<< protect_ident(*d.get_name())
+			<< ") == " << offset << ");" */<< " // offset: " << offset << std::endl;
     }
     else 
     {

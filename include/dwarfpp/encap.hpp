@@ -27,11 +27,14 @@
 #include <string>
 #include <utility>
 
+#include <execinfo.h> // for backtrace(), for debugging
+
 namespace dwarf {
 	namespace encap {
 		using namespace dwarf::lib;
 		using boost::dynamic_pointer_cast;
 		using boost::shared_ptr;
+		using std::make_pair;
 		
 		using srk31::conjoining_sequence;
 		using srk31::conjoining_iterator;
@@ -166,26 +169,26 @@ namespace dwarf {
 //			{ return dynamic_cast<Encap_all_compile_units&>(*(this->find(0UL)->second)); }
 			
 			// helper for find()
-			void build_path_from_root(std::deque<position>& path, map_iterator current);
+			void build_path_from_root(abstract_dieset::path_type& path, map_iterator current);
 			// "official" spec-defined API to the above
-			std::deque<position> path_from_root(Dwarf_Off);
+			abstract_dieset::path_type path_from_root(Dwarf_Off);
 			// override find() to be more efficient than the ADT version
 			abstract_dieset::iterator find(dwarf::lib::Dwarf_Off off)
 			{ auto found_iter = this->map_find(off);
 			  if (found_iter != this->map_end())
 			  { 
-				std::deque<position> path;
+				path_type path;
 				this->build_path_from_root(path, found_iter);
 			  	return abstract_dieset::iterator(*this, off, path);
 			  }
 			  else return this->end(); }
 			abstract_dieset::iterator begin()
 			{ return abstract_dieset::iterator(*this, 0UL,
-				std::deque<position>(1, (position){this, 0UL})); }
+				path_type(1, (position){this, 0UL})); }
 			abstract_dieset::iterator end()
 			{ return abstract_dieset::iterator(*this, 
 				std::numeric_limits<Dwarf_Off>::max(),
-				std::deque<position>()); }
+				path_type()); }
 			boost::shared_ptr<dwarf::spec::basic_die> 
 			operator[](dwarf::lib::Dwarf_Off off) const;
 			boost::shared_ptr<spec::file_toplevel_die> toplevel();
@@ -324,6 +327,7 @@ namespace dwarf {
 		class die : public virtual spec::basic_die
 		{
 			friend struct die_out_edge_iterator<attribute_value::weak_ref>; // in encap_graph.hpp
+			friend class factory;
 			friend std::pair<
 				die_out_edge_iterator<attribute_value::weak_ref>, 
 				die_out_edge_iterator<attribute_value::weak_ref> > 
@@ -340,150 +344,155 @@ namespace dwarf {
 			std::map<Dwarf_Half, attribute_value> m_attrs;
 		protected:
 			std::vector<Dwarf_Off> m_children;
+			void attach_child(boost::shared_ptr<encap::basic_die> p);
 			
 		public:
 			typedef dwarf::encap::factory factory_type;
 			typedef std::map<Dwarf_Half, attribute_value> attribute_map;
 			
-			//typedef dieset::iterator depthfirst_iterator;
-			template<typename Value = die>
-			struct depthfirst_iterator_tmpl
-				: public boost::iterator_adaptor<depthfirst_iterator_tmpl<Value>, // Derived
-							dieset::map_iterator,		// Base
-							Value											   // Value
-						> 
-			{
-				typedef dieset::map_iterator Base;
-				Base root;
-				
-				//depthfirst_iterator_tmpl()
-		  		//: depthfirst_iterator_tmpl::iterator_adaptor_() {}
-
-				depthfirst_iterator_tmpl() {} // uninit'd!
-				explicit depthfirst_iterator_tmpl(Base p, Base root)
-				  : depthfirst_iterator_tmpl::iterator_adaptor_(p), root(root) {}
-				
-				Value& dereference() const { 
-					return *(this->base_reference()->second);
-				}
-				
-				void increment() 
-				{
-					dieset& ds = this->base_reference()->second->m_ds;
-					// if we have children, descend there...
-					if (this->base()->second->m_children.size() > 0)
-					{
-						this->base_reference() = ds.map_find(*(this->base()->second->m_children.begin()));
-						return;
-					}
-					// else look for later siblings, either here or higher up
-					else 
-					{	   
-						// follow parent links until the one you traverse isn't the last child
-						//auto root = ds.find(0UL);
-						auto child = this->base_reference();
-#define CAST_TO_DIE(arg) \
-	boost::dynamic_pointer_cast<encap::die, spec::basic_die>(arg)
-						while(child != root // not hit the root yet, and...
-							&& (CAST_TO_DIE(ds[child->second->m_parent])->m_children.size() == 0  
-								|| (CAST_TO_DIE(ds[child->second->m_parent])->m_children.end() -
-								std::find( // either no children, or no more children unexplored
-										CAST_TO_DIE(ds[child->second->m_parent])->m_children.begin(), 
-										CAST_TO_DIE(ds[child->second->m_parent])->m_children.end(),
-									child->second->m_offset)) == 1))
-						{
-							child = ds.map_find(CAST_TO_DIE(child->second)->m_parent);
-							assert(child != ds.map_end());
-						}
-						if (child == root) 
-						{
-							this->base_reference() = ds.map_end();
-							return;
-						}
-						else
-						{
-							// now we have a child having a later sibling, so 
-							// just get an iterator pointing at it
-							die_off_list::iterator next = std::find(
-								CAST_TO_DIE(ds[child->second->m_parent])->m_children.begin(), 
-								CAST_TO_DIE(ds[child->second->m_parent])->m_children.end(),
-								child->second->m_offset) + 1;
-							this->base_reference() = ds.map_find(*next);
-						}
-					}
-				}
-#undef CAST_TO_DIE
-				void decrement()
-				{
-					// HACK: find the dieset by assuming >=1 node is present
-					Base base_copy = this->base();
-					base_copy--;
-					dieset& ds = base_copy->second->m_ds;
-					// if we're the root, no change
-					if (this->base() == root) return;
-
-					// if we're the first sibling, 
-					// previous node is our parent
-					//die_off_list& parent_children = 
-					//	ds.find(this->base()->second->m_parent)->second.m_children;
-					if (
-						this->base() != ds.map_end() && 
-						std::find(
-							ds.map_find(this->base()->second->m_parent)->second->m_children.begin(), 
-							ds.map_find(this->base()->second->m_parent)->second->m_children.end(),
-						this->base()->second->m_offset) == 
-							ds.map_find(this->base()->second->m_parent)->second->m_children.begin())
-					{
-						this->base_reference() = ds.map_find(this->base()->second->m_parent);
-						return;
-					}						
-					else
-					// else previous node is the deepest rightmost child (perhaps self)
-					// of previous sibling (or root if we're == ds.end())
-					{
-						dieset::map_iterator previous_sib = 
-							(this->base() == ds.map_end()) ? root
-							: ds.find(*(std::find(
-								ds.find(this->base()->second->m_parent)->second->m_children.begin(),
-								ds.find(this->base()->second->m_parent)->second->m_children.end(),
-								this->base()->second->m_offset) - 1));
-						assert(previous_sib != ds.map_end());
-						
-						dieset::map_iterator search = previous_sib;
-						
-						// the *last* element in depthfirst order
-						// is the highest and (then) rightmost childless node
-
-						while(search != ds.map_end() &&
-							search->second->m_children.size() != 0)
-						{
-							// search has children, so try its siblings (right-to-left)
-							for (die_off_list::reverse_iterator sibling_search = 
-													search->second->m_children.rbegin();
-								 sibling_search != search->second->m_children.rend(); 
-								 sibling_search++)
-							{
-								dieset::map_iterator sibling_die_iter = ds.find(*sibling_search);
-								assert(sibling_die_iter != ds.map_end());
-								// if this child has no children, it's our answer
-								if (sibling_die_iter->second->m_children.size() == 0)
-								{
-									this->base_reference() = sibling_die_iter; return;
-								}
-							}
-							// if we got here, neither we nor our siblings are childless, so
-							// descend to the rightmost child
-							search = ds.find(*(search->second->m_children.rbegin()));
-						}
-						if (search == ds.map_end()) return; // do nothing
-						this->base_reference() = search; return;
-					}
-				}
-			};
-#undef CAST_TO_DIE
-			typedef depthfirst_iterator_tmpl<> depthfirst_iterator;
-			depthfirst_iterator depthfirst_begin() { return depthfirst_iterator(m_ds.map_find(m_offset), m_ds.map_find(m_offset)); }
-			depthfirst_iterator depthfirst_end() { return depthfirst_iterator(m_ds.map_end(), m_ds.map_find(m_offset)); }
+// 			//typedef dieset::iterator depthfirst_iterator;
+// 			template<typename Value = die>
+// 			struct depthfirst_iterator_tmpl
+// 				: public boost::iterator_adaptor<depthfirst_iterator_tmpl<Value>, // Derived
+// 							dieset::map_iterator,		// Base
+// 							Value											   // Value
+// 						> 
+// 			{
+// 				typedef dieset::map_iterator Base;
+// 				Base root;
+// 				
+// 				//depthfirst_iterator_tmpl()
+// 		  		//: depthfirst_iterator_tmpl::iterator_adaptor_() {}
+// 
+// 				depthfirst_iterator_tmpl() {} // uninit'd!
+// 				explicit depthfirst_iterator_tmpl(Base p, Base root)
+// 				  : depthfirst_iterator_tmpl::iterator_adaptor_(p), root(root) {}
+// 				
+// 				Value& dereference() const { 
+// 					return *(this->base_reference()->second);
+// 				}
+// 				
+// 				void increment() 
+// 				{
+// 					using std::cerr;
+// 					using std::endl;
+// 					dieset& ds = this->base_reference()->second->m_ds;
+// 					cerr << "Incrementing dfs from off=" << this->base()->second->get_offset() << endl;
+// 					// if we have children, descend there...
+// 					if (this->base()->second->m_children.size() > 0)
+// 					{
+// 						this->base_reference() = ds.map_find(*(this->base()->second->m_children.begin()));
+// 						assert(this->base_reference() != ds.map_end());
+// 						return;
+// 					}
+// 					// else look for later siblings, either here or higher up
+// 					else 
+// 					{	   
+// 						// follow parent links until the one you traverse isn't the last child
+// 						//auto root = ds.find(0UL);
+// 						auto child = this->base_reference();
+// #define CAST_TO_DIE(arg) \
+// 	boost::dynamic_pointer_cast<encap::die, spec::basic_die>(arg)
+// 						while(child != root // not hit the root yet, and...
+// 							&& (CAST_TO_DIE(ds[child->second->m_parent])->m_children.size() == 0  
+// 								|| (CAST_TO_DIE(ds[child->second->m_parent])->m_children.end() -
+// 								std::find( // either no children, or no more children unexplored
+// 										CAST_TO_DIE(ds[child->second->m_parent])->m_children.begin(), 
+// 										CAST_TO_DIE(ds[child->second->m_parent])->m_children.end(),
+// 									child->second->m_offset)) == 1))
+// 						{
+// 							child = ds.map_find(CAST_TO_DIE(child->second)->m_parent);
+// 							assert(child != ds.map_end());
+// 						}
+// 						if (child == root) 
+// 						{
+// 							this->base_reference() = ds.map_end();
+// 							return;
+// 						}
+// 						else
+// 						{
+// 							// now we have a child having a later sibling, so 
+// 							// just get an iterator pointing at it
+// 							die_off_list::iterator next = std::find(
+// 								CAST_TO_DIE(ds[child->second->m_parent])->m_children.begin(), 
+// 								CAST_TO_DIE(ds[child->second->m_parent])->m_children.end(),
+// 								child->second->m_offset) + 1;
+// 							this->base_reference() = ds.map_find(*next);
+// 						}
+// 					}
+// 				}
+// #undef CAST_TO_DIE
+// 				void decrement()
+// 				{
+// 					// HACK: find the dieset by assuming >=1 node is present
+// 					Base base_copy = this->base();
+// 					base_copy--;
+// 					dieset& ds = base_copy->second->m_ds;
+// 					// if we're the root, no change
+// 					if (this->base() == root) return;
+// 
+// 					// if we're the first sibling, 
+// 					// previous node is our parent
+// 					//die_off_list& parent_children = 
+// 					//	ds.find(this->base()->second->m_parent)->second.m_children;
+// 					if (
+// 						this->base() != ds.map_end() && 
+// 						std::find(
+// 							ds.map_find(this->base()->second->m_parent)->second->m_children.begin(), 
+// 							ds.map_find(this->base()->second->m_parent)->second->m_children.end(),
+// 						this->base()->second->m_offset) == 
+// 							ds.map_find(this->base()->second->m_parent)->second->m_children.begin())
+// 					{
+// 						this->base_reference() = ds.map_find(this->base()->second->m_parent);
+// 						return;
+// 					}						
+// 					else
+// 					// else previous node is the deepest rightmost child (perhaps self)
+// 					// of previous sibling (or root if we're == ds.end())
+// 					{
+// 						dieset::map_iterator previous_sib = 
+// 							(this->base() == ds.map_end()) ? root
+// 							: ds.find(*(std::find(
+// 								ds.find(this->base()->second->m_parent)->second->m_children.begin(),
+// 								ds.find(this->base()->second->m_parent)->second->m_children.end(),
+// 								this->base()->second->m_offset) - 1));
+// 						assert(previous_sib != ds.map_end());
+// 						
+// 						dieset::map_iterator search = previous_sib;
+// 						
+// 						// the *last* element in depthfirst order
+// 						// is the highest and (then) rightmost childless node
+// 
+// 						while(search != ds.map_end() &&
+// 							search->second->m_children.size() != 0)
+// 						{
+// 							// search has children, so try its siblings (right-to-left)
+// 							for (die_off_list::reverse_iterator sibling_search = 
+// 													search->second->m_children.rbegin();
+// 								 sibling_search != search->second->m_children.rend(); 
+// 								 sibling_search++)
+// 							{
+// 								dieset::map_iterator sibling_die_iter = ds.find(*sibling_search);
+// 								assert(sibling_die_iter != ds.map_end());
+// 								// if this child has no children, it's our answer
+// 								if (sibling_die_iter->second->m_children.size() == 0)
+// 								{
+// 									this->base_reference() = sibling_die_iter; return;
+// 								}
+// 							}
+// 							// if we got here, neither we nor our siblings are childless, so
+// 							// descend to the rightmost child
+// 							search = ds.find(*(search->second->m_children.rbegin()));
+// 						}
+// 						if (search == ds.map_end()) return; // do nothing
+// 						this->base_reference() = search; return;
+// 					}
+// 				}
+// 			};
+// #undef CAST_TO_DIE
+// 			typedef depthfirst_iterator_tmpl<> depthfirst_iterator;
+// 			depthfirst_iterator depthfirst_begin() { return depthfirst_iterator(m_ds.map_find(m_offset), m_ds.map_find(m_offset)); }
+// 			depthfirst_iterator depthfirst_end() { return depthfirst_iterator(m_ds.map_end(), m_ds.map_find(m_offset)); }
 			
 			struct is_ref_attr_t : public std::unary_function<attribute_map::value_type, bool>
 			{
@@ -503,37 +512,51 @@ namespace dwarf {
 			/* This conjoining iterator joins all ref attributes in DIEs found on a depthfirst walk. */
 			typedef conjoining_sequence<ref_attrs_iterator> all_refs_dfs_sequence;
 			typedef conjoining_iterator<ref_attrs_iterator> all_refs_dfs_iterator;
-			all_refs_dfs_iterator all_refs_dfs_begin()
-			{ 
-//	 			auto p_seq = boost::make_shared<all_refs_dfs_sequence>();
-//				 for (depthfirst_iterator dfs = depthfirst_begin(); dfs != depthfirst_end();
-//				 	dfs++)
-//				 {
-//				 	p_seq->append(dfs->ref_attrs_begin(), dfs->ref_attrs_end());
-//				 }
-//				 return p_seq->begin(p_seq);
-				auto p_seq = all_refs_dfs_seq();
-				return p_seq->begin(p_seq);
-			}
-			all_refs_dfs_iterator all_refs_dfs_end()
-			{ 
-//	 			auto p_seq = boost::make_shared<all_refs_dfs_sequence>();
-//				 for (depthfirst_iterator dfs = depthfirst_begin(); dfs != depthfirst_end();
-//				 	dfs++)
-//				 {
-//				 	p_seq->append(dfs->ref_attrs_begin(), dfs->ref_attrs_end());
-//				 }
-//				return p_seq->end(p_seq);
-				auto p_seq = all_refs_dfs_seq();
-				return p_seq->end(p_seq);
-			}
+			/* Don't let clients _begin() and _end() separately, because
+			 * this will construct two underlying sequence objects without
+			 * any guarantee that they are comparable. The right thing to do
+			 * is to get the sequence object, then use its begin() and end().  */
+// 			all_refs_dfs_iterator all_refs_dfs_begin()
+// 			{ 
+// //	 			auto p_seq = boost::make_shared<all_refs_dfs_sequence>();
+// //				 for (depthfirst_iterator dfs = depthfirst_begin(); dfs != depthfirst_end();
+// //				 	dfs++)
+// //				 {
+// //				 	p_seq->append(dfs->ref_attrs_begin(), dfs->ref_attrs_end());
+// //				 }
+// //				 return p_seq->begin(p_seq);
+// 				auto p_seq = all_refs_dfs_seq();
+// 				return p_seq->begin();
+// 			}
+// 			all_refs_dfs_iterator all_refs_dfs_end()
+// 			{ 
+// //	 			auto p_seq = boost::make_shared<all_refs_dfs_sequence>();
+// //				 for (depthfirst_iterator dfs = depthfirst_begin(); dfs != depthfirst_end();
+// //				 	dfs++)
+// //				 {
+// //				 	p_seq->append(dfs->ref_attrs_begin(), dfs->ref_attrs_end());
+// //				 }
+// //				return p_seq->end(p_seq);
+// 				auto p_seq = all_refs_dfs_seq();
+// 				return p_seq->end();
+// 			}
 			boost::shared_ptr<all_refs_dfs_sequence> all_refs_dfs_seq()
 			{
 				auto p_seq = boost::make_shared<all_refs_dfs_sequence>();
-				for (depthfirst_iterator dfs = depthfirst_begin(); dfs != depthfirst_end();
-					dfs++)
+				// to do a depth-first walk under this DIE, our termination condition is
+				// that the prefix from the root is shared with the toplevel
+				auto my_path = this->iterator_here().base().path_from_root;
+				for (auto dfs = this->iterator_here(); 
+						spec::abstract_dieset::path_type(
+							dfs.base().path_from_root.begin(), 
+							dfs.base().path_from_root.begin() + my_path.size()
+						) == my_path;
+						dfs++)
 				{
-					p_seq->append(dfs->ref_attrs_begin(), dfs->ref_attrs_end());
+					die& d = dynamic_cast<die&>(**dfs);
+					//std::cerr << "Appending ref attrs from DIE at 0x" 
+					//	<< std::hex << d.m_offset << std::dec << std::endl;
+					p_seq->append(d.ref_attrs_begin(), d.ref_attrs_end());
 				}
 				return p_seq;				
 			}			
@@ -606,7 +629,8 @@ namespace dwarf {
 				auto found = std::find(parent_children.begin(), parent_children.end(), m_offset);
 				assert(found != parent_children.end());
 				if (++found == parent_children.end()) throw lib::No_entry();
-				else return *found; 
+				assert(*found != m_offset);
+				return *found; 
 			}
 			boost::shared_ptr<spec::basic_die> get_next_sibling()
 			{
@@ -725,7 +749,9 @@ namespace dwarf {
 				boost::optional<const std::string&> name = boost::optional<const std::string&>()) \
 			 :	basic_die(parent->get_ds(), parent->get_offset(), DW_TAG_ ## fragment, \
 			 	parent->get_ds().next_free_offset(),  \
-			 	0, encap::die::attribute_map(), encap::die_off_list()) {} 
+			 	0, encap::die::attribute_map(), encap::die_off_list()) \
+				{ if (name) put_attr(DW_AT_name, dwarf::encap::attribute_value( \
+					parent->get_ds(), std::string(*name))); } 
 				
 #define begin_class(fragment, base_inits, ...) \
 	struct fragment ## _die : public encap::basic_die, public virtual spec:: fragment ## _die { \
@@ -764,9 +790,11 @@ namespace dwarf {
 #define attr_mandatory(name, stored_t) \
 	stored_type_ ## stored_t get_ ## name() const \
 	{ assert (has_attr(DW_AT_ ## name)); return (*this)[DW_AT_ ## name].get_ ## stored_t (); } \
-	boost::shared_ptr<self_type> set_ ## name(stored_type_ ## stored_t arg) { \
+	/*boost::shared_ptr<self_type>*/ void set_ ## name(stored_type_ ## stored_t arg) { \
 	put_attr(DW_AT_ ## name, encap::attribute_value(this->m_ds, arg)); \
-	return boost::dynamic_pointer_cast<self_type>(this->shared_from_this()); }
+	/* return boost::dynamic_pointer_cast<self_type>(this->shared_from_this());*/ }
+// HACK: don't use shared_from_this until its interaction with multiple inheritance
+// is fixed <http://lists.boost.org/Archives/boost/2010/11/173366.php>
 
 #define super_attr_mandatory(name, stored_t) attr_mandatory(name, stored_t)
 // NOTE: super_attr distinction is necessary because
@@ -777,7 +805,6 @@ namespace dwarf {
 
 #define child_tag(arg) 
 
-// compile_unit_die has an override for get_next_sibling()
 #define extra_decls_compile_unit \
 		Dwarf_Half get_address_size() const; 
 		
@@ -788,21 +815,29 @@ namespace dwarf {
 			typedef basic_die self;
 			typedef basic_die self_type;
 		public:
-
+			/* NOTE: we do *not* insert into the dieset in these constructors! 
+			 * This is because make_shared won't set up ownership of the shared
+			 * pointer until the object itself is fully constructed. If we try
+			 * to make a shared pointer in the constructor, we will end up with
+			 * two counts for a single object, and it will get deleted when the
+			 * first one of thes hits zero. This should not happen! Instead, it's
+			 * the factory's responsibility to add stuff to the dieset. */
 			// special constructor used by all_compile_units
 			basic_die(encap::dieset& ds, Dwarf_Off parent, Dwarf_Half tag, 
 				Dwarf_Off offset, Dwarf_Off cu_offset, 
 				const encap::die::attribute_map& attrs, 
 				const encap::die_off_list& children)
-			 :	encap::die(ds, parent, tag, offset, cu_offset, attrs, children) {}
+			 :	encap::die(ds, parent, tag, offset, cu_offset, attrs, children) 
+			 { cu_offset = 0;}
 			// "encap" constructor
 		protected:
 			basic_die(encap::dieset& ds, lib::die& d, Dwarf_Off parent_off)
-			 :  encap::die(ds, d, parent_off) {}
+			 :  encap::die(ds, d, parent_off) 
+			 { cu_offset = 0; }
 		public:
 			basic_die(Dwarf_Half tag, encap::dieset& ds, shared_ptr<lib::die> p_d, Dwarf_Off parent_off)
 			 :  encap::die(ds, p_d, parent_off)
-			{ Dwarf_Half t; p_d->tag(&t); assert(t == tag); }
+			{ Dwarf_Half t; p_d->tag(&t); assert(t == tag); cu_offset = 0; }
 			// "create" constructor
 			basic_die(Dwarf_Half tag,
 				self& parent, 
@@ -812,11 +847,25 @@ namespace dwarf {
 				// FIXME: don't pass 0 as cu_offset
 			{
 				cu_offset = 0;
-				m_ds.insert(std::make_pair(m_offset, boost::shared_ptr<dwarf::encap::die>(this)));
-				parent.m_children.push_back(m_offset);
 				if (name) m_attrs.insert(std::make_pair(DW_AT_name, dwarf::encap::attribute_value(
 					parent.m_ds, std::string(*name))));
 			}
+// 			virtual ~basic_die()
+// 			{ 	std::cerr << "Destructing encap::basic_die.";
+// 				void *array[10];
+// 				size_t size;
+// 				char **strings;
+// 				size_t i;
+// 
+// 				size = backtrace (array, 10);
+// 				strings = backtrace_symbols (array, size);
+// 
+// 				printf ("Obtained %zd stack frames.\n", size);
+// 
+// 				for (i = 0; i < size; i++) std::cerr << strings[i] << std::endl;
+// 
+// 				free (strings); 
+// 			}
 			
 			const dwarf::spec::abstract_def& get_spec() { return get_ds().get_spec(); }		   
 			 
@@ -836,7 +885,7 @@ namespace dwarf {
 			{
 				bool retval = true;
 				auto p_seq = this->all_refs_dfs_seq();
-				for (auto i = p_seq->begin(p_seq); i != p_seq->end(p_seq); i++)
+				for (auto i = p_seq->begin(/*p_seq*/); i != p_seq->end(/*p_seq*/); i++)
 				{
 					Dwarf_Off target = i->second.get_ref().off;
 					bool abs = i->second.get_ref().abs;
@@ -864,9 +913,12 @@ namespace dwarf {
 		class file_toplevel_die : public basic_die, public virtual spec::file_toplevel_die
 		{
 			friend class dieset;
-#define DW_TAG_file_toplevel 0
-			constructor(file_toplevel)
-#undef DW_TAG_file_toplevel
+		public:
+			/* special constructor */ 
+			file_toplevel_die(dieset& ds) 
+			 :	basic_die(ds, 0UL, 0, 0UL, 0UL, 
+			 	encap::die::attribute_map(), encap::die_off_list()) {} 
+
 			child_tag(compile_unit)
 		};
 
@@ -915,9 +967,16 @@ namespace dwarf {
 			// convenience forwarder
 			static factory& for_spec(const dwarf::spec::abstract_def& spec); 
 		protected:
-			template<typename T, typename... Args > boost::shared_ptr<T>
+			void attach_to_ds(boost::shared_ptr<basic_die> p) const
+			{ 
+				assert(p->get_ds().find(p->parent_offset()) != p->get_ds().end());
+				dynamic_pointer_cast<encap::basic_die>(p->get_ds()[p->parent_offset()])
+					->attach_child(p);
+			}
+			template<typename T, typename... Args > 
+			boost::shared_ptr<encap::basic_die>
 			my_make_shared(Args&&... args) const
-			{ boost::shared_ptr<T> p(new T(std::forward<Args>(args)...)); return p; }
+			{ boost::shared_ptr<encap::basic_die> p(new T(std::forward<Args>(args)...)); return p; }
 			virtual boost::shared_ptr<die> encapsulate_die(Dwarf_Half tag, 
 				dieset& ds, lib::die& d, Dwarf_Off parent_off) const = 0;
 		public:

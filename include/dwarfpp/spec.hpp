@@ -234,6 +234,7 @@ namespace dwarf
 			static const int empty_operand_form_list[];
             static const int empty_class_list[];
 		public:
+			empty_def() {}
             static const empty_def inst;
 			virtual const char *tag_lookup(int tag) const { return "(unknown tag)"; }			
 			virtual bool tag_is_type(int tag) const { return false; }
