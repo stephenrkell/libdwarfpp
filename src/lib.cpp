@@ -96,14 +96,28 @@ namespace dwarf
         			abbrev_offset, address_size, next_cu_header, error); // may allocate **error
     	}
 
-        int file::reset_cu_context()
+        int file::reset_cu_context(cu_callback_t cb, void *arg)
         {
         	int retval;
+			Dwarf_Unsigned cu_header_length;
+			Dwarf_Half version_stamp;
+			Dwarf_Unsigned abbrev_offset;
+			Dwarf_Half address_size;
 		    Dwarf_Unsigned next_cu_header;
             //std::cerr << "Resetting CU state..." << std::endl;
-            while(DW_DLV_OK == (retval = this->next_cu_header(0, 0, 0, 0, &next_cu_header)))
+            while(DW_DLV_OK == (retval = this->next_cu_header(
+				&cu_header_length, &version_stamp, 
+				&abbrev_offset, &address_size, 
+				&next_cu_header)))
             {
             	//std::cerr << "next_cu_header returned DW_DLV_OK" << std::endl;
+				die d(*this);
+				Dwarf_Off off; 
+				int retval = d.offset(&off); // this should not fail
+				assert(retval == DW_DLV_OK);
+				if (cb) cb(arg, off, 
+					cu_header_length, version_stamp,
+					abbrev_offset, address_size, next_cu_header);
             }
             //std::cerr << "next_cu_header returned " << retval << std::endl;
             if (retval == DW_DLV_NO_ENTRY)
@@ -184,6 +198,8 @@ namespace dwarf
 			if (error == 0) error = &last_error;
 			return DW_DLV_ERROR; // TODO: implement this
 		}
+		
+		file die::dummy_file; // static, should be const (FIXME)
 
 		die::die(file& f, Dwarf_Die d, Dwarf_Error *perror) : f(f), p_last_error(perror)
 		{
@@ -204,7 +220,7 @@ namespace dwarf
 
 		int die::tag(
 			Dwarf_Half *tagval,
-			Dwarf_Error *error /*= 0*/)
+			Dwarf_Error *error /*= 0*/) const
 		{
 			if (error == 0) error = p_last_error;
 			return dwarf_tag(my_die, tagval, error);
@@ -227,19 +243,22 @@ namespace dwarf
 		} // may allocate **error
 
 		int die::name(
-			char ** return_name,
-			Dwarf_Error *error /*= 0*/)
+			std::string *return_name,
+			Dwarf_Error *error /*= 0*/) const
 		{
 			if (error == 0) error = p_last_error;
-			int retval = dwarf_diename(my_die, return_name, error);
+			char *returned_name_chars;
+			int retval = dwarf_diename(my_die, &returned_name_chars, error);
+			if (retval == DW_DLV_OK)
+			{
+				*return_name = returned_name_chars; // HACK: copying string is not okay,
+				 // but we are undertaking to provide a RAII inerface here
+				 // -- arguably we should provide a class dwarf::lib::diename
+				dwarf_dealloc(f.dbg, returned_name_chars, DW_DLA_STRING);
+			}
 			//std::cerr << "Retval from dwarf_diename is " << retval << std::endl;
 			return retval;
 		} // may allocate **name, else may allocate **error
-		/* TODO: here we want to return an object whose destructor calls dwarf_dealloc
-		 * on the allocated string. Should we subclass std::string? or just copy the
-		 * characters and return by value? or define dwarf::string with an implicit
-		 * conversion to char* ?
- 		 */
 
 	// 	int die::attrlist(
 	// 		attribute_array *& attrbuf, // on return, attrbuf points to an attribute_array
@@ -508,7 +527,7 @@ namespace dwarf
             	/* This happens when we stopped at a DW_OP_piece argument. 
                  * Advance the opcode iterator and clear the stack. */
                 ++i;
-                while (!stack.empty()) stack.pop();
+                while (!m_stack.empty()) m_stack.pop();
 			}
             boost::optional<std::string> error_detail;
 			while (i != expr.end())
@@ -516,16 +535,16 @@ namespace dwarf
 				switch(i->lr_atom)
 				{
 					case DW_OP_constu:
-						stack.push(i->lr_number);
+						m_stack.push(i->lr_number);
 						break;
                     case DW_OP_plus_uconst: {
-                    	int tos = stack.top();
-                        stack.pop();
-                        stack.push(tos + i->lr_number);
+                    	int tos = m_stack.top();
+                        m_stack.pop();
+                        m_stack.push(tos + i->lr_number);
                     } break;
                     case DW_OP_fbreg: {
                     	if (!frame_base) goto logic_error;
-                        stack.push(*frame_base + i->lr_number);
+                        m_stack.push(*frame_base + i->lr_number);
                     } break;
                     case DW_OP_piece: {
                     	/* Here we do something special: leave the opcode iterator
@@ -569,11 +588,11 @@ namespace dwarf
                     {
                     	if (!p_regs) goto logic_error;
                     	int regnum = i->lr_atom - DW_OP_breg0;
-                        stack.push(p_regs->get(regnum) + i->lr_number);
+                        m_stack.push(p_regs->get(regnum) + i->lr_number);
                     } break;
                     case DW_OP_addr:
                     {
-                    	stack.push(i->lr_number);
+                    	m_stack.push(i->lr_number);
                     } break;
 					default:
 						std::cerr << "Error: unrecognised opcode: " << spec.op_lookup(i->lr_atom) << std::endl;

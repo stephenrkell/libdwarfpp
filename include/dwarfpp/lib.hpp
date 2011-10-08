@@ -18,6 +18,13 @@
 
 namespace dwarf
 {
+	using std::string;
+	using std::vector;
+	using std::stack;
+	using std::endl;
+	using std::ostream;
+	using std::cerr;
+
 	// forward declarations, for "friend" declarations
 	namespace encap
 	{
@@ -49,6 +56,9 @@ namespace dwarf
         class aranges;
         class ranges;
 		class evaluator;
+		
+		class basic_die;
+		class file_toplevel_die;
 		
 		struct No_entry {
 			No_entry() {}
@@ -90,8 +100,17 @@ namespace dwarf
 			// protected constructor
 			file() {} // uninitialised default value, s.t. die can have a default value too	
             
-            // libdwarf has a weird stateful API for getting compile unit DIEs
-            int reset_cu_context();
+			// we call out to a function like this when we hit a CU in reset_cu_context
+			typedef void (*cu_callback_t)(void *arg, 
+				Dwarf_Off cu_offset,
+				Dwarf_Unsigned cu_header_length,
+				Dwarf_Half version_stamp,
+				Dwarf_Unsigned abbrev_offset,
+				Dwarf_Half address_size,
+				Dwarf_Unsigned next_cu_header);
+				
+            // libdwarf has a weird stateful API for getting compile unit DIEs.
+            int reset_cu_context(cu_callback_t cb = 0, void *arg = 0);
 
 			// TODO: forbid copying or assignment by adding private definitions 
 		public:
@@ -112,8 +131,9 @@ namespace dwarf
 				Dwarf_Half *address_size,
 				Dwarf_Unsigned *next_cu_header,
 				Dwarf_Error *error = 0);
-
+		private:
 			int offdie(Dwarf_Off offset, die *return_die, Dwarf_Error *error = 0);
+		public:
 
 	//		int get_globals(
 	//			global_array *& globarr, // on success, globarr points to a global_array
@@ -136,6 +156,10 @@ namespace dwarf
 			friend class block;
 			friend class loclist;
             friend class ranges;
+			
+			friend class basic_die;
+			friend class file_toplevel_die;
+			
 			file& f;
 			Dwarf_Error *const p_last_error;
 			Dwarf_Die my_die;
@@ -144,8 +168,10 @@ namespace dwarf
 
 			// public interface is to use constructor
 			int first_child(die *return_kid, Dwarf_Error *error = 0);
-
-			// TODO: forbid copying or assignment by adding private definitions here
+			
+			// "uninitialized" DIE is used to back file_toplevel_die
+			static file dummy_file;
+			die() : f(dummy_file), p_last_error(0) {}
 
 	public:
 			virtual ~die();
@@ -153,24 +179,28 @@ namespace dwarf
 				{ 	int retval = f.first_die(this, p_last_error);
 					if (retval == DW_DLV_NO_ENTRY) throw No_entry();
 					else if (retval == DW_DLV_ERROR) throw Error(*p_last_error, f.get_dbg()); }
-			die(file& f, die& d) : f(f), p_last_error(&f.last_error)
-				{ 	int retval = f.siblingof(d, this, p_last_error);
+			die(file& f, const die& d) : f(f), p_last_error(&f.last_error)
+				{ 	int retval = f.siblingof(const_cast<die&>(d), this, p_last_error);
 					if (retval == DW_DLV_NO_ENTRY) throw No_entry(); 
 					else if (retval == DW_DLV_ERROR) throw Error(*p_last_error, f.get_dbg()); }
-			explicit die(die& d) : f(d.f), p_last_error(&f.last_error)
-				{ 	int retval = d.first_child(this, p_last_error); 
+			// this is *not* a copy constructor! it constructs the child
+			explicit die(const die& d) : f(const_cast<die&>(d).f), p_last_error(&f.last_error)
+				{ 	int retval = const_cast<die&>(d).first_child(this, p_last_error); 
 					if (retval == DW_DLV_NO_ENTRY) throw No_entry(); 
 					else if (retval == DW_DLV_ERROR) throw Error(*p_last_error, f.get_dbg()); }
 			die(file& f, Dwarf_Off off) : f(f), p_last_error(&f.last_error)
-				{	int retval = f.offdie(off, this, p_last_error);
+				{	assert (off != 0UL); // file_toplevel_die should use protected constructor
+					int retval = f.offdie(off, this, p_last_error);
 					if (retval == DW_DLV_ERROR) throw Error(*p_last_error, f.get_dbg()); }			
 
-			int tag(Dwarf_Half *tagval,	Dwarf_Error *error = 0);			
+			int tag(Dwarf_Half *tagval,	Dwarf_Error *error = 0) const;
 			int offset(Dwarf_Off * return_offset, Dwarf_Error *error = 0) const;
 			int CU_offset(Dwarf_Off *return_offset, Dwarf_Error *error = 0);
-			int name(char ** return_name, Dwarf_Error *error = 0);
+			int name(string *return_name, Dwarf_Error *error = 0) const;
 			//int attrlist(attribute_array *& attrbuf, Dwarf_Error *error = 0);
 			int hasattr(Dwarf_Half attr, Dwarf_Bool *return_bool, Dwarf_Error *error = 0);
+			int hasattr(Dwarf_Half attr, Dwarf_Bool *return_bool, Dwarf_Error *error = 0) const
+			{ return const_cast<die *>(this)->hasattr(attr, return_bool, error); }
 			//int attr(Dwarf_Half attr, attribute *return_attr, Dwarf_Error *error = 0);
 			int lowpc(Dwarf_Addr * return_lowpc, Dwarf_Error * error = 0);
 			int highpc(Dwarf_Addr * return_highpc, Dwarf_Error *error = 0);
@@ -241,7 +271,10 @@ namespace dwarf
 					p_attrs = 0;
 					cnt = 0;
 				}
-				else if (retval != DW_DLV_OK) throw Error(*error, d.f.get_dbg());
+				else if (retval != DW_DLV_OK) 
+				{
+					throw Error(*error, d.f.get_dbg());
+				}
 			}
 			Dwarf_Signed count() { return cnt; }
 			attribute get(int i) { return attribute(*this, i); }
@@ -274,9 +307,9 @@ namespace dwarf
 			virtual ~block() { dwarf_dealloc(attr.a.d.f.get_dbg(), b, DW_DLA_BLOCK); }
 		};
 		
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Locdesc& ld);	
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Loc& l);
-		std::ostream& operator<<(std::ostream& s, const loclist& ll);
+		ostream& operator<<(ostream& s, const Dwarf_Locdesc& ld);	
+		ostream& operator<<(ostream& s, const Dwarf_Loc& l);
+		ostream& operator<<(ostream& s, const loclist& ll);
 		
 		class global {
 			friend class global_array;
@@ -378,9 +411,9 @@ namespace dwarf
         };
 		class Not_supported
         {
-        	const std::string& m_msg;
+        	const string& m_msg;
         public:
-        	Not_supported(const std::string& msg) : m_msg(msg) {}
+        	Not_supported(const string& msg) : m_msg(msg) {}
         };
         
 		class regs
@@ -392,15 +425,15 @@ namespace dwarf
 		};        
 
 		class evaluator {
-			std::stack<Dwarf_Unsigned> stack;
-			std::vector<Dwarf_Loc> expr;
+			std::stack<Dwarf_Unsigned> m_stack;
+			vector<Dwarf_Loc> expr;
             const ::dwarf::spec::abstract_def& spec;
             regs *p_regs; // optional set of register values, for DW_OP_breg*
             boost::optional<Dwarf_Signed> frame_base;
-			std::vector<Dwarf_Loc>::iterator i;
+			vector<Dwarf_Loc>::iterator i;
 			void eval();
 		public:
-			evaluator(const std::vector<unsigned char> expr, 
+			evaluator(const vector<unsigned char> expr, 
             	const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0)
 			{
             	//i = expr.begin();
@@ -411,23 +444,23 @@ namespace dwarf
 	            const ::dwarf::spec::abstract_def& spec = spec::DEFAULT_DWARF_SPEC,
                 regs *p_regs = 0,
                 boost::optional<Dwarf_Signed> frame_base = boost::optional<Dwarf_Signed>(),
-                const std::stack<Dwarf_Unsigned>& initial_stack = std::stack<Dwarf_Unsigned>()); 
+                const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()); 
 			
-            evaluator(const std::vector<Dwarf_Loc>& loc_desc,
+            evaluator(const vector<Dwarf_Loc>& loc_desc,
 	            const ::dwarf::spec::abstract_def& spec,
-                const std::stack<Dwarf_Unsigned>& initial_stack = std::stack<Dwarf_Unsigned>()) 
-                : stack(initial_stack), spec(spec), p_regs(0)
+                const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+                : m_stack(initial_stack), spec(spec), p_regs(0)
 			{
 				expr = loc_desc;
                 i = expr.begin();
 				eval();
 			} 
-			evaluator(const std::vector<Dwarf_Loc>& loc_desc,
+			evaluator(const vector<Dwarf_Loc>& loc_desc,
 	            const ::dwarf::spec::abstract_def& spec,
                 regs& regs,
                 Dwarf_Signed frame_base,
-                const std::stack<Dwarf_Unsigned>& initial_stack = std::stack<Dwarf_Unsigned>()) 
-                : stack(initial_stack), spec(spec), p_regs(&regs)
+                const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+                : m_stack(initial_stack), spec(spec), p_regs(&regs)
 			{
 				expr = loc_desc;
                 i = expr.begin();
@@ -435,11 +468,11 @@ namespace dwarf
 				eval();
 			} 
 
-			evaluator(const std::vector<Dwarf_Loc>& loc_desc,
+			evaluator(const vector<Dwarf_Loc>& loc_desc,
 	            const ::dwarf::spec::abstract_def& spec,
                 Dwarf_Signed frame_base,
-                const std::stack<Dwarf_Unsigned>& initial_stack = std::stack<Dwarf_Unsigned>()) 
-                : stack(initial_stack), spec(spec), p_regs(0)
+                const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+                : m_stack(initial_stack), spec(spec), p_regs(0)
 			{
 				//if (av.get_form() != dwarf::encap::attribute_value::LOCLIST) throw "not a DWARF expression";
 				//if (av.get_loclist().size() != 1) throw "only support singleton loclists for now";			
@@ -450,7 +483,7 @@ namespace dwarf
 				eval();
 			} 
             
-            Dwarf_Unsigned tos() const { return stack.top(); }
+            Dwarf_Unsigned tos() const { return m_stack.top(); }
             bool finished() const { return i == expr.end(); }
             Dwarf_Loc current() const { return *i; }
 		};
@@ -459,13 +492,13 @@ namespace dwarf
             Dwarf_Signed frame_base,
             boost::optional<regs&> rs,
 	        const ::dwarf::spec::abstract_def& spec,
-            const std::stack<Dwarf_Unsigned>& initial_stack);
+            const stack<Dwarf_Unsigned>& initial_stack);
         
         class loclist {
 		    attribute attr;
 		    Dwarf_Locdesc **locs;
 		    Dwarf_Signed locs_len;
-		    friend std::ostream& operator<<(std::ostream&, const loclist&);
+		    friend ostream& operator<<(ostream&, const loclist&);
 		    friend struct ::dwarf::encap::loclist;
 	    public:
 		    loclist(attribute a, Dwarf_Error *error = 0) : attr(a)
@@ -494,7 +527,7 @@ namespace dwarf
 			    if (locs != 0) dwarf_dealloc(attr.a.d.f.get_dbg(), locs, DW_DLA_LIST);
 		    }
 	    };
-	    std::ostream& operator<<(std::ostream& s, const loclist& ll);	
+	    ostream& operator<<(std::ostream& s, const loclist& ll);	
 
 		bool operator==(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
 		bool operator!=(const Dwarf_Loc& e1, const Dwarf_Loc& e2);

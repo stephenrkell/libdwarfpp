@@ -1,3 +1,7 @@
+optimisation:
+make dwarfpplibdump comparable to dwarfdump
+make lib::basic_die use inheritance (sane; like encap) 
+
 API changes: 
 remove boost::optional from shared_ptr 
 change "contains_addr_" wording
@@ -36,7 +40,6 @@ testing equality on p_ds meaning "is this the same DIE?" should be defined (by p
 performance:
 slow start-up in dwarfppdump
 iterators should cache parent info in their owning dieset
-do a gprof run
 
 other bits of DWARF:
 line number program

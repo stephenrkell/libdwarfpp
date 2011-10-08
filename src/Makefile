@@ -3,7 +3,7 @@ CXX ?= g++
 CXXFLAGS += -std=gnu++0x -Wall -fPIC
 ifeq ($(DEBUG),)
 $(warning Optimised build)
-CXXFLAGS += -O4 -g3
+CXXFLAGS += -O4 
 else
 $(warning Debug build)
 CXXFLAGS += -O0 -g3 -fno-eliminate-unused-debug-types -pg
@@ -19,14 +19,20 @@ OBJS := $(patsubst %.cpp,%.o,$(SRC))
 # If libdwarfpp.so exists and does not have debug info,
 # ensure we remake all object files with the new CXXFLAGS.
 
-HAVE_BUILT_WITH_DEBUG := $(shell test -r libdwarfpp.so && objdump -h libdwarfpp.so | grep debug)
+HAVE_BUILT_WITH_DEBUG := $(shell test -r libdwarfpp.so && objdump -h libdwarfpp.so | grep debug && echo "yes" )
 ifeq ($(DEBUG),) # no debug...
 ifneq ($(HAVE_BUILT_WITH_DEBUG),) # .. but built with debug
+$(warning Previous build was debug)
 FORCE_REMAKE := 1
+else
+$(warning Previous build was optimised)
 endif
 else # yes debug...
 ifeq ($(HAVE_BUILT_WITH_DEBUG),) # .. but built without debug
+$(warning Previous build was optimised)
 FORCE_REMAKE := 1
+else
+$(warning Previous build was debug)
 endif
 endif
 

@@ -12,6 +12,8 @@
 namespace dwarf
 {
 	using boost::dynamic_pointer_cast;
+	using boost::optional;
+	using std::string;
 
 	namespace spec
     {
@@ -157,11 +159,11 @@ namespace dwarf
         
         std::ostream& operator<<(std::ostream& o, const ::dwarf::spec::basic_die& d)
         {
-			o 	<< "DIE, child of 0x" 
+			o 	/*<< "DIE, child of 0x" 
             	<< std::hex << ((d.get_parent()) 
                 				? d.get_parent()->get_offset()
 			                	: 0UL)
-                    << std::dec 
+                    << std::dec */
 				<< ", tag: " << d.get_ds().get_spec().tag_lookup(d.get_tag()) 
 				<< ", offset: 0x" << std::hex << d.get_offset() << std::dec 
 				<< ", name: "; 
@@ -434,13 +436,13 @@ namespace dwarf
             abstract_dieset::bfs_policy bfs_state;
             abstract_dieset::iterator start_iterator
              = this->get_first_child()->iterator_here(bfs_state);
-            //std::cerr << "Exploring stack-located children of " << *this << std::endl;
+            std::cerr << "Exploring stack-located children of " << *this << std::endl;
             unsigned initial_depth = start_iterator.base().path_from_root.size();
             for (auto i_bfs = start_iterator;
             		i_bfs.base().path_from_root.size() >= initial_depth;
                     i_bfs++)
             {
-            	//std::cerr << "Considering whether DIE has stack location: " << **i_bfs << std::endl;
+            	std::cerr << "Considering whether DIE has stack location: " << **i_bfs << std::endl;
             	auto with_stack_loc = boost::dynamic_pointer_cast<spec::with_dynamic_location_die>(
                 	*i_bfs);
                 if (!with_stack_loc) continue;
@@ -510,8 +512,13 @@ namespace dwarf
 				frame_base_addr,
 				dieset_relative_ip,
 				p_regs);
+			std::cerr << "Calculated that an instance of DIE" << *this
+				<< " has base addr 0x" << std::hex << base_addr << std::dec;
             assert(attrs.find(DW_AT_type) != attrs.end());
             auto size = *(attrs.find(DW_AT_type)->second.get_refdie_is_type()->calculate_byte_size());
+			std::cerr << " and size " << size
+				<< ", to be tested against absolute addr 0x"
+				<< std::hex << absolute_addr << std::dec << std::endl;
             if (absolute_addr >= base_addr
             &&  absolute_addr < base_addr + size)
             {
@@ -835,73 +842,114 @@ namespace dwarf
     namespace lib
     {
 /* from lib::basic_die */
-        basic_die::basic_die(dieset& ds, boost::shared_ptr<lib::die> p_d)
-         : p_d(p_d), p_ds(&ds)
-        {
-        	/*if (p_d)
-            {
-	        	Dwarf_Half ret; p_d->tag(&ret);
-    	        if (ret == DW_TAG_compile_unit) m_parent_offset = 0UL;
-                else m_parent_offset = p_ds->find_parent_offset_of(this->get_offset());
-            }
-            else*/ m_parent_offset = 0UL;
-        }
+//         basic_die::basic_die(dieset& ds, boost::shared_ptr<lib::die> p_d)
+//          : p_d(p_d), p_ds(&ds)
+//         {
+//         	/*if (p_d)
+//             {
+// 	        	Dwarf_Half ret; p_d->tag(&ret);
+//     	        if (ret == DW_TAG_compile_unit) m_parent_offset = 0UL;
+//                 else m_parent_offset = p_ds->find_parent_offset_of(this->get_offset());
+//             }
+//             else*/ m_parent_offset = 0UL;
+//         }
 
+		// "next sibling"
+		basic_die::basic_die(dieset& ds, shared_ptr<basic_die> p_d)
+		 : lib::die(p_d->f, *p_d), p_ds(&ds), m_parent_offset(0UL) 
+		{ assert(p_d->p_ds == &ds); }
+
+		// "first child"
+		basic_die::basic_die(shared_ptr<basic_die> p_d)
+		 : lib::die(*p_d), p_ds(p_d->p_ds), m_parent_offset(0UL) {}
+
+		// "specific offset"
+		basic_die::basic_die(dieset& ds, Dwarf_Off off)
+		 : lib::die(*ds.p_f, (assert(off != 0UL), off)), p_ds(&ds), m_parent_offset(0UL)
+		{}
+		 
 		Dwarf_Off 
         basic_die::get_offset() const
         {
-        	Dwarf_Off ret; p_d->offset(&ret); return ret;
+        	Dwarf_Off ret; this->offset(&ret); return ret;
         }
         
         Dwarf_Half 
         basic_die::get_tag() const
         {
-        	Dwarf_Half ret; p_d->tag(&ret); return ret;
+        	Dwarf_Half ret; this->tag(&ret); return ret;
         }
         
-        boost::shared_ptr<spec::basic_die> 
-        basic_die::get_parent() 
-        {
-        	if (this->get_offset() == 0UL) throw No_entry();
-            assert(p_d);
-	        Dwarf_Half ret; p_d->tag(&ret);
-    	    if (ret == DW_TAG_compile_unit) m_parent_offset = 0UL;
-            else m_parent_offset = p_ds->find_parent_offset_of(this->get_offset());
-            if (m_parent_offset == 0UL) return p_ds->toplevel();
-        	else return p_ds->get(m_parent_offset);
-        }
+		boost::shared_ptr<spec::basic_die> 
+		basic_die::get_parent() 
+		{
+			// if we're toplevel, we have no parent
+			if (this->get_offset() == 0UL) throw No_entry();
+			
+			// if we're a CU, our parent is toplevel
+			Dwarf_Half ret; this->tag(&ret);
+			// if we're not a CU, and have nonzero parent, it's cached
+			if (ret != DW_TAG_compile_unit)
+			{
+				if (m_parent_offset == 0UL)
+				{
+					// not cached, so fill
+					m_parent_offset = p_ds->find_parent_offset_of(this->get_offset());
+					assert(m_parent_offset != 0UL);
+				}
+			} 
+			else 
+			{
+				assert(m_parent_offset == 0UL); // ensure initialized
+			}
+			
+			return p_ds->get(m_parent_offset);
+		}
 
+		/* Problem with inheriting from lib::die is that we don't know
+		 * what type to construct until we've constructed a lib::die.
+		 * So the factory in lib::dieset takes a const lib::die&,
+		 * constructed as a temporary, and uses that. 
+		 * Ideally we would handle/body-ify lib::die to avoid this
+		 * allocation/deallocation overhead. */
         boost::shared_ptr<spec::basic_die> 
         basic_die::get_first_child() 
         {
-            boost::shared_ptr<die> p_tmp = boost::make_shared<die>(*p_d);
-            return p_ds->get(p_tmp);
+			return p_ds->get(lib::die(*this));
         }
 
         boost::shared_ptr<spec::basic_die> 
         basic_die::get_next_sibling() 
         {
-            boost::shared_ptr<die> p_tmp = boost::make_shared<die>(*p_ds->p_f, *p_d);
-            return p_ds->get(p_tmp);
+            return p_ds->get(lib::die(*p_ds->p_f, *this));
         }
         
         Dwarf_Off basic_die::get_first_child_offset() const
         //{ Dwarf_Off off; boost::make_shared<die>(*p_d)->offset(&off); return off; }
-        { return const_cast<basic_die *>(this)->get_first_child()->get_offset(); }
+        //{ return const_cast<basic_die *>(this)->get_first_child()->get_offset(); }
+		{ 
+			Dwarf_Off off; 
+			int retval; 
+			return (retval = lib::die(*this).offset(&off), assert(retval == DW_DLV_OK), off);
+		}
 
         Dwarf_Off basic_die::get_next_sibling_offset() const
         //{ Dwarf_Off off; boost::make_shared<die>(*p_ds->p_f, *p_d)->offset(&off); return off; }
-        { return const_cast<basic_die *>(this)->get_next_sibling()->get_offset(); }
+        //{ return const_cast<basic_die *>(this)->get_next_sibling()->get_offset(); }
+		{
+			Dwarf_Off off;
+			int retval;
+			return (retval = lib::die(*p_ds->p_f, *this).offset(&off), 
+				assert(retval == DW_DLV_OK), off);
+		}
        
-        boost::optional<std::string> 
+        optional<string> 
         basic_die::get_name() const
         {
-        	char *ret;
-        	switch(p_d->name(&ret))
-            {
-                case DW_DLV_OK: return std::string(ret);
-                default: return 0;
-            }
+ 			string s;
+			int retval = name(&s);
+            if (retval != DW_DLV_OK) return optional<string>(); 
+			return s;
         }
         
         const spec::abstract_def& 
@@ -922,9 +970,9 @@ namespace dwarf
         std::map<Dwarf_Half, encap::attribute_value> basic_die::get_attrs() 
         {
         	std::map<Dwarf_Half, encap::attribute_value> ret;
-            if (this->p_d)
-            {
-			    attribute_array arr(*this->p_d);
+            //if (this->p_d)
+            //{
+			    attribute_array arr(*const_cast<basic_die*>(this));
                 int retval;
 			    for (int i = 0; i < arr.count(); i++)
 			    {
@@ -933,7 +981,7 @@ namespace dwarf
 				    retval = a.whatattr(&attr);
 				    ret.insert(std::make_pair(attr, encap::attribute_value(this->get_ds(), a)));
 			    } // end for
-            }
+            //}
             return ret;
         }
 
@@ -1261,31 +1309,70 @@ namespace dwarf
         dieset::get(Dwarf_Off off)
         {
         	if (off == 0UL) return boost::dynamic_pointer_cast<lib::basic_die>(toplevel());
-            else
-            {
-            	boost::shared_ptr<die> p_tmp = boost::make_shared<die>(*p_f, off);
-	            return get(p_tmp);
-            }
-        }
-        
-        boost::shared_ptr<lib::basic_die>
-        dieset::get(boost::shared_ptr<die> p_d)
-        {
-        	/* Given a raw die, we make, and return, a basic_die
-             * (offering our ADT interface)
-             * or one of its children. */
+			return get(lib::die(*p_f, off)); // "offdie" constructor
+		}
+			
+// //             else
+// //             {
+// //             	boost::shared_ptr<die> p_tmp = boost::make_shared<die>(*p_f, off);
+// // 	            return get(p_tmp);
+// //             }
+// 			/* This code originally made an ADT-style die out of an lib::die. 
+// 			 * We just want to use inheritance for this. 
+// 			 * FIXME: why did I take this make-shared-make-shared approach? Any good reason?
+// 			 * HACK: for now, just do the old thing! */
+//             Dwarf_Half tag;
+//             //Dwarf_Off off;
+// 			boost::shared_ptr<die> p_d = boost::make_shared<die>(*p_f, off);
+//             //int ret = p_d->offset(&off); assert(ret == DW_DLV_OK);
+//             switch(p_d->tag(&tag), tag)
+//             {
+// #define factory_case(name, ...) \
+// case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d);
+// #include "dwarf3-factory.h"
+// #undef factory_case
+//                 default: return boost::make_shared<lib::basic_die>(*this, p_d);
+//             }
+// 
+//         }
+		
+		/* factory method -- this is private */
+		boost::shared_ptr<lib::basic_die>
+		dieset::get(const lib::die& d)
+		{
             Dwarf_Half tag;
-            Dwarf_Off off;
-            int ret = p_d->offset(&off); assert(ret == DW_DLV_OK);
-            switch(p_d->tag(&tag), tag)
+			Dwarf_Off offset;
+			int ret;
+			ret = d.offset(&offset); assert(ret == DW_DLV_OK);
+            switch(ret = d.tag(&tag), assert(ret == DW_DLV_OK), tag)
             {
 #define factory_case(name, ...) \
-case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d);
+case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:: name ## _die >(*this, offset));
 #include "dwarf3-factory.h"
 #undef factory_case
-                default: return boost::make_shared<lib::basic_die>(*this, p_d);
+                default: return my_make_shared<lib::basic_die>(*this, offset);
             }
-        }
+		 
+		}
+        
+//         boost::shared_ptr<lib::basic_die>
+//         dieset::get(boost::shared_ptr<die> p_d)
+//         {
+//         	/* Given a raw die, we make, and return, a basic_die
+//              * (offering our ADT interface)
+//              * or one of its children. */
+//             Dwarf_Half tag;
+//             Dwarf_Off off;
+//             int ret = p_d->offset(&off); assert(ret == DW_DLV_OK);
+//             switch(p_d->tag(&tag), tag)
+//             {
+// #define factory_case(name, ...) \
+// case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d);
+// #include "dwarf3-factory.h"
+// #undef factory_case
+//                 default: return boost::make_shared<lib::basic_die>(*this, p_d);
+//             }
+//         }
         
         boost::shared_ptr<spec::basic_die> dieset::operator[](Dwarf_Off off) const
         {
@@ -1497,6 +1584,20 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
 			assert(found != cu_info.end());
 			return found->second.address_size; 
 		}
+		
+		// helper function
+		void add_cu_info(void *arg, 
+				Dwarf_Off off,
+				Dwarf_Unsigned cu_header_length,
+				Dwarf_Half version_stamp,
+				Dwarf_Unsigned abbrev_offset,
+				Dwarf_Half address_size,
+				Dwarf_Unsigned next_cu_header)
+		{
+			reinterpret_cast<file_toplevel_die*>(arg)
+				->add_cu_info(off, cu_header_length, version_stamp, abbrev_offset,
+					address_size, next_cu_header);
+		}
 
 		boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
 		{
@@ -1509,7 +1610,7 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
 			Dwarf_Unsigned next_cu_header;
 
 			int retval;
-			p_ds->p_f->reset_cu_context();
+			p_ds->p_f->reset_cu_context(&dwarf::lib::add_cu_info, (void*)this);
 
 			retval = p_ds->p_f->next_cu_header(&cu_header_length, &version_stamp,
 				&abbrev_offset, &address_size, &next_cu_header);
@@ -1526,9 +1627,14 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
     		}
     		prev_version_stamp = version_stamp;
 
-    		return boost::make_shared<compile_unit_die>(*p_ds, 
-        		boost::make_shared<dwarf::lib::die>(*p_ds->p_f) /*,
-				version_stamp, address_size*/);
+    		//return dieset::my_make_shared<compile_unit_die>(
+			//	 dwarf::lib::die(*p_ds->p_f), // this is the CU DIE (really! "first" is relative to CU context)lib::die(), 
+			//	*p_ds);
+			return p_ds->get(lib::die(*p_ds->p_f));
+				
+			//	, 
+        	//	boost::make_shared<dwarf::lib::die>(*p_ds->p_f) /*,
+			//	version_stamp, address_size*/);
 		}
 
 		Dwarf_Off file_toplevel_die::get_first_child_offset() const
@@ -1540,6 +1646,22 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
 			throw No_entry();
 		}
 		
+		Dwarf_Off compile_unit_die::get_next_sibling_offset() const
+		{
+			auto nonconst_this = const_cast<compile_unit_die *>(this); // HACK
+			auto parent = dynamic_pointer_cast<file_toplevel_die>(nonconst_this->get_parent());
+			assert(parent);
+			
+			Dwarf_Off off = get_offset();
+			auto found = parent->cu_info.find(off);
+			// We can rely on already having cu_info populated, since 
+			// reset_cu_context runs through all the CU headers once.
+			assert(found != parent->cu_info.end());
+			
+			++found;
+			if (found == parent->cu_info.end()) throw No_entry();
+			else return found->first;
+		}
 		boost::shared_ptr<spec::basic_die> compile_unit_die::get_next_sibling()
 		{
 			int retval;
@@ -1596,18 +1718,26 @@ case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d)
 			if (retval == DW_DLV_NO_ENTRY) throw No_entry();
 			else
 			{
-				auto p_cu = boost::make_shared<die>(*p_ds->p_f);
+				auto p_cu = //dieset::my_make_shared<compile_unit_die>(
+				 p_ds->get(dwarf::lib::die(*p_ds->p_f));//, // this is the CU DIE (really! "first" is relative to CU context)lib::die(), 
+				//*p_ds);
 				Dwarf_Off off;
 				p_cu->offset(&off); // retrieve the offset
 				// store the data for later
-				dynamic_pointer_cast<file_toplevel_die>(get_parent())
-				->cu_info[off].version_stamp = version_stamp;
-				dynamic_pointer_cast<file_toplevel_die>(get_parent())
-				->cu_info[off].address_size = address_size;
+				// -- no need to do this now, as we did it during reset_context
+				
+				//dynamic_pointer_cast<file_toplevel_die>(get_parent())
+				//->cu_info[off].version_stamp = version_stamp;
+				//dynamic_pointer_cast<file_toplevel_die>(get_parent())
+				//->cu_info[off].address_size = address_size;
+				auto parent = dynamic_pointer_cast<file_toplevel_die>(get_parent());
+				assert(parent->cu_info.find(off) != parent->cu_info.end());
+				
+				return p_cu;
 			}
-
-			return boost::make_shared<compile_unit_die>(*p_ds, 
-			boost::make_shared<dwarf::lib::die>(*p_ds->p_f));
+			
+			//	boost::make_shared<compile_unit_die>(*p_ds, 
+			//boost::make_shared<dwarf::lib::die>(*p_ds->p_f));
 		} // end get_next_sibling()
 	} // end namespace lib
 } // end namespace dwarf

@@ -20,7 +20,7 @@ namespace dwarf
             regs *p_regs,
             boost::optional<Dwarf_Signed> frame_base,
             const std::stack<Dwarf_Unsigned>& initial_stack)
-        : stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
+        : m_stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
 		{
         	i = expr.begin();
 			Dwarf_Addr current_vaddr_base = 0; // relative to CU "applicable base" (Dwarf 3 sec 3.1)

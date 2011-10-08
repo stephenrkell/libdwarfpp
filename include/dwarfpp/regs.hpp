@@ -2,7 +2,6 @@
 #define DWARFPP_REGS_HPP_
 
 // DWARF x86 register numbers pilfered from libunwind/src/x86/unwind_i.h
-#ifdef UNW_TARGET_X86
 #define DWARF_X86_EAX     0
 #define DWARF_X86_ECX     1
 #define DWARF_X86_EDX     2
@@ -15,9 +14,8 @@
 #define DWARF_X86_EFLAGS  9
 #define DWARF_X86_TRAPNO  10
 #define DWARF_X86_ST0     11
-#endif
+
 // similar for x86-64
-#ifdef UNW_TARGET_X86_64
 #define DWARF_X86_64_RAX     0
 #define DWARF_X86_64_RDX     1
 #define DWARF_X86_64_RCX     2
@@ -35,7 +33,5 @@
 #define DWARF_X86_64_R14     14
 #define DWARF_X86_64_R15     15
 #define DWARF_X86_64_RIP     16
-#endif
-
 
 #endif
