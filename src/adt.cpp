@@ -555,7 +555,6 @@ namespace dwarf
 		{
         	auto attrs = const_cast<with_dynamic_location_die *>(this)->get_attrs();
             assert(attrs.find(DW_AT_location) != attrs.end());
-			assert(this->enclosing_compile_unit()->get_low_pc());
 			return (Dwarf_Addr) dwarf::lib::evaluator(
 				attrs.find(DW_AT_location)->second.get_loclist(),
 				dieset_relative_ip // needs to be CU-relative

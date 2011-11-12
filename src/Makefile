@@ -37,9 +37,9 @@ endif
 endif
 
 ifneq ($(FORCE_REMAKE),)
-default: clean libdwarfpp.so 
+default: clean libdwarfpp.so libdwarfpp.a
 else
-default: libdwarfpp.so 
+default: libdwarfpp.so libdwarfpp.a
 endif
 
 
@@ -60,7 +60,7 @@ libdwarfpp.a: $(OBJS)
 
 # use this version when developing (avoid recompiling whole of huge .so file)
 libdwarfpp.so: $(OBJS)
-	$(CXX) $(CXXFLAGS) -shared -o "$@" $^
+	$(CXX) $(CXXFLAGS) -shared -o "$@" $^ -ldwarf -lelf
 
 .PHONY: clean
 clean:

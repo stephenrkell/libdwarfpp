@@ -586,6 +586,7 @@ namespace dwarf
                     case DW_OP_breg30:
                     case DW_OP_breg31:
                     {
+						/* the breg family get the contents of a register and add an offset */ 
                     	if (!p_regs) goto logic_error;
                     	int regnum = i->lr_atom - DW_OP_breg0;
                         m_stack.push(p_regs->get(regnum) + i->lr_number);
@@ -594,6 +595,45 @@ namespace dwarf
                     {
                     	m_stack.push(i->lr_number);
                     } break;
+					case DW_OP_reg0:
+					case DW_OP_reg1:
+					case DW_OP_reg2:
+					case DW_OP_reg3:
+					case DW_OP_reg4:
+					case DW_OP_reg5:
+					case DW_OP_reg6:
+					case DW_OP_reg7:
+					case DW_OP_reg8:
+					case DW_OP_reg9:
+					case DW_OP_reg10:
+					case DW_OP_reg11:
+					case DW_OP_reg12:
+					case DW_OP_reg13:
+					case DW_OP_reg14:
+					case DW_OP_reg15:
+					case DW_OP_reg16:
+					case DW_OP_reg17:
+					case DW_OP_reg18:
+					case DW_OP_reg19:
+					case DW_OP_reg20:
+					case DW_OP_reg21:
+					case DW_OP_reg22:
+					case DW_OP_reg23:
+					case DW_OP_reg24:
+					case DW_OP_reg25:
+					case DW_OP_reg26:
+					case DW_OP_reg27:
+					case DW_OP_reg28:
+					case DW_OP_reg29:
+					case DW_OP_reg30:
+					case DW_OP_reg31:
+					{
+						/* the reg family just get the contents of the register */
+						if (!p_regs) goto logic_error;
+						int regnum = i->lr_atom - DW_OP_reg0;
+						m_stack.push(p_regs->get(regnum));
+					} break;
+					
 					default:
 						std::cerr << "Error: unrecognised opcode: " << spec.op_lookup(i->lr_atom) << std::endl;
 						assert(false);

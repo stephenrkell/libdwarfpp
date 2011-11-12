@@ -16,13 +16,22 @@ PROGS := $(patsubst %.cpp,%,$(SRC))
 default: $(PROGS)
 
 # cancel builtin rules for building executables
-%: %.o
+$(PROGS): %: %.o
 
-%: %.cpp
+$(PROGS): %: %.cpp
 
 .PHONY: test
 test: dwarfppdump 
 	./dwarfppdump ./dwarfppdump >/dev/null
+
+# We link this in a weird way, so that ltrace -l/path/to/libdwarf.so works.
+# And we use ltrace ( to optimise 
+dwarfpplibdump: dwarfpplibdump.o ../src/libdwarfpp.a
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) \
+	-Wl,-R$(realpath ../src) \
+	-o "$@" "$<" ../src/libdwarfpp.a -ldwarf -lelf -lsrk31c++ -lboost_regex -lc++fileno
+
+
 
 # our builtin depends on our library
 %: %.o ../src/libdwarfpp.so

@@ -1,6 +1,14 @@
 optimisation:
 make dwarfpplibdump comparable to dwarfdump
-make lib::basic_die use inheritance (sane; like encap) 
+consider avoiding some shared_ptr copies by using const... & ?
+
+What was my rationale for using shared_ptr in the first place?
+- did it make the depthfirst stuff easier?
+Can we model the libdwarf approach closer?
+- i.e. copying Dwarf_Dies around is presumably possible
+- BUT they include no bookkeeping (shared count)...
+- ... so the programmer must track copies (not what we want)
+- intrusive_ptr might therefore be the best we can do?
 
 API changes: 
 remove boost::optional from shared_ptr 
@@ -53,3 +61,75 @@ make operator* on iterators dereference pointers too? arguments...
  -- possibly YES, making iterators the *only* public interface, but this is a big change;
     for now NO; the user should understand it as a container of pointers
 	BUT this is a future-work API change
+
+a similar theme: refactoring the pointer/iterator split:
+
+libdwarf gives us handles that are
+- freely copyable
+- not backwards-navigable
+- need manual bookkeeping of copies
+
+dwarf::lib turns these into handles that are
+- not copyable
+- backwards navigable, slowly
+- RAII
+
+but the only way to make these copyable 
+... without giving up on automatic resource management
+is to make them handle/body
+- question is how to do this
+  while avoiding too much heap allocation/deallocation
+             and too many libdwarf die/release calls
+
+shared_ptrs to these are 
+- copyable
+
+iterators are
+- copyable
+- cheaply backwards-navigable
+- lazy about gaining underlying DIE resources
+... but do so on any navigation! and then release them again?!
+
+so I think the main win would be to support navigation without
+superfluous creation of new DIEs
+
+at the moment, iterator ++ will
+- create a new lib::die,
+  get its offset,
+  store the offset in the iterator
+  destroy the DIE
+  
+then when we access it, we will go back to libdwarf and get the DIE
+
+we might instead want an invariant where
+every iterator also has a pointer to a lib::die
+and when we do ++ on an iterator,
+we keep a pointer to the new DIE
+
+nontrivial consequences: at the moment we typically pass shared_ptrs
+by value. 
+if we do this to our combined iterator/pointer, it means that 
+any methods that take shared_ptr arguments
+will get a copy of the shared_ptr piece of our iterator,
+but not the iterator part.
+if they subsequently do any navigation,
+it will happen the old/slow way.
+but I think it will still work.
+
+HOWEVER, we do want to deprecate the navigation interface
+on the basic_die. Perhaps we can arrange for a compiler warning
+on using the old interface? __attribute__((deprecated))?
+
+handle printing by splitting parent printout into iterator <<
+
+"position 0x , child of 0x, contains " "DIE, ...
+
+
+
+
+depthfirst navigation in libdwarfpp: a history
+
+depthfirst encapsulation in first encap impl
+depthfirst treewalker templates added soon after
+depthfirst traversal in DIE
+depthfirst iterator rewrite

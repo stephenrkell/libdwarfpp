@@ -1,13 +1,13 @@
 /* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
  * 
- * encap.hpp: transparently-allocated, mutable representations 
+ * encap.hpp: transparent, mutable representations 
  *			of libdwarf-like structures.
  *
- * Copyright (c) 2008--9, Stephen Kell.
+ * Copyright (c) 2008--11, Stephen Kell.
  */
 
-#ifndef __DWARFPP_ENCAP_HPP
-#define __DWARFPP_ENCAP_HPP
+#ifndef DWARFPP_ENCAP_HPP_
+#define DWARFPP_ENCAP_HPP_
 
 #include "spec.hpp"
 #include "lib.hpp"
@@ -894,15 +894,15 @@ namespace dwarf {
 					retval &= is_valid;
 					if (!is_valid)
 					{
-#define CAST_TO_DIE(arg) \
-	boost::dynamic_pointer_cast<encap::die, spec::basic_die>(arg)
 						std::cerr << "Warning: referential integrity violation in dieset: "
 							<< "attribute " 
 							<< this->get_ds().get_spec().attr_lookup(i->first)
 							<< " refers to nonexistent DIE offset 0x" << std::hex << target
-							<< " in " << *(CAST_TO_DIE(this->get_ds()[i->second.get_ref().referencing_off]))
+							<< " in " 
+							<< *dynamic_pointer_cast<encap::die, spec::basic_die>(
+								this->get_ds()[i->second.get_ref().referencing_off]
+								)
 							<< std::endl;
-#undef CAST_TO_DIE
 					}
 				}
 				return retval;

@@ -83,9 +83,26 @@ namespace dwarf
             	const spec::abstract_def& spec = spec::dwarf3) 
             : spec(spec), hipc(hipc), lopc(lopc)
 			{
-				Dwarf_Unsigned *iter = &arr[0];
+				initialize_from_opcode_array(&arr[0], &arr[s], lopc, hipc, spec);
+			}
+			
+			template <class In>
+			loc_expr(In begin, In end, Dwarf_Addr lopc, Dwarf_Addr hipc,
+				const spec::abstract_def& spec = spec::dwarf3) 
+			: spec(spec), hipc(hipc), lopc(lopc)
+			{
+				initialize_from_opcode_array(begin, end, lopc, hipc, spec);
+			}
+		private:
+			template <class In>
+			void initialize_from_opcode_array(In begin, In end,
+				Dwarf_Addr lopc, Dwarf_Addr hipc,
+				const spec::abstract_def& spec) 
+			{
+				//size_t s = end - begin;
+				auto iter = begin; // &arr[0];
 				Dwarf_Unsigned next_offset = 0U;
-				while (iter < arr + s)
+				while (iter < /* arr + s */ end)
 				{
 					Dwarf_Loc loc;
 					loc.lr_offset = next_offset;
@@ -118,6 +135,7 @@ namespace dwarf
 					/*m_expr.*/push_back(loc);
 				}
 			}
+		public:
 			bool operator==(const loc_expr& e) const 
 			{ 
 				//expr_instr e1; expr_instr e2;
@@ -153,6 +171,7 @@ namespace dwarf
 			}
 			// would ideally repeat all vector constructors
 			template <class In> loclist(In first, In last) : std::vector<loc_expr>(first, last) {}
+			loclist(const std::vector<loc_expr>& v) : std::vector<loc_expr>(v) {}
 			loclist(const loc_expr& loc) : std::vector<loc_expr>(1, loc) {}
 			//bool operator==(const loclist& oll) const { return *this == oll; }
 			//bool operator!=(const loclist& oll) const { return !(*this == oll); }
