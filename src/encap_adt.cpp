@@ -35,8 +35,8 @@ case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(ds, d, par
 	        }
 			shared_ptr<basic_die>
 			create_die(Dwarf_Half tag, shared_ptr<basic_die> parent,
-				boost::optional<const std::string&> die_name 
-					/* = boost::optional<const std::string&>()*/) const
+				opt<const std::string&> die_name 
+					/* = opt<const std::string&>()*/) const
 			{
                 switch(tag)
                 {

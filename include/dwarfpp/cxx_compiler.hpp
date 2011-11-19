@@ -15,6 +15,7 @@ namespace dwarf
 	namespace tool
     {
     	using namespace dwarf::lib;
+		using boost::dynamic_pointer_cast;
     	class cxx_compiler
         {
             /* Mainly as support for dwarfhpp, this class supports discovering
@@ -181,10 +182,10 @@ namespace dwarf
 					else return 
 						boost::dynamic_pointer_cast<spec::pointer_type_die>(source)
 							->get_type()
-						&& fq_name_for(*boost::dynamic_pointer_cast<spec::pointer_type_die>(source)
+						&& fq_name_for(dynamic_pointer_cast<spec::pointer_type_die>(source)
 							->get_type()) 
 							== 
-							fq_name_for(*boost::dynamic_pointer_cast<spec::pointer_type_die>(dest)
+							fq_name_for(dynamic_pointer_cast<spec::pointer_type_die>(dest)
 							->get_type());
 				}
 				
@@ -194,15 +195,15 @@ namespace dwarf
 			bool cxx_is_complete_type(boost::shared_ptr<spec::type_die> t)
 			{
 				if (t->get_tag() == DW_TAG_typedef && 
-					!boost::dynamic_pointer_cast<spec::typedef_die>(t)->get_type())
+					!dynamic_pointer_cast<spec::typedef_die>(t)->get_type())
 				{
 					return false;
 				}
 				if (t->get_tag() == DW_TAG_array_type)
 				{
-					if (!boost::dynamic_pointer_cast<spec::array_type_die>(t)
+					if (!dynamic_pointer_cast<spec::array_type_die>(t)
 						->element_count()
-					|| *boost::dynamic_pointer_cast<spec::array_type_die>(t)
+					|| *dynamic_pointer_cast<spec::array_type_die>(t)
 						->element_count() == 0)
 					{
 						return false;
@@ -210,22 +211,22 @@ namespace dwarf
 					else return true;
 				}
 				// if we're structured, we're complete iff all members are complete
-				if (boost::dynamic_pointer_cast<spec::with_named_children_die>(t))
+				if (dynamic_pointer_cast<spec::with_named_children_die>(t))
 				{
-					auto nc = boost::dynamic_pointer_cast<spec::with_named_children_die>(t);
+					auto nc = dynamic_pointer_cast<spec::with_named_children_die>(t);
 					std::cerr << "DEBUG: testing completeness of cxx type for " << *t << std::endl;
 					for (auto i_member = t->children_begin(); 
 						i_member != t->children_end();
 						i_member++)
 					{
 						if ((*i_member)->get_tag() != DW_TAG_member) continue;
-						auto memb = boost::dynamic_pointer_cast<spec::member_die>(*i_member);
+						auto memb = dynamic_pointer_cast<spec::member_die>(*i_member);
 						auto memb_opt_type = memb->get_type();
 						if (!memb_opt_type)
 						{
 							return false;
 						}
-						if (!cxx_is_complete_type(*memb_opt_type))
+						if (!cxx_is_complete_type(memb_opt_type))
 						{
 							return false;
 						}

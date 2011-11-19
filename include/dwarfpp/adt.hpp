@@ -30,6 +30,7 @@ namespace dwarf
     {
 		using boost::dynamic_pointer_cast;
 		using boost::shared_ptr;
+		using dwarf::spec::opt; // FIXME: put this in a different namespace
 	
     	typedef spec::abstract_dieset abstract_dieset;
         class dieset;
@@ -74,7 +75,7 @@ namespace dwarf
             Dwarf_Off get_first_child_offset() const;
             boost::shared_ptr<spec::basic_die> get_next_sibling();
             Dwarf_Off get_next_sibling_offset() const;
-            boost::optional<std::string> get_name() const;
+            opt<std::string> get_name() const;
             const spec::abstract_def& get_spec() const;
             abstract_dieset& get_ds();
             const abstract_dieset& get_ds() const;
@@ -115,7 +116,7 @@ namespace dwarf
             boost::shared_ptr<spec::basic_die> get_first_child(); 
             Dwarf_Off get_first_child_offset() const;
        		Dwarf_Off get_next_sibling_offset() const;
-            boost::optional<std::string> get_name() const { return 0; }
+            opt<std::string> get_name() const { return 0; }
             const spec::abstract_def& get_spec() const { assert(p_spec); return *p_spec; }
 			Dwarf_Half get_address_size_for_cu(shared_ptr<compile_unit_die> cu) const;
 			
@@ -261,12 +262,12 @@ namespace dwarf
 #define stored_type_rangelist dwarf::encap::rangelist
 
 #define attr_optional(name, stored_t) \
-	boost::optional<stored_type_ ## stored_t> get_ ## name() const \
+	opt<stored_type_ ## stored_t> get_ ## name() const \
     { Dwarf_Bool has; if (this->hasattr(DW_AT_ ## name, &has), has) { \
     attribute_array arr(*const_cast<lib::die*>(static_cast<const lib::die*>(this))); \
     attribute a = arr[DW_AT_ ## name]; \
     return encap::attribute_value(*this->p_ds, a).get_ ## stored_t (); } \
-    else return boost::optional<stored_type_ ## stored_t>(); }
+    else return opt<stored_type_ ## stored_t>(); }
 
 #define super_attr_optional(name, stored_t) attr_optional(name, stored_t)
 

@@ -423,18 +423,24 @@ namespace boost
 //         );
 		auto u_all_refs = u->all_refs_dfs_seq();
 		return std::make_pair(
-			boost::make_filter_iterator(
-				dwarf::encap::ref_points_under_bound_t(std::bind2nd(dwarf::encap::ref_points_under, 
-					const_cast<dwarf::encap::basic_die *>(&g))), 
-				u_all_refs->begin(), 
-				u_all_refs->end()
+			boost::make_transform_iterator(
+				boost::make_filter_iterator(
+					dwarf::encap::ref_points_under_bound_t(std::bind2nd(dwarf::encap::ref_points_under, 
+						const_cast<dwarf::encap::basic_die *>(&g))), 
+					u_all_refs->begin(), 
+					u_all_refs->end()
 				),
-			boost::make_filter_iterator(
-				dwarf::encap::ref_points_under_bound_t(std::bind2nd(dwarf::encap::ref_points_under, 
-					const_cast<dwarf::encap::basic_die *>(&g))), 
-				u_all_refs->end(), 
-				u_all_refs->end()
-				)
+				graph_traits<dwarf::encap::basic_die>::get_ref_t()
+			),
+			boost::make_transform_iterator(
+				boost::make_filter_iterator(
+					dwarf::encap::ref_points_under_bound_t(std::bind2nd(dwarf::encap::ref_points_under, 
+						const_cast<dwarf::encap::basic_die *>(&g))), 
+					u_all_refs->end(), 
+					u_all_refs->end()
+				),
+				graph_traits<dwarf::encap::basic_die>::get_ref_t()
+			)
 		);
 
     }

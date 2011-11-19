@@ -360,9 +360,14 @@ namespace dwarf
 				fail:
 				default:
 					// FIXME: we failed to case-catch, or handle, the FORM; do something
-					std::cerr << "FIXME: didn't know how to handle an attribute of form "
-						<< ds.toplevel()->get_spec().form_lookup(orig_form) << std::endl;
-					assert(false);
+					std::cerr << "FIXME: didn't know how to handle an attribute "
+						<< "numbered 0x" << std::hex << attr << std::dec << " of form "
+						<< ds.toplevel()->get_spec().form_lookup(orig_form) 
+						<< ", skipping." << std::endl;
+					throw Not_supported("unrecognosed attribute");
+					/* NOTE: this Not_supportd doesn't happen in some cases, because often
+					 * we have successfully guessed an interp:: class for the attribute
+					 * anyway. FIXME: remember how this works, and see if we can do better. */
 					break;
 			}
 		}

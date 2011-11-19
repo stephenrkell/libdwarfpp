@@ -9,6 +9,8 @@
 
 #include "adt.hpp"
 
+using boost::dynamic_pointer_cast;
+
 namespace dwarf { namespace tool {
 	cxx_compiler::cxx_compiler() : compiler_argv(1, std::string("c++")) 
     {
@@ -121,7 +123,7 @@ namespace dwarf { namespace tool {
                 //std::cerr << "Found a base type!" << std::endl << **i_bt 
                 //	<< ", name " << *((*i_bt)->get_name()) << std::endl;
 		        base_types.insert(std::make_pair(
-                    base_type(boost::dynamic_pointer_cast<spec::base_type_die>(i_bt)),
+                    base_type(dynamic_pointer_cast<spec::base_type_die>(i_bt)),
                     *i_bt->get_name()));
             }
 	    }
@@ -166,9 +168,9 @@ namespace dwarf { namespace tool {
             ||  p_d->get_tag() == DW_TAG_array_type
             || 
             (p_d->get_tag() == DW_TAG_pointer_type &&
-                boost::dynamic_pointer_cast<spec::pointer_type_die>(p_d)->get_type()
+                dynamic_pointer_cast<spec::pointer_type_die>(p_d)->get_type()
                 && 
-                (*boost::dynamic_pointer_cast<spec::pointer_type_die>(p_d)->get_type())
+                dynamic_pointer_cast<spec::pointer_type_die>(p_d)->get_type()
                     ->get_tag()	== DW_TAG_subroutine_type);
 	}            
 
@@ -224,39 +226,39 @@ namespace dwarf { namespace tool {
         {
     	    // return the friendly compiler-determined name or not, depending on argument
     	    case DW_TAG_base_type:
-	            return local_name_for(boost::dynamic_pointer_cast<spec::base_type_die>(p_d),
+	            return local_name_for(dynamic_pointer_cast<spec::base_type_die>(p_d),
                 	use_friendly_names);
             case DW_TAG_typedef:
         	    return *p_d->get_name();
             case DW_TAG_pointer_type: {
         	    boost::shared_ptr<spec::pointer_type_die> pointer 
-                 = boost::dynamic_pointer_cast<spec::pointer_type_die>(p_d);
+                 = dynamic_pointer_cast<spec::pointer_type_die>(p_d);
                 if (pointer->get_type())
                 {
-            	    if ((*pointer->get_type())->get_tag() == DW_TAG_subroutine_type)
+            	    if (pointer->get_type()->get_tag() == DW_TAG_subroutine_type)
                     {
                 	    // we have a pointer to a subroutine type -- pass on the infix name
                 	    return cxx_declarator_from_type_die(
-                            *pointer->get_type(), infix_typedef_name);
+                            pointer->get_type(), infix_typedef_name);
                     }
-                    else return cxx_declarator_from_type_die(*pointer->get_type()) + "*";
+                    else return cxx_declarator_from_type_die(pointer->get_type()) + "*";
                 }
                 else return "void *";
             }
             case DW_TAG_array_type: {
                 // we only understand C arrays, for now
-                int language = boost::dynamic_pointer_cast<spec::type_die>(p_d)
+                int language = dynamic_pointer_cast<spec::type_die>(p_d)
                     ->enclosing_compile_unit()->get_language();
         	    assert(language == DW_LANG_C89 
                     || language == DW_LANG_C 
                     || language == DW_LANG_C99);
         	    boost::shared_ptr<spec::array_type_die> arr
-                 = boost::dynamic_pointer_cast<spec::array_type_die>(p_d);
+                 = dynamic_pointer_cast<spec::array_type_die>(p_d);
 			    // calculate array size, if we have a subrange type
                 auto array_size = arr->element_count();
                 std::ostringstream arrsize; 
                 if (array_size) arrsize << *array_size;
-        	    return cxx_declarator_from_type_die(*arr->get_type())
+        	    return cxx_declarator_from_type_die(arr->get_type())
                     + " " + (infix_typedef_name ? *infix_typedef_name : "") + "[" 
                     // add size, if we have a subrange type
                     + arrsize.str()
@@ -265,10 +267,10 @@ namespace dwarf { namespace tool {
             case DW_TAG_subroutine_type: {
         	    std::ostringstream s;
                 boost::shared_ptr<spec::subroutine_type_die> subroutine_type 
-                 = boost::dynamic_pointer_cast<spec::subroutine_type_die>(p_d);
+                 = dynamic_pointer_cast<spec::subroutine_type_die>(p_d);
         	    s << (subroutine_type->get_type() 
                     ? cxx_declarator_from_type_die(
-                        *subroutine_type->get_type()) 
+                        subroutine_type->get_type()) 
                     : std::string("void "));
                 s << "(*" << (infix_typedef_name ? *infix_typedef_name : "")
             	    << ")(";
@@ -281,8 +283,7 @@ namespace dwarf { namespace tool {
                         {
                 	        case DW_TAG_formal_parameter:
                     	        s << cxx_declarator_from_type_die( 
-		                               *boost::dynamic_pointer_cast<spec::formal_parameter_die>(i)
-                                        ->get_type());
+		                         dynamic_pointer_cast<spec::formal_parameter_die>(i)->get_type());
                                 break;
                             case DW_TAG_unspecified_parameters:
                     	        s << "...";
@@ -297,13 +298,13 @@ namespace dwarf { namespace tool {
             case DW_TAG_const_type: {
 				/* Note that many DWARF emitters record C/C++ "const void" (as in "const void *")
 				 * as a const type with no "type" attribute. So handle this case. */
-        	    auto chained_type =  boost::dynamic_pointer_cast<spec::const_type_die>(p_d)->get_type();
-				return "const " + (chained_type ? cxx_declarator_from_type_die(*chained_type) : " void ");
+        	    auto chained_type =  dynamic_pointer_cast<spec::const_type_die>(p_d)->get_type();
+				return "const " + (chained_type ? cxx_declarator_from_type_die(chained_type) : " void ");
 				}
             case DW_TAG_volatile_type: {
 				/* Ditto as for const_type. */
-        	    auto chained_type =  boost::dynamic_pointer_cast<spec::volatile_type_die>(p_d)->get_type();
-				return "volatile " + (chained_type ? cxx_declarator_from_type_die(*chained_type) : " void ");
+        	    auto chained_type =  dynamic_pointer_cast<spec::volatile_type_die>(p_d)->get_type();
+				return "volatile " + (chained_type ? cxx_declarator_from_type_die(chained_type) : " void ");
 				}
             case DW_TAG_structure_type:
         	    name_prefix = "struct ";

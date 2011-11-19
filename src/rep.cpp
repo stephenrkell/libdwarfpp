@@ -74,7 +74,7 @@ namespace dwarf
 				{ return false; }
 				
 				if (!like_named_member->get_type() || !(*i_member)->get_type()
-				|| !(*like_named_member->get_type())->is_rep_compatible(*(*i_member)->get_type()))
+				|| !like_named_member->get_type()->is_rep_compatible((*i_member)->get_type()))
 				{ return false; }
 				
 				// else we're good so far
@@ -110,7 +110,7 @@ namespace dwarf
 			return this->calculate_byte_size() && arg_array_type->calculate_byte_size()
 				&& *this->calculate_byte_size() == *arg_array_type->calculate_byte_size()
 				&& this->get_type() && arg_array_type->get_type()
-				&& (*this->get_type())->is_rep_compatible(*arg_array_type->get_type());
+				&& this->get_type()->is_rep_compatible(arg_array_type->get_type());
 		}
 		bool pointer_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
@@ -187,8 +187,8 @@ namespace dwarf
 			if (!arg_enumeration_type && !arg_base_type) return false;
 			if (arg_enumeration_type) 
 				return this->get_type() && arg_enumeration_type->get_type()
-				 && (*this->get_type())->is_rep_compatible(*arg_enumeration_type->get_type());
-			else return (*this->get_type())->is_rep_compatible(arg_base_type);
+				 && this->get_type()->is_rep_compatible(arg_enumeration_type->get_type());
+			else return this->get_type()->is_rep_compatible(arg_base_type);
 		}
 		bool subroutine_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{

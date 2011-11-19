@@ -23,13 +23,13 @@ namespace dwarf
         boost::shared_ptr<basic_die> basic_die::get_this() const
         { return this->get_ds()[this->get_offset()]; }
 
-        boost::optional<std::vector<std::string> >
+        opt<std::vector<std::string> >
         basic_die::ident_path_from_root() const
         {
             if (get_offset() == 0) return std::vector<std::string>(); // empty
             else if (get_name())
             {
-	            boost::optional<std::vector<std::string> > built 
+	            opt<std::vector<std::string> > built 
                  = const_cast<basic_die*>(this)->get_parent()->ident_path_from_root();
                 if (!built) return 0;
                 else
@@ -41,7 +41,7 @@ namespace dwarf
             else return 0;
         }
 
-        boost::optional<std::vector<std::string> >
+        opt<std::vector<std::string> >
         basic_die::ident_path_from_cu() const
         {
             if (get_offset() == 0) return 0; // error
@@ -49,7 +49,7 @@ namespace dwarf
             else if (get_name()) // recursive case
             {
                 // try to build our parent's path
-	            boost::optional<std::vector<std::string> >
+	            opt<std::vector<std::string> >
                     built = const_cast<basic_die*>(this)->get_parent()->ident_path_from_cu();
                 if (!built) return 0;
                 else // success, so just add our own name to the path
@@ -61,28 +61,28 @@ namespace dwarf
             else return 0; // error -- we have no name
         }
 
-		std::vector< boost::optional<std::string> >
+		std::vector< opt<std::string> >
 		basic_die::opt_ident_path_from_root() const
 		{
-			if (get_offset() == 0) return std::vector<boost::optional<std::string> >(); // empty
+			if (get_offset() == 0) return std::vector<opt<std::string> >(); // empty
 			else 
 			{
 				// assert that we have a parent but it's not us
 				assert(this->get_parent() && this->get_parent()->get_offset() != get_offset());
-				std::vector< boost::optional<std::string> > built 
+				std::vector< opt<std::string> > built 
 				 = const_cast<basic_die*>(this)->get_parent()->opt_ident_path_from_root();
 				built.push_back(get_name());
 				return built;
 			}
 		}
 
-		std::vector < boost::optional<std::string> >
+		std::vector < opt<std::string> >
 		basic_die::opt_ident_path_from_cu() const
 		{
-			if (get_offset() == 0) return std::vector < boost::optional<std::string> >(); // error
+			if (get_offset() == 0) return std::vector < opt<std::string> >(); // error
 			if (get_tag() == DW_TAG_compile_unit)
 			{
-				return std::vector<boost::optional<std::string> >(); // empty
+				return std::vector<opt<std::string> >(); // empty
 			}
 			else // recursive case
 			{
@@ -95,7 +95,7 @@ namespace dwarf
 				}
 				assert(this->get_parent() && this->get_parent()->get_offset() != get_offset());
 				// try to build our parent's path
-				std::vector< boost::optional< std::string> >
+				std::vector< opt< std::string> >
 				built = const_cast<basic_die*>(this)->get_parent()->opt_ident_path_from_cu();
 				built.push_back(get_name());
 				return built;
@@ -159,7 +159,10 @@ namespace dwarf
         
         std::ostream& operator<<(std::ostream& o, const ::dwarf::spec::basic_die& d)
         {
-			o 	/*<< "DIE, child of 0x" 
+			/* we skip printing parents until navigation makes this not ridiculously
+			   expensive. */
+			
+			o 	<< "DIE" /*child of 0x" 
             	<< std::hex << ((d.get_parent()) 
                 				? d.get_parent()->get_offset()
 			                	: 0UL)
@@ -212,7 +215,7 @@ namespace dwarf
 			return s;
 		}
 /* from spec::with_static_location_die */
-		boost::optional<Dwarf_Off> // returns *offset within the element*
+		opt<Dwarf_Off> // returns *offset within the element*
         with_static_location_die::contains_addr(Dwarf_Addr file_relative_address,
         	sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
 			void *arg /* = 0 */) const
@@ -227,7 +230,7 @@ namespace dwarf
             // but both locals and globals show up with DW_TAG_variable.
             if (this->get_tag() == DW_TAG_variable &&
             	!dynamic_cast<const variable_die *>(this)->has_static_storage())
-                return boost::optional<Dwarf_Off>();
+                return opt<Dwarf_Off>();
 
             auto found_low_pc = attrs.find(DW_AT_low_pc);
             auto found_high_pc = attrs.find(DW_AT_high_pc);
@@ -246,7 +249,7 @@ namespace dwarf
                 {
                 	return file_relative_address - found_low_pc->second.get_address();
                 }
-                else return boost::optional<Dwarf_Off>();
+                else return opt<Dwarf_Off>();
 			}
             else if (found_ranges != attrs.end())
             {
@@ -259,7 +262,7 @@ namespace dwarf
              	auto range_found = rangelist.find_addr(
                  	file_relative_address /*- 
                      *(nonconst_this->enclosing_compile_unit()->get_low_pc())*/);
-                 if (!range_found) return boost::optional<Dwarf_Off>();
+                 if (!range_found) return opt<Dwarf_Off>();
                  else 
                  {
                  	return range_found->first;
@@ -299,7 +302,7 @@ namespace dwarf
 	                 * we don't have one of those. */
                     assert(this->get_tag() != DW_TAG_subprogram);
                     auto found_type = attrs.find(DW_AT_type);
-                    if (found_type == attrs.end()) return boost::optional<Dwarf_Off>();
+                    if (found_type == attrs.end()) return opt<Dwarf_Off>();
                     else
                     {
                     	auto calculated_byte_size = boost::dynamic_pointer_cast<spec::type_die>(
@@ -352,7 +355,7 @@ namespace dwarf
                     {
                     	// slight HACK: assume objects located only by DW_AT_linkage_address...
                         // ... are contiguous in memory
-                	    return boost::optional<Dwarf_Off>(
+                	    return opt<Dwarf_Off>(
                         	file_relative_address -
                             	binding.file_relative_start_addr);
                     }
@@ -364,7 +367,7 @@ namespace dwarf
                     	<< " for DIE " << *this << std::endl;
                 }
             }
-            return boost::optional<Dwarf_Off>();
+            return opt<Dwarf_Off>();
         }
 /* helpers */        
         static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc, Dwarf_Addr high_pc);
@@ -411,7 +414,7 @@ namespace dwarf
             }
         } 
 /* from spec::subprogram_die */
-		boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >
+		opt< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >
         subprogram_die::contains_addr_as_frame_local_or_argument( 
             	    Dwarf_Addr absolute_addr, 
                     Dwarf_Off dieset_relative_ip, 
@@ -447,13 +450,13 @@ namespace dwarf
                 	*i_bfs);
                 if (!with_stack_loc) continue;
                 
-                boost::optional<Dwarf_Off> result = with_stack_loc->contains_addr(absolute_addr,
+                opt<Dwarf_Off> result = with_stack_loc->contains_addr(absolute_addr,
                 	frame_base_addr,
                     dieset_relative_ip,
                     p_regs);
                 if (result) return std::make_pair(*result, with_stack_loc);
             }
-            return boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >();
+            return opt< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >();
         }
         bool subprogram_die::is_variadic() const
         {
@@ -501,7 +504,7 @@ namespace dwarf
 		}
 
 /* from spec::with_dynamic_location_die */
-		boost::optional<Dwarf_Off> with_dynamic_location_die::contains_addr_on_stack(
+		opt<Dwarf_Off> with_dynamic_location_die::contains_addr_on_stack(
                     Dwarf_Addr absolute_addr,
                     Dwarf_Signed frame_base_addr,
                     Dwarf_Off dieset_relative_ip,
@@ -524,11 +527,11 @@ namespace dwarf
             {
  				return absolute_addr - base_addr;
             }
-            return boost::optional<Dwarf_Off>();
+            return opt<Dwarf_Off>();
         }
 		
 /* from spec::with_dynamic_location_die */
-		boost::optional<Dwarf_Off> with_dynamic_location_die::contains_addr_in_object(
+		opt<Dwarf_Off> with_dynamic_location_die::contains_addr_in_object(
                     Dwarf_Addr absolute_addr,
                     Dwarf_Signed object_base_addr,
                     Dwarf_Off dieset_relative_ip,
@@ -544,7 +547,7 @@ namespace dwarf
             {
  				return absolute_addr - base_addr;
             }
-            return boost::optional<Dwarf_Off>();
+            return opt<Dwarf_Off>();
         }
 /* from spec::with_dynamic_location_die */
 		Dwarf_Addr 
@@ -615,7 +618,7 @@ namespace dwarf
             return scoped_resolve(multipart_name.begin(), multipart_name.end());
         }
 /* from spec::compile_unit_die */
-		boost::optional<Dwarf_Unsigned> compile_unit_die::implicit_array_base() const
+		opt<Dwarf_Unsigned> compile_unit_die::implicit_array_base() const
         {
         	switch(this->get_language())
             {
@@ -624,21 +627,21 @@ namespace dwarf
                 case DW_LANG_C89:
                 case DW_LANG_C_plus_plus:
                 case DW_LANG_C99:
-                	return boost::optional<Dwarf_Unsigned>(0UL);
+                	return opt<Dwarf_Unsigned>(0UL);
                 case DW_LANG_Fortran77:
                 case DW_LANG_Fortran90:
                 case DW_LANG_Fortran95:
-                	return boost::optional<Dwarf_Unsigned>(1UL);
+                	return opt<Dwarf_Unsigned>(1UL);
                 default:
-                	return boost::optional<Dwarf_Unsigned>();
+                	return opt<Dwarf_Unsigned>();
             }
         }
 /* from spec::type_die */
-        boost::optional<Dwarf_Unsigned> type_die::calculate_byte_size() const
+        opt<Dwarf_Unsigned> type_die::calculate_byte_size() const
         {
-        	//return boost::optional<Dwarf_Unsigned>();
+        	//return opt<Dwarf_Unsigned>();
             if (this->get_byte_size()) return *this->get_byte_size();
-            else return boost::optional<Dwarf_Unsigned>();
+            else return opt<Dwarf_Unsigned>();
 		}
         boost::shared_ptr<type_die> type_die::get_concrete_type() const
         {
@@ -651,12 +654,12 @@ namespace dwarf
         	return const_cast<const type_die *>(this)->get_concrete_type();
         }
 /* from spec::type_chain_die */
-        boost::optional<Dwarf_Unsigned> type_chain_die::calculate_byte_size() const
+        opt<Dwarf_Unsigned> type_chain_die::calculate_byte_size() const
         {
         	// Size of a type_chain is always the size of its concrete type
             // which is *not* to be confused with its pointed-to type!
         	if (this->get_concrete_type()) return this->get_concrete_type()->calculate_byte_size();
-            else return boost::optional<Dwarf_Unsigned>();
+            else return opt<Dwarf_Unsigned>();
 		}
         boost::shared_ptr<type_die> type_chain_die::get_concrete_type() const
         {
@@ -669,14 +672,14 @@ namespace dwarf
             	return //boost::dynamic_pointer_cast<type_die>(get_this()); // broken chain
 					boost::shared_ptr<type_die>();
             }
-            else return (*const_cast<type_chain_die*>(this)->get_type())->get_concrete_type();
+            else return const_cast<type_chain_die*>(this)->get_type()->get_concrete_type();
         }
 /* from spec::pointer_type_die */  
         boost::shared_ptr<type_die> pointer_type_die::get_concrete_type() const 
         {
         	return boost::dynamic_pointer_cast<pointer_type_die>(get_this()); 
         }
-        boost::optional<Dwarf_Unsigned> pointer_type_die::calculate_byte_size() const 
+        opt<Dwarf_Unsigned> pointer_type_die::calculate_byte_size() const 
         {
         	assert(this->get_byte_size()); return this->get_byte_size();
         }
@@ -685,15 +688,15 @@ namespace dwarf
         {
         	return boost::dynamic_pointer_cast<reference_type_die>(get_this()); 
         }
-        boost::optional<Dwarf_Unsigned> reference_type_die::calculate_byte_size() const 
+        opt<Dwarf_Unsigned> reference_type_die::calculate_byte_size() const 
         {
         	assert(this->get_byte_size()); return this->get_byte_size();
         }
 /* from spec::array_type_die */
-		boost::optional<Dwarf_Unsigned> array_type_die::element_count() const
+		opt<Dwarf_Unsigned> array_type_die::element_count() const
         {
         	assert(this->get_type());
-            boost::optional<Dwarf_Unsigned> count;
+            opt<Dwarf_Unsigned> count;
             
 			try
             {
@@ -718,8 +721,8 @@ namespace dwarf
                             else break; // give up
                             if (!subrange->get_upper_bound()) break; // give up
                             
-                            boost::optional<Dwarf_Unsigned> upper_bound_optional = 
-                            	static_cast<boost::optional<Dwarf_Unsigned> >(
+                            opt<Dwarf_Unsigned> upper_bound_optional = 
+                            	static_cast<opt<Dwarf_Unsigned> >(
                                 	subrange->get_upper_bound());
 
                             assert(*subrange->get_upper_bound() < 10000000); // detects most garbage
@@ -737,14 +740,14 @@ namespace dwarf
             return count;
     	}
 
-        boost::optional<Dwarf_Unsigned> array_type_die::calculate_byte_size() const
+        opt<Dwarf_Unsigned> array_type_die::calculate_byte_size() const
         {
         	assert(this->get_type());
-            boost::optional<Dwarf_Unsigned> count = this->element_count();
-            boost::optional<Dwarf_Unsigned> calculated_byte_size
-             = (*this->get_type())->calculate_byte_size();
+            opt<Dwarf_Unsigned> count = this->element_count();
+            opt<Dwarf_Unsigned> calculated_byte_size
+             = this->get_type()->calculate_byte_size();
             if (count && calculated_byte_size) return *count * *calculated_byte_size;
-            else return boost::optional<Dwarf_Unsigned>();
+            else return opt<Dwarf_Unsigned>();
 		}
 /* from spec::variable_die */        
 		bool variable_die::has_static_storage() const
@@ -780,14 +783,14 @@ namespace dwarf
             return true;
 		}
 /* from spec::member_die */        
-		boost::optional<Dwarf_Unsigned> 
+		opt<Dwarf_Unsigned> 
         member_die::byte_offset_in_enclosing_type() const
         {
         	auto nonconst_this = const_cast<member_die *>(this); // HACK: eliminate
         
         	auto enclosing_type_die = boost::dynamic_pointer_cast<type_die>(
             	this->get_parent());
-            if (!enclosing_type_die) return boost::optional<Dwarf_Unsigned>();
+            if (!enclosing_type_die) return opt<Dwarf_Unsigned>();
             
 			if (!this->get_data_member_location())
 			{
@@ -805,14 +808,14 @@ namespace dwarf
 				) || enclosing_type_die->get_tag() == DW_TAG_union_type)
 				
 				{
-					return boost::optional<Dwarf_Unsigned>(0U);
+					return opt<Dwarf_Unsigned>(0U);
 				}
 				else 
 				{
 					// error
 					std::cerr << "Warning: encountered DWARF type lacking member locations: "
 						<< *enclosing_type_die << std::endl;
-					return boost::optional<Dwarf_Unsigned>();
+					return opt<Dwarf_Unsigned>();
 				}
 			}
 			else if (this->get_data_member_location()->size() != 1)
@@ -820,7 +823,7 @@ namespace dwarf
 				// error
 				std::cerr << "Warning: encountered DWARF type with member locations I didn't understand: "
 					<< *enclosing_type_die << std::endl;
-				return boost::optional<Dwarf_Unsigned>();
+				return opt<Dwarf_Unsigned>();
 			}
 			else
 			{
@@ -831,11 +834,11 @@ namespace dwarf
 			}
         }
 /* from spec::inheritance_die */
-		boost::optional<Dwarf_Unsigned> 
+		opt<Dwarf_Unsigned> 
         inheritance_die::byte_offset_in_enclosing_type() const
         {
         	// FIXME
-            return boost::optional<Dwarf_Unsigned>();
+            return opt<Dwarf_Unsigned>();
         }
     }
     namespace lib
@@ -942,12 +945,12 @@ namespace dwarf
 				assert(retval == DW_DLV_OK), off);
 		}
        
-        optional<string> 
+        opt<string> 
         basic_die::get_name() const
         {
  			string s;
 			int retval = name(&s);
-            if (retval != DW_DLV_OK) return optional<string>(); 
+            if (retval != DW_DLV_OK) return opt<string>(); 
 			return s;
         }
         
@@ -1007,7 +1010,7 @@ namespace dwarf
         }*/
 
 /* from lib::subprogram_die */
-/*       	boost::optional<boost::shared_ptr<spec::basic_die> > 
+/*       	opt<boost::shared_ptr<spec::basic_die> > 
         subprogram_die::get_type() const
         {
         	Dwarf_Off type_off;

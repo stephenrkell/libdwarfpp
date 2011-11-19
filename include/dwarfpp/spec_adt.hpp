@@ -14,23 +14,27 @@
 #include "lib.hpp"
 #include "expr.hpp"
 #include "attr.hpp"
+#include "opt.hpp"
 
 #define NULL_SHARED_PTR(type) boost::shared_ptr<type>()
 
 namespace dwarf
 {
-    // -- FIXME bring abstract_dieset into spec?
+	// -- FIXME bring abstract_dieset into spec?
 	namespace spec 
-    {
-	    using namespace lib;
-        class compile_unit_die;
-        class program_element_die;
-        struct basic_die;
-        struct file_toplevel_die;
+	{
+		using namespace lib;
+		using std::pair;
+		using std::make_pair;
+		
+		class compile_unit_die;
+		class program_element_die;
+		struct basic_die;
+		struct file_toplevel_die;
 		struct member_die;
-        std::ostream& operator<<(std::ostream& s, const basic_die& d);
-        std::ostream& operator<<(std::ostream& s, const abstract_dieset& ds);
-       
+		std::ostream& operator<<(std::ostream& s, const basic_die& d);
+		std::ostream& operator<<(std::ostream& s, const abstract_dieset& ds);
+
 		class abstract_dieset : public boost::enable_shared_from_this<abstract_dieset>
         {
         public:
@@ -242,6 +246,49 @@ namespace dwarf
             struct basic_iterator_base 
             : public position_and_path
             {
+				/* IDEA: if we extend this to include a shared_ptr to a DIE,
+				 * with the invariant that this DIE is always at "position",
+				 * or null if we're at the end,
+				 * then we can perhaps save a lot of inefficient creation of DIEs.
+				 * The traversal policies can update the pointer at the same time.
+				 * This allows them to use the next-sibling, next-child and offset-
+				 * based constructors, which are efficient on libdwarf .
+				 * Currently, we use get_next_child, get_next_sibling, get_parent etc.,
+				 * which are slow, and sometimes resort to dieset::find(), which is very bad.
+				 * 
+				 * Q. How does this interact with the factory?
+				 * A. We shouldn't use the next-sibling, next-child and offset-based
+				 *    constructors directly to make_shared a basic_die, because
+				 *    we generally want to instantiate the class appropriate to the DIE's tag.
+				 *    At the moment, the dieset invokes the factory, within
+				 *    find() or operator[],
+				 *    to encapsulate in a lib::die or encap::die in its ADT class.
+				 *    There is no getting around some indirection here:
+				 *    to identify the appropriate ADT class, we need a lib::die,
+				 *    so we have to either allocate a second lib::die within the ADT class
+				 *    or use a pointer. We go with the first, because on-stack lib::die creation
+				 *    should be fast.
+				 *    Now we need the iterator policy methods
+				 *    (and the cursor-style navigation methods)
+				 *    to be able to invoke the factory directly, asking for
+				 *    next-child, next-sibling, offset, etc.. This means an API change,
+				 *    or excessive friending. Certainly, the iterator implementation now takes
+				 *    on activities that were previously localised in the dieset.
+				 *    Maybe ask the dieset? 
+				 *    "Please update me to the next child, next sibling, DIE at this offset..."?
+				 *    Actually it's just the first two that are new; it already does offdie.
+				 *    AND we want to AVOID offdie, because it doesn't preserve path information!
+				 *    YES. This is key. Although offdie is efficient, it breaks our ability
+				 *    to navigate. This is another reason to remove navigation from basic_die,
+				 *    because providing it is inherently expensive.
+				 * Q. Does this mean we want accessors (of children, reference attributes, ...)
+				 *    to return iterators where they currently return pointers?
+				 * A. This depends on the use-case. In general, children are okay because
+				 *    we already do those through iterators. Reference attributes are a problem
+				 *    because they inherently lose context. So maybe iterator_here is sadly
+				 *    necessary, and parent_cache is still a good idea!
+				 */
+			
             	typedef std::pair<Dwarf_Off, boost::shared_ptr<spec::basic_die> > pair_type;
             	policy& m_policy;
                 bool operator==(const basic_iterator_base& arg) const
@@ -377,178 +424,255 @@ namespace dwarf
 		{ return !(arg1 <= arg2); }
 		inline bool operator>=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
 		{ return arg1 == arg2 || arg1 > arg2; }
-        
-	    struct basic_die : public boost::enable_shared_from_this<basic_die>
-        {
-        	friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
-        
-		    virtual Dwarf_Off get_offset() const = 0;
-            virtual Dwarf_Half get_tag() const = 0;
-            
-            virtual boost::shared_ptr<basic_die> get_parent() = 0;
- 			//boost::shared_ptr<basic_die> get_parent()
-			//{ return this->get_ds().move_up(get_this()); }
-			boost::shared_ptr<basic_die> get_parent() const
-            { return const_cast<basic_die *>(this)->get_parent(); }           
-            
-            virtual boost::shared_ptr<basic_die> get_first_child() = 0;
-			//boost::shared_ptr<basic_die> get_first_child() 
-			//{ return this->get_ds().move_down(get_this()); }
-            boost::shared_ptr<basic_die> get_first_child() const
-            { return const_cast<basic_die *>(this)->get_first_child(); }
-            virtual Dwarf_Off get_first_child_offset() const = 0;
-			//Dwarf_Off get_first_child_offset() const
-			//{ return this->get_ds().move_down(get_this()); }
-            
-			boost::optional<Dwarf_Off> first_child_offset() const
-            { 	try { return this->get_first_child_offset(); } 
-            	catch (No_entry) { return boost::optional<Dwarf_Off>(); } }
-            
-            virtual boost::shared_ptr<basic_die> get_next_sibling() = 0;
-            //boost::shared_ptr<basic_die> get_next_sibling()
-			//{ return this->get_ds().move_right(get_this()); }
-			boost::shared_ptr<basic_die> get_next_sibling() const
-            { return const_cast<basic_die *>(this)->get_next_sibling(); }
-            virtual Dwarf_Off get_next_sibling_offset() const = 0;
-			//Dwarf_Off get_next_sibling_offset() const
-			//{ return this->get_ds().move_right(get_this()); }
-            
-			boost::optional<Dwarf_Off> next_sibling_offset() const
-            { 	try { return this->get_next_sibling_offset(); } 
-            	catch (No_entry) { return boost::optional<Dwarf_Off>(); } }
-            
-            virtual boost::optional<std::string> get_name() const = 0;
-            virtual const spec::abstract_def& get_spec() const = 0;
-
-            virtual const abstract_dieset& get_ds() const
-            { return const_cast<basic_die *>(this)->get_ds(); }
-            virtual abstract_dieset& get_ds() = 0;
-        protected: /* TENTATIVE: we don't want get_ds() used by end users, because
-                    * there is no canonical dieset.... */
-            //virtual const abstract_dieset& get_ds() const
-            //{ return const_cast<basic_die *>(this)->get_ds(); }
-            //virtual abstract_dieset& get_ds() = 0;
+		
+		struct basic_die : public boost::enable_shared_from_this<basic_die>
+		{
+			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
+		
+			virtual Dwarf_Off get_offset() const = 0;
+			virtual Dwarf_Half get_tag() const = 0;
 			
-			// so how do we implement this in the stacking-dieset sense?
-			// we could have an explicit delegation pointer stored here
-			// but better just to use overriding if we can -- how?
-			// subclass, new constructors passing stacking_dieset reference,
-			// override get_ds()... but THEN have to wrap everything s.t. uses the new get_ds
-			// -- better to set up ds dynamically
-			// but then still, requires canonical dieset
-			// that's okay -- master/slave separation
-			// when we add a dieset to the stacking dieset,
-			// we update its master dieset pointer
-			// -- in encap, each die stores an m_ds
-			// -- in lib, each die similarly stores a p_ds
-			// BUT another problem:
-			// encap::dies are computed eagerly
-			// so will already be storing the wrong m_ds
-			// (and it's a reference so you can't change it)
-			
-			// It seems like there should be a name for this problem. 
-			// By including backlinks (a.k.a. contextual knowledge)
-			// in our data structure, we've made it
-			// brittle, because 
-			// changes to that contextual knowledge now require
-			// changes to many places in the source code.
-		public:
+			virtual opt<std::string> get_name() const = 0;
+			virtual const spec::abstract_def& get_spec() const = 0;
 
-            // recover a shared_ptr to this DIE, from a plain this ptr
-            boost::shared_ptr<basic_die> get_this();
-            boost::shared_ptr<basic_die> get_this() const;
+			// recover a shared_ptr to this DIE, from a plain this ptr
+			// -- this is okay, because basic_dies are always refcounted
+			boost::shared_ptr<basic_die> get_this();
+			boost::shared_ptr<basic_die> get_this() const;
 
-			abstract_dieset::iterator 
-            iterator_here(abstract_dieset::policy& pol = abstract_dieset::default_policy_sg)
-            { return abstract_dieset::iterator(
-            	this->get_ds(),
-                this->get_offset(),
-                this->get_ds().find(this->get_offset()).base().path_from_root, 
-                pol); }
-
-            // FIXME: iterator pair //virtual std::pair< > get_children() = 0;
-            
-            abstract_dieset::iterator children_begin() 
-            { 
-                if (first_child_offset()) 
-                {
-                    return this->get_first_child()->iterator_here(
-                        abstract_dieset::siblings_policy_sg);
-                }
-                else
-                {
-                	return this->get_ds().end(abstract_dieset::siblings_policy_sg);
-                }
-            }
-            abstract_dieset::iterator children_end() 
+			// children
+			// FIXME: iterator pair //virtual std::pair< > get_children() = 0;
+			abstract_dieset::iterator children_begin() 
+			{ 
+				if (first_child_offset()) 
+				{
+					return this->get_first_child()->iterator_here(
+						abstract_dieset::siblings_policy_sg);
+				}
+				else
+				{
+					return this->get_ds().end(abstract_dieset::siblings_policy_sg);
+				}
+			}
+			abstract_dieset::iterator children_end() 
 			{ return this->get_ds().end(abstract_dieset::siblings_policy_sg); }
+			
+			pair<abstract_dieset::iterator, abstract_dieset::iterator>
+			children()
+			{ return make_pair(children_begin(), children_end()); }
 
-        protected: // public interface is to downcast
-            virtual std::map<Dwarf_Half, encap::attribute_value> get_attrs() = 0;
-            // not a const function because may create backrefs -----------^^^
+		protected: // public interface is to downcast
+			virtual std::map<Dwarf_Half, encap::attribute_value> get_attrs() = 0;
+			
 		public:
-            boost::optional<std::vector<std::string> >
-            ident_path_from_root() const;
+			/* Navigation API. This is SLOW and therefore deprecated.
+			 * The right place to do navigation is in iterators. */
+			
+			/* get_parent, normal and const */
+			virtual boost::shared_ptr<basic_die> get_parent() __attribute__((deprecated)) = 0;
+			boost::shared_ptr<basic_die> get_parent() const __attribute__((deprecated))
+			{ return const_cast<basic_die *>(this)->get_parent(); }		   
+			
+			/* get_first_child, normal and const */
+			virtual boost::shared_ptr<basic_die> get_first_child() __attribute__((deprecated)) = 0;
+			boost::shared_ptr<basic_die> get_first_child() const __attribute__((deprecated))
+			{ return const_cast<basic_die *>(this)->get_first_child(); }
 
-            boost::optional<std::vector<std::string> >
-            ident_path_from_cu() const;
+			/* Functions prefixed "get_" and returning offsets throw No_entry exceptions.
+			 * Those without the prefix return an optional.
+			 * Those returning pointers return a null pointer. */
+			 
+			/* get_first_child_offset, normal and nothrow.
+			 * There is no need for a non-const version, because we return by value. */
+			virtual Dwarf_Off get_first_child_offset() const __attribute__((deprecated)) = 0;
+			opt<Dwarf_Off> first_child_offset() const __attribute__((deprecated))
+			{ 	try { return this->get_first_child_offset(); } 
+				catch (No_entry) { return opt<Dwarf_Off>(); } }
+			
+			/* get_next_sibling, normal and onst */
+			virtual boost::shared_ptr<basic_die> get_next_sibling() __attribute__((deprecated)) = 0;
+			boost::shared_ptr<basic_die> get_next_sibling() const __attribute__((deprecated))
+			{ return const_cast<basic_die *>(this)->get_next_sibling(); }
+
+			/* get_next_sibling_offset, normal and nothrow */
+			virtual Dwarf_Off get_next_sibling_offset() const __attribute__((deprecated)) = 0;
+			opt<Dwarf_Off> next_sibling_offset() const __attribute__((deprecated))
+			{ 	try { return this->get_next_sibling_offset(); } 
+				catch (No_entry) { return opt<Dwarf_Off>(); } }
+			
+			/* arguably this also should be deprecated */
+			virtual const abstract_dieset& get_ds() const __attribute__((deprecated))
+			{ return const_cast<basic_die *>(this)->get_ds(); }
+			virtual abstract_dieset& get_ds()  __attribute__((deprecated))= 0;
+
+			/* this is deprecated too! it's inherently slow. */
+			abstract_dieset::iterator 
+			iterator_here(abstract_dieset::policy& pol = abstract_dieset::default_policy_sg)
+			 __attribute__((deprecated)){ return abstract_dieset::iterator(
+				this->get_ds(),
+				this->get_offset(),
+				this->get_ds().find(this->get_offset()).base().path_from_root, 
+				pol); }
+			// not a const function because may create backrefs -----------^^^
+
+			// these also belong in navigation
+			opt<std::vector<std::string> >
+			ident_path_from_root() const __attribute__((deprecated));
+
+			opt<std::vector<std::string> >
+			ident_path_from_cu() const __attribute__((deprecated));
 
 			// These two are similar, but still return a path even when
 			// some nameless elements are missing. These therefore can't be
 			// resolved, and need not be unique within a dieset, 
 			// but can be useful for identifying corresponding
 			// elements (e.g. shared type DIEs) across multiple diesets.
-			std::vector< boost::optional<std::string> >
-			opt_ident_path_from_root() const;
+			std::vector< opt<std::string> >
+			opt_ident_path_from_root() const __attribute__((deprecated));
 
-			std::vector < boost::optional<std::string> >
-			opt_ident_path_from_cu() const;
+			std::vector < opt<std::string> >
+			opt_ident_path_from_cu() const __attribute__((deprecated));
 
 			/* These, and other resolve()-style functions, are not const 
-             * because they need to be able to return references to mutable
-             * found DIEs. FIXME: provide const overloads. */
-            boost::shared_ptr<basic_die> 
-            nearest_enclosing(Dwarf_Half tag) const;
-        	boost::shared_ptr<spec::basic_die> 
-        	nearest_enclosing(Dwarf_Half tag); /* non-const version */
-            boost::shared_ptr<compile_unit_die> 
-            enclosing_compile_unit();
-            boost::shared_ptr<const compile_unit_die> 
-            enclosing_compile_unit() const 
+			 * because they need to be able to return references to mutable
+			 * found DIEs. FIXME: provide const overloads. */
+			boost::shared_ptr<basic_die> 
+			nearest_enclosing(Dwarf_Half tag) const __attribute__((deprecated));
+			boost::shared_ptr<spec::basic_die> 
+			nearest_enclosing(Dwarf_Half tag) __attribute__((deprecated)); /* non-const version */
+			boost::shared_ptr<compile_unit_die> 
+			enclosing_compile_unit() __attribute__((deprecated));
+			boost::shared_ptr<const compile_unit_die> 
+			enclosing_compile_unit() const  __attribute__((deprecated))
 			{ return boost::dynamic_pointer_cast<const compile_unit_die>(
 					const_cast<basic_die *>(this)->enclosing_compile_unit()); 
 			}
 
-            boost::shared_ptr<basic_die>
-            find_sibling_ancestor_of(boost::shared_ptr<basic_die> d);
-        };
+			boost::shared_ptr<basic_die>
+			find_sibling_ancestor_of(boost::shared_ptr<basic_die> d) __attribute__((deprecated));
+		};
+		
+		// FIXME: this class is work in progress, and maybe a bad idea!
+		// HMM: maybe the least invasive way is just to always keep a pointer 
+		// within the iterator. Since iterators need to create DIEs to get around,
+		// this makes sense anyway.
+		// BUT then we have to make iterator a template class!
+		template <typename Die>
+		struct cursor
+		: shared_ptr<Die>,
+		  abstract_dieset::iterator
+		{
+			typedef shared_ptr<Die> ptr_super;
+			typedef abstract_dieset::iterator iterator_super;
+			
+			/* This class aims to provide "navigation done right"! */ 
+			
+			// constructors
+			cursor(shared_ptr<Die> p_d, abstract_dieset::iterator i)
+			: ptr_super(p_d), iterator_super(i) {}
+			
+			// accessors
+			
+			operator bool() 
+			{ return *static_cast<iterator_super*>(*this) != get_ds().end(); }
+			
+			shared_ptr<Die>& operator*()
+			{ return this->ptr_super; }
+			
+			template <typename OtherDie>
+			cursor<OtherDie> as()
+			{
+				auto newp = dynamic_pointer_cast<OtherDie>(*static_cast<ptr_super*>(this));
+				assert(newp);
+				return cursor<OtherDie>(newp, *static_cast<iterator_super*>(this));
+			}
+			
+			
+			/* There is no need for const versions -- we don't use const die ptrs.
+			 *
+			 * There is the possibility of "move to" versions. These are 
+			 * independent of policy, unlike the iterator's ++ and -- methods.
+			 * However, there's not much value in supporting "move to"
+			 *    e.g. my_cursor.move_to_parent();
+			 * as opposed to just 
+			 *         my_cursor = my_cursor.get_parent();
+			 *     or  my_cursor = my_cursor.parent();
+			 *           where "parent()" is the nothrow version, and will
+			 *           move the cursor to the end sentinel if there is no parent.
+			 * Note that assigning might require type conversion. We provide the "as"
+			 * template method for this.
+			 */
+			
+			// The "throw" versions are the most primitive, because the underlying
+			// library will throw an exception which we just pass through.
+			
+			virtual cursor<basic_die> get_parent() = 0;
+			virtual cursor<basic_die> get_first_child() = 0;
+			virtual cursor<basic_die> get_next_sibling() = 0;
+			
+			// "offset"
+			virtual Dwarf_Off get_parent_offset() = 0;
+			virtual Dwarf_Off get_first_child_offset() = 0;
+			virtual Dwarf_Off get_next_sibling_offset() = 0;
+			
+			// nothrow of the above
+			// FIXME
+			// -- offsets only for now
+			opt<Dwarf_Off> parent_offset() 
+			{ 	try { return this->get_parent_offset(); } 
+				catch (No_entry) { return opt<Dwarf_Off>(); } }
+			opt<Dwarf_Off> first_child_offset() 
+			{ 	try { return this->get_first_child_offset(); } 
+				catch (No_entry) { return opt<Dwarf_Off>(); } }
+			opt<Dwarf_Off> next_sibling_offset() 
+			{ 	try { return this->get_next_sibling_offset(); } 
+				catch (No_entry) { return opt<Dwarf_Off>(); } }
+			
+			// get the dieset
+			virtual abstract_dieset& get_ds() { assert(this->p_ds); return *this->p_ds; }
 
-        struct with_static_location_die : public virtual basic_die
-        {
-        	struct sym_binding_t 
-            { 
-            	Dwarf_Off file_relative_start_addr; 
-                Dwarf_Unsigned size;
-            };
-        	virtual encap::loclist get_static_location() const;
-            virtual boost::optional<Dwarf_Off> contains_addr(
-            	Dwarf_Addr file_relative_addr,
-                sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
-                void *arg = 0) const;
-            /*virtual std::vector<std::pair<Dwarf_Addr, Dwarf_Addr> >
+			// "ident path" methods assuming there should be an unbroken path;
+			opt<std::vector<std::string> > ident_path_from_root();
+			opt<std::vector<std::string> > ident_path_from_cu();
+			
+			// "ident path" methods returning a vector that may have blanks.
+			std::vector< opt<std::string> > opt_ident_path_from_root();
+			std::vector < opt<std::string> > opt_ident_path_from_cu();
+
+			// "enclosing" methods
+			cursor<basic_die> nearest_enclosing(Dwarf_Half tag);
+			cursor<compile_unit_die> enclosing_compile_unit();
+
+			// identify this DIE or a sibling of it, which is an ancestor of d
+			cursor<basic_die> find_sibling_ancestor_of(boost::shared_ptr<basic_die> d);
+		};
+
+		struct with_static_location_die : public virtual basic_die
+		{
+			struct sym_binding_t 
+			{ 
+				Dwarf_Off file_relative_start_addr; 
+				Dwarf_Unsigned size;
+			};
+			virtual encap::loclist get_static_location() const;
+			virtual opt<Dwarf_Off> contains_addr(
+				Dwarf_Addr file_relative_addr,
+				sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
+				void *arg = 0) const;
+			/*virtual std::vector<std::pair<Dwarf_Addr, Dwarf_Addr> >
 			file_relative_extents(
-                sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
-                void *arg = 0) const;*/
+				sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
+				void *arg = 0) const;*/
 		};
 		
 		struct with_type_describing_layout_die : public virtual basic_die
 		{
-			virtual boost::optional<boost::shared_ptr<spec::type_die> > get_type() const = 0;
+			virtual opt<boost::shared_ptr<spec::type_die> > get_type() const = 0;
 		};
 
-        struct with_dynamic_location_die : public virtual with_type_describing_layout_die
-        {
-			virtual boost::optional<Dwarf_Off> contains_addr(
+		struct with_dynamic_location_die : public virtual with_type_describing_layout_die
+		{
+			virtual opt<Dwarf_Off> contains_addr(
 					Dwarf_Addr absolute_addr,
 					Dwarf_Signed instantiating_instance_addr,
 					Dwarf_Off dieset_relative_ip,
@@ -558,12 +682,12 @@ namespace dwarf
 			 * and another for object-based locations (member/inheritance)
 			 * and each derived class should pick one! */
 		protected:
-			boost::optional<Dwarf_Off> contains_addr_on_stack(
+			opt<Dwarf_Off> contains_addr_on_stack(
 					Dwarf_Addr absolute_addr,
 					Dwarf_Signed instantiating_instance_addr,
 					Dwarf_Off dieset_relative_ip,
 					dwarf::lib::regs *p_regs = 0) const;
-			boost::optional<Dwarf_Off> contains_addr_in_object(
+			opt<Dwarf_Off> contains_addr_in_object(
 					Dwarf_Addr absolute_addr,
 					Dwarf_Signed instantiating_instance_addr,
 					Dwarf_Off dieset_relative_ip,
@@ -682,8 +806,8 @@ namespace dwarf
 #define stored_type_rangelist dwarf::encap::rangelist
 
 #define attr_optional(name, stored_t) \
-	virtual boost::optional<stored_type_ ## stored_t> get_ ## name() const = 0; \
-  	boost::optional<stored_type_ ## stored_t> name() const { return get_ ## name(); }
+	virtual opt<stored_type_ ## stored_t> get_ ## name() const = 0; \
+  	opt<stored_type_ ## stored_t> name() const { return get_ ## name(); }
 
 #define super_attr_optional(name, stored_t)
 
@@ -727,27 +851,6 @@ struct with_iterator_partial_order : public Iter
 	with_iterator_partial_order(Args&&... args)
 	// : Iter(args...) {}
 	: Iter(std::forward<Args>(args)...) {}
-	
-// 	// double HACK: usual C++ problem: need to repeat constructors!
-//   public:
-//     with_iterator_partial_order() {}
-//     with_iterator_partial_order(typename Iter::Iterator const& x, __typeof(functor()) f) : Iter(x, f) {}
-//     explicit with_iterator_partial_order(typename Iter::Iterator const& x) : Iter(x) {}
-// // third HACK: skip this constructor for now
-// //     template<
-// //         class OtherUnaryFunction
-// //       , class OtherIterator
-// //       , class OtherReference
-// //       , class OtherValue>
-// //     transform_iterator(
-// //          transform_iterator<OtherUnaryFunction, OtherIterator, OtherReference, OtherValue> const& t
-// //        , typename enable_if_convertible<OtherIterator, Iterator>::type* = 0
-// // #if !BOOST_WORKAROUND(BOOST_MSVC, == 1310)
-// //        , typename enable_if_convertible<OtherUnaryFunction, UnaryFunc>::type* = 0
-// // #endif 
-// //     )
-// //       : super_t(t.base()), m_f(t.functor())
-// //    {}
 };
 
 //typedef std::unary_function<boost::shared_ptr<spec::basic_die>, boost::shared_ptr<spec:: arg ## _die > > type_of_dynamic_pointer_cast;
@@ -801,14 +904,14 @@ begin_class(program_element, base_initializations(initialize_base(basic)), decla
 end_class(program_element)
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
         attr_optional(byte_size, unsigned)
-        virtual boost::optional<Dwarf_Unsigned> calculate_byte_size() const;
+        virtual opt<Dwarf_Unsigned> calculate_byte_size() const;
         virtual bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 		virtual boost::shared_ptr<type_die> get_concrete_type() const;
         boost::shared_ptr<type_die> get_concrete_type();
 end_class(type)
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
         attr_optional(type, refdie_is_type)
-        boost::optional<Dwarf_Unsigned> calculate_byte_size() const;
+        opt<Dwarf_Unsigned> calculate_byte_size() const;
         boost::shared_ptr<type_die> get_concrete_type() const;
 end_class(type_chain)
 begin_class(with_data_members, base_initializations(initialize_base(type)), declare_base(type))
@@ -816,7 +919,7 @@ begin_class(with_data_members, base_initializations(initialize_base(type)), decl
 end_class(with_data_members)
 
 #define has_stack_based_location \
-	boost::optional<Dwarf_Off> contains_addr( \
+	opt<Dwarf_Off> contains_addr( \
                     Dwarf_Addr aa, \
                     Dwarf_Signed fb, \
                     Dwarf_Off dr_ip, \
@@ -828,7 +931,7 @@ end_class(with_data_members)
 				dwarf::lib::regs *p_regs = 0) const \
 				{ return calculate_addr_on_stack(fb, dr_ip, p_regs); }
 #define has_object_based_location \
-	boost::optional<Dwarf_Off> contains_addr( \
+	opt<Dwarf_Off> contains_addr( \
                     Dwarf_Addr aa, \
                     Dwarf_Signed io, \
                     Dwarf_Off dr_ip, \
@@ -840,10 +943,10 @@ end_class(with_data_members)
 				dwarf::lib::regs *p_regs = 0) const \
 				{ return calculate_addr_in_object(io, dr_ip, p_regs); }
 #define extra_decls_compile_unit \
-		boost::optional<Dwarf_Unsigned> implicit_array_base() const; \
+		opt<Dwarf_Unsigned> implicit_array_base() const; \
 		virtual Dwarf_Half get_address_size() const { return this->get_ds().get_address_size(); }
 #define extra_decls_subprogram \
-        boost::optional< std::pair<Dwarf_Off, boost::shared_ptr<spec::with_dynamic_location_die> > > \
+        opt< std::pair<Dwarf_Off, boost::shared_ptr<spec::with_dynamic_location_die> > > \
         contains_addr_as_frame_local_or_argument( \
             	    Dwarf_Addr absolute_addr, \
                     Dwarf_Off dieset_relative_ip, \
@@ -856,16 +959,16 @@ end_class(with_data_members)
 #define extra_decls_formal_parameter \
 		has_stack_based_location
 #define extra_decls_array_type \
-		boost::optional<Dwarf_Unsigned> element_count() const; \
-        boost::optional<Dwarf_Unsigned> calculate_byte_size() const; \
+		opt<Dwarf_Unsigned> element_count() const; \
+        opt<Dwarf_Unsigned> calculate_byte_size() const; \
         bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_pointer_type \
 		boost::shared_ptr<type_die> get_concrete_type() const; \
-        boost::optional<Dwarf_Unsigned> calculate_byte_size() const; \
+        opt<Dwarf_Unsigned> calculate_byte_size() const; \
         bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_reference_type \
 		boost::shared_ptr<type_die> get_concrete_type() const; \
-        boost::optional<Dwarf_Unsigned> calculate_byte_size() const; \
+        opt<Dwarf_Unsigned> calculate_byte_size() const; \
         bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_base_type \
 		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
@@ -880,10 +983,10 @@ end_class(with_data_members)
 #define extra_decls_subroutine_type \
 		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_member \
-		boost::optional<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
+		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
 		has_object_based_location
 #define extra_decls_inheritance \
-		boost::optional<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
+		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
 		has_object_based_location
 
 #include "dwarf3-adt.h"

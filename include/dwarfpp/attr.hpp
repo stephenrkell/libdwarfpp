@@ -107,6 +107,7 @@ namespace dwarf
                     return n;
                 }
 				weak_ref(const weak_ref& r); // copy constructor
+				virtual ~weak_ref() {}
                 bool operator==(const weak_ref& arg) const {
                 	return off == arg.off && abs == arg.abs
                     && referencing_off == arg.referencing_off 

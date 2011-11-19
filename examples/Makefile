@@ -20,6 +20,13 @@ $(PROGS): %: %.o
 
 $(PROGS): %: %.cpp
 
+DEPS := $(patsubst %.cpp,.%.d,$(SRC))
+$(DEPS): .%.d : %.cpp
+	$(CXX) -MM $(CXXFLAGS) "$<"  > "$@"
+
+-include $(DEPS)
+
+
 .PHONY: test
 test: dwarfppdump 
 	./dwarfppdump ./dwarfppdump >/dev/null

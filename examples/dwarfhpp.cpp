@@ -398,7 +398,7 @@ proto_for_specialization(subprogram)
 
     out 	<< (d.get_type() 	? protect_ident(name_for_type(
 					compiler, 
-					dynamic_pointer_cast<spec::type_die>(*d.get_type()))) 
+					dynamic_pointer_cast<spec::type_die>(d.get_type()))) 
 								: std::string("void"))
         << ' '
         << *d.get_name()
@@ -426,7 +426,7 @@ proto_for_specialization(formal_parameter)
     out	<< (d.get_type() 
 			? protect_ident(name_for_type(
 				compiler, 
-				dynamic_pointer_cast<spec::type_die>(*d.get_type())
+				dynamic_pointer_cast<spec::type_die>(d.get_type())
 			  ))
 			: cxx_type_of_untyped_arguments)
         << ' '
@@ -467,7 +467,7 @@ proto_for_specialization(member)
      * We choose our alignment so as to ensure that the emitted field is located
      * at the offset specified in DWARF. */
 	shared_ptr<spec::type_die> member_type = 
-    	dynamic_pointer_cast<spec::type_die>(*d.get_type());
+    	dynamic_pointer_cast<spec::type_die>(d.get_type());
 
 	// recover the previous formal parameter's offset and size
     shared_ptr<spec::with_data_members_die> p_type = 
@@ -486,14 +486,14 @@ proto_for_specialization(member)
     {
     	encap::member_die& prev_member = dynamic_cast<encap::member_die&>(**prev_i);
 
-		//std::cerr << "Previous member actual type: " << dynamic_cast<encap::die&>((*prev_member.get_type())) << std::endl;
-        //std::cerr << "Previous member concrete type: " << dynamic_cast<encap::die&>((*prev_member.get_type()).get_concrete_type()) << std::endl;
+		//std::cerr << "Previous member actual type: " << dynamic_cast<encap::die&>((prev_member.get_type())) << std::endl;
+        //std::cerr << "Previous member concrete type: " << dynamic_cast<encap::die&>((prev_member.get_type()).get_concrete_type()) << std::endl;
     	assert(prev_member.get_type());
 
 	    if (prev_member.get_data_member_location())
         {
         	auto prev_member_calculated_byte_size 
-             = (*prev_member.get_type())->calculate_byte_size();
+             = prev_member.get_type()->calculate_byte_size();
             if (!prev_member_calculated_byte_size)
             {
             	std::cerr << "couldn't calculate size of data member " << prev_member
@@ -504,7 +504,7 @@ proto_for_specialization(member)
         		prev_member.get_data_member_location()->at(0)/*.m_expr*/, d.get_ds().get_spec(),
             	// push zero as the initial stack value
             	std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, 0UL))).tos()
-            	//+ encap::Die_encap_is_type::calculate_byte_size(**prev_member.get_type());
+            	//+ encap::Die_encap_is_type::calculate_byte_size(*prev_member.get_type());
             	+ *prev_member_calculated_byte_size;
         }
         else
@@ -606,7 +606,7 @@ proto_for_specialization(pointer_type)
     // (but the user could just use the pointed-to type and "*")
 
    // std::cerr << "pointer type: " << d << std::endl;
-	//assert(!d.get_name() || (d.get_type() && (*d.get_type()).get_tag() == DW_TAG_subroutine_type));
+	//assert(!d.get_name() || (d.get_type() && d.get_type()->get_tag() == DW_TAG_subroutine_type));
     
     //out << "typedef ";
     // we expect a pointed-to type, but might be void
@@ -616,7 +616,7 @@ proto_for_specialization(pointer_type)
     else emit_typedef(out, compiler, name_to_use, 
 		dynamic_pointer_cast<spec::type_die>(d.shared_from_this()));
 //     out << name_for_type(compiler, d, d.get_name());
-//     	//<< (d.get_type() ? compiler.name_for_type(*d.get_type()) : "void")
+//     	//<< (d.get_type() ? compiler.name_for_type(d.get_type()) : "void")
 //         //<< " * "
 //     if (d.get_name())
 //     {
@@ -640,7 +640,7 @@ proto_for_specialization(structure_type)
 }
 proto_for_specialization(subroutine_type) 
 {
-	//out << name_for_type(compiler, dynamic_cast<encap::Die_encap_is_type&>(*d.get_type()),
+	//out << name_for_type(compiler, dynamic_cast<encap::Die_encap_is_type&>(d.get_type()),
     //	d.get_name() ? *d.get_name() : boost::optional<const std::string&>())
      //   << ";" << std::endl;
     std::cerr << "Warning: assuming subroutine type at 0x" << std::hex << d.get_offset() 
@@ -672,7 +672,7 @@ proto_for_specialization(typedef)
         out << "typedef void " << protect_ident(*d.get_name()) << ";" << std::endl;
         return;
     }
-    emit_typedef(out, compiler, *d.get_name(), dynamic_pointer_cast<spec::type_die>(*d.get_type()));
+    emit_typedef(out, compiler, *d.get_name(), dynamic_pointer_cast<spec::type_die>(d.get_type()));
 }
 proto_for_specialization(union_type) 
 {
@@ -717,7 +717,7 @@ proto_for_specialization(subrange_type)
 	// emit a typedef of the underlying type.
 	out << "typedef " 
 		<< protect_ident(name_for_type(compiler, 
-			*dynamic_pointer_cast<spec::type_chain_die>(d.shared_from_this())->get_type()))
+			dynamic_pointer_cast<spec::type_chain_die>(d.shared_from_this())->get_type()))
 		<< " " << protect_ident(d.get_name() ? *d.get_name() : create_ident_for_anonymous_die(d.shared_from_this()))
 		<< ";" << std::endl;
 }

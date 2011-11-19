@@ -389,9 +389,18 @@ namespace dwarf
 			for (int i = 0; i < arr.count(); i++)
 			{
 				Dwarf_Half attr; 
-				dwarf::lib::attribute a = arr.get(i);
-				retval = a.whatattr(&attr);
-				m_attrs.insert(make_pair(attr, attribute_value(m_ds, a)));
+				try
+				{
+					dwarf::lib::attribute a = arr.get(i);
+					retval = a.whatattr(&attr);
+					m_attrs.insert(make_pair(attr, attribute_value(m_ds, a)));
+				}
+				catch (Not_supported) 
+				{
+					/* We have already warned about this -- so continue. */
+					continue;
+				}
+
 			} // end for
 
 			// we're done -- don't encode children now; they must be encapsulated separately
@@ -464,13 +473,13 @@ namespace dwarf
 // 			return o;
 // 		}
 		
-		optional<die&> dieset::resolve_die_path(const Dwarf_Off start, 
+		opt<die&> dieset::resolve_die_path(const Dwarf_Off start, 
 			const pathname& path, pathname::const_iterator pos)
 		{
-			optional<die&> none;
+			opt<die&> none;
 #define CAST_TO_DIE(arg) \
 	dynamic_pointer_cast<die, spec::basic_die>((arg))
-			if (pos == path.end()) { return optional<die&>(*(CAST_TO_DIE((*this)[start]))); }
+			if (pos == path.end()) { return opt<die&>(*(CAST_TO_DIE((*this)[start]))); }
 			else
 			{
 				//cerr << "Looking for a DWARF element named " << *pos 
