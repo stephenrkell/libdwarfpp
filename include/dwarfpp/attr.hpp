@@ -162,7 +162,7 @@ namespace dwarf
 			enum form { NO_ATTR, ADDR, FLAG, UNSIGNED, SIGNED, BLOCK, STRING, REF, LOCLIST, RANGELIST }; // TODO: complete?
 			form get_form() const { return f; }
 		private:
-            spec::abstract_dieset& m_ds;
+            spec::abstract_dieset *p_ds;
 			Dwarf_Half orig_form;
 			form f; // discriminant			
 			union {
@@ -187,7 +187,9 @@ namespace dwarf
 			friend std::ostream& ::dwarf::lib::operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
 
 			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned data, Dwarf_Half o_form) 
-				: m_ds(ds), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
+				: p_ds(&ds), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
+			attribute_value(Dwarf_Unsigned data, Dwarf_Half o_form) 
+				: p_ds(0), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
 			static const form dwarf_form_to_form(const Dwarf_Half form); // helper hack
 
 			/*attribute_value() : orig_form(0), f(NO_ATTR) { v_u = 0U; } // FIXME: this zero value can still be harmful when clients do get_ on wrong type
@@ -198,26 +200,27 @@ namespace dwarf
 		public:
 			attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a);
 // 			//attribute_value() {} // allow uninitialised temporaries
- 			attribute_value(spec::abstract_dieset& ds, Dwarf_Bool b) : m_ds(ds), orig_form(DW_FORM_flag), f(FLAG), v_flag(b) {}
+ 			attribute_value(spec::abstract_dieset& ds, Dwarf_Bool b) : p_ds(&ds), orig_form(DW_FORM_flag), f(FLAG), v_flag(b) {}
 // 			// HACK to allow overload resolution: addr is ignored
- 			attribute_value(spec::abstract_dieset& ds, address addr) : m_ds(ds), orig_form(DW_FORM_addr), f(ADDR), v_addr(addr) {}		
- 			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned u) : m_ds(ds), orig_form(DW_FORM_udata), f(UNSIGNED), v_u(u) {}				
- 			attribute_value(spec::abstract_dieset& ds, Dwarf_Signed s) : m_ds(ds), orig_form(DW_FORM_sdata), f(SIGNED), v_s(s) {}			
+ 			attribute_value(spec::abstract_dieset& ds, address addr) : p_ds(&ds), orig_form(DW_FORM_addr), f(ADDR), v_addr(addr) {}		
+ 			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned u) : p_ds(&ds), orig_form(DW_FORM_udata), f(UNSIGNED), v_u(u) {}				
+ 			attribute_value(spec::abstract_dieset& ds, Dwarf_Signed s) : p_ds(&ds), orig_form(DW_FORM_sdata), f(SIGNED), v_s(s) {}			
 // 			attribute_value(dwarf::block& b) : f(BLOCK), v_block(new std::vector<unsigned char>(
 // 					(unsigned char *) b.data(), ((unsigned char *) b.data()) + b.len())) 
 // 					{ /*std::cerr << "Constructed a block attribute_value with vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;*/ }			
- 			attribute_value(spec::abstract_dieset& ds, const char *s) : m_ds(ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}
- 			attribute_value(spec::abstract_dieset& ds, const std::string& s) : m_ds(ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}				
+ 			attribute_value(spec::abstract_dieset& ds, const char *s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}
+ 			attribute_value(spec::abstract_dieset& ds, const std::string& s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}				
 // 			attribute_value(Dwarf_Off off, bool abs) : f(REF), v_ref(new ref(off, abs)) {}
-//			attribute_value(die& d) : orig_form(DW_FORM_ref_addr), f(REF), v_ref(new ref(d.m_ds, d.m_offset, true, 
- 			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : m_ds(ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
+//			attribute_value(die& d) : orig_form(DW_FORM_ref_addr), f(REF), v_ref(new ref(*d.p_ds, d.m_offset, true, 
+ 			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
  			attribute_value(spec::abstract_dieset& ds, boost::shared_ptr<spec::basic_die> ref_target);
  			//attribute_value(spec::abstract_dieset& ds, boost::shared_ptr<spec::basic_die> p_r)
-			// : m_ds(ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
+			// : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
 //			attribute_value(lib::abstract_dieset& ds, spec::basic_die& d) : orig_form(DW_FORM_ref_addr), f(REF)
-//            { assert(dynamic_cast<encap::dieset *>(ds)); this->v_ref = new ref(d.m_ds, d.m_offset, true, 
-			attribute_value(spec::abstract_dieset& ds, const loclist& l) : m_ds(ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new loclist(l)) {}
-			attribute_value(spec::abstract_dieset& ds, const rangelist& l) : m_ds(ds), orig_form(DW_FORM_data4), f(RANGELIST), v_rangelist(new rangelist(l)) {}            
+//            { assert(dynamic_cast<encap::dieset *>(ds)); this->v_ref = new ref(*d.p_ds, d.m_offset, true, 
+			attribute_value(spec::abstract_dieset& ds, const loclist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new loclist(l)) {}
+			attribute_value(spec::abstract_dieset& ds, const rangelist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(RANGELIST), v_rangelist(new rangelist(l)) {}
+		public:
 			
 			Dwarf_Bool get_flag() const { assert(f == FLAG); return v_flag; }
 			Dwarf_Unsigned get_unsigned() const { assert(f == UNSIGNED); return v_u; }
@@ -275,9 +278,9 @@ namespace dwarf
 			friend std::ostream& operator<<(std::ostream& s, std::pair<const Dwarf_Half, attribute_value>&);
 			//friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
 			// copy constructor
-			attribute_value(const attribute_value& av) : m_ds(av.m_ds), f(av.f)
+			attribute_value(const attribute_value& av) : p_ds(av.p_ds), f(av.f)
 			{
-            	assert(&this->m_ds == &av.m_ds);
+            	assert(this->p_ds == av.p_ds);
 				this->orig_form = av.orig_form;
 				switch (f)
 				{

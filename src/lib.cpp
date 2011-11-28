@@ -35,6 +35,7 @@ namespace dwarf
 			if (errarg == 0) errarg = this;
 			int retval;
 			retval = dwarf_init(fd, access, errhand, errarg, &dbg, error);
+			have_cu_context = false;
             switch (retval)
             {
             case DW_DLV_ERROR:
@@ -92,11 +93,13 @@ namespace dwarf
 	    	Dwarf_Error *error /*=0*/)
     	{
 	    	if (error == 0) error = &last_error;
-			return dwarf_next_cu_header(dbg, cu_header_length, version_stamp,
+			int retval = dwarf_next_cu_header(dbg, cu_header_length, version_stamp,
         			abbrev_offset, address_size, next_cu_header, error); // may allocate **error
+			have_cu_context = true;
+			return retval;
     	}
 
-        int file::reset_cu_context(cu_callback_t cb, void *arg)
+        int file::clear_cu_context(cu_callback_t cb, void *arg)
         {
         	int retval;
 			Dwarf_Unsigned cu_header_length;
@@ -105,29 +108,75 @@ namespace dwarf
 			Dwarf_Half address_size;
 		    Dwarf_Unsigned next_cu_header;
             //std::cerr << "Resetting CU state..." << std::endl;
-            while(DW_DLV_OK == (retval = this->next_cu_header(
+            while(DW_DLV_OK == (retval = advance_cu_context(
 				&cu_header_length, &version_stamp, 
 				&abbrev_offset, &address_size, 
-				&next_cu_header)))
-            {
-            	//std::cerr << "next_cu_header returned DW_DLV_OK" << std::endl;
-				die d(*this);
-				Dwarf_Off off; 
-				int retval = d.offset(&off); // this should not fail
-				assert(retval == DW_DLV_OK);
-				if (cb) cb(arg, off, 
-					cu_header_length, version_stamp,
-					abbrev_offset, address_size, next_cu_header);
-            }
+				&next_cu_header,
+				cb, arg)));
+
+			have_cu_context = false;
             //std::cerr << "next_cu_header returned " << retval << std::endl;
             if (retval == DW_DLV_NO_ENTRY)
             {
-            	/* This is okay -- means we iterate to the end of the CUs
+            	/* This is okay -- means we iterated to the end of the CUs
                  * and are now back in the beginning state, which is what we want. */
                 return DW_DLV_OK;
             }
             else return retval;
         }
+		
+		int file::advance_cu_context(Dwarf_Unsigned *cu_header_length,
+				Dwarf_Half *version_stamp,
+				Dwarf_Unsigned *abbrev_offset,
+				Dwarf_Half *address_size, 
+				Dwarf_Unsigned *next_cu_header,
+				cu_callback_t cb, void *arg)
+		{
+			/* All the output parameters are optional. 
+			 * BUT we *always* call the callback with the full range! 
+			 * So we need to dummy the pointers. */
+			Dwarf_Unsigned dummy_cu_header_length,
+			 *real_cu_header_length = cu_header_length ? cu_header_length : &dummy_cu_header_length;
+			
+			Dwarf_Half dummy_version_stamp,
+			 *real_version_stamp = version_stamp ? version_stamp : &dummy_version_stamp;
+			
+			Dwarf_Unsigned dummy_abbrev_offset,
+			 *real_abbrev_offset = abbrev_offset ? abbrev_offset : &dummy_abbrev_offset;
+			
+			Dwarf_Half dummy_address_size,
+			 *real_address_size = address_size ? address_size : &dummy_address_size;
+			
+			Dwarf_Unsigned dummy_next_cu_header,
+			 *real_next_cu_header = next_cu_header ? next_cu_header : &dummy_next_cu_header;
+			
+			int retval = this->next_cu_header(
+				real_cu_header_length, real_version_stamp, 
+				real_abbrev_offset, real_address_size, 
+				real_next_cu_header);
+			if (retval == DW_DLV_OK)
+			{
+				have_cu_context = true;
+				//std::cerr << "next_cu_header returned DW_DLV_OK" << std::endl;
+				die d(*this); // get the CU die
+				Dwarf_Off off; 
+				int retval = d.offset(&off); // this should not fail
+				assert(retval == DW_DLV_OK);
+				if (cb) cb(arg, off, 
+					*real_cu_header_length, *real_version_stamp,
+					*real_abbrev_offset, *real_address_size, *real_next_cu_header);
+			}
+			else if (retval == DW_DLV_NO_ENTRY) have_cu_context = false;
+			
+			if (cu_header_length) *cu_header_length = *real_cu_header_length;
+			if (version_stamp) *version_stamp = *real_version_stamp;
+			if (abbrev_offset) *abbrev_offset = *real_abbrev_offset;
+			if (address_size) *address_size = *real_address_size;
+			if (next_cu_header) *next_cu_header = *real_next_cu_header;
+			
+			return retval;
+		}
+
 
 		int file::get_elf(Elf **out_elf, Dwarf_Error *error /*= 0*/)        	
         { 
@@ -157,6 +206,7 @@ namespace dwarf
 			Dwarf_Error *error /*= 0*/)
 		{
 			if (error == 0) error = &last_error;
+			ensure_cu_context();
 			return dwarf_siblingof(dbg,
 				NULL,
 				&(return_die->my_die),
@@ -199,7 +249,7 @@ namespace dwarf
 			return DW_DLV_ERROR; // TODO: implement this
 		}
 		
-		file die::dummy_file; // static, should be const (FIXME)
+		//file die::dummy_file; // static, should be const (FIXME)
 
 		die::die(file& f, Dwarf_Die d, Dwarf_Error *perror) : f(f), p_last_error(perror)
 		{
@@ -215,7 +265,19 @@ namespace dwarf
 			Dwarf_Error *error /*= 0*/)
 		{
 			if (error == 0) error = p_last_error;
-			return dwarf_child(my_die, &(return_kid->my_die), error);
+			/* If we have a null my_die, it means we are a file_toplevel_die
+			 * and are being asked for the first CU. */
+			if (!my_die)
+			{
+				f.clear_cu_context();
+				int retval = f.advance_cu_context();
+				if (retval == DW_DLV_NO_ENTRY) throw No_entry();
+				// now at first CU
+				retval = f.first_die(return_kid, error);
+				assert(retval != DW_DLV_NO_ENTRY); // CU header found implies CU DIE found
+				return retval;
+			}
+			else return dwarf_child(my_die, &(return_kid->my_die), error);
 		} // may allocate **error, allocates *(return_kid->my_die) on return
 
 		int die::tag(
@@ -486,17 +548,21 @@ namespace dwarf
 				<< ": " << dwarf::spec::DEFAULT_DWARF_SPEC.op_lookup(l.lr_atom);
 			std::ostringstream buf;
 			std::string to_append;
-            lib::dieset tmp_ds;
+           
 			switch (dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_count(l.lr_atom))
 			{
 				case 2:
-					buf << ", " << dwarf::encap::attribute_value(tmp_ds,
-						l.lr_number2, dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_form_list(l.lr_atom)[1]);
+					buf << ", " << dwarf::encap::attribute_value(
+						l.lr_number2, 
+						dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_form_list(l.lr_atom)[1]
+					);
 					to_append += buf.str();
 				case 1:
 					buf.clear();
-					buf << "(" << dwarf::encap::attribute_value(tmp_ds, 
-						l.lr_number, dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_form_list(l.lr_atom)[0]);
+					buf << "(" << dwarf::encap::attribute_value(
+						l.lr_number, 
+						dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_form_list(l.lr_atom)[0]
+					);
 					to_append.insert(0, buf.str());
 					to_append += ")";
 				case 0:

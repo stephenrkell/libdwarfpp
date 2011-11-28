@@ -61,6 +61,11 @@ case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(parent, di
 		// compile unit
 		Dwarf_Half compile_unit_die::get_address_size() const
 		{ return this->dwarf::spec::compile_unit_die::get_address_size(); }
+		std::string 
+		compile_unit_die::source_file_name(unsigned o) const
+		{
+			return "FIXME";
+		}
 		
 //         
 //         Die_encap_all_compile_units::subprograms_iterator

@@ -1,6 +1,5 @@
 #include <deque>
 #include <utility>
-#
 #include <boost/make_shared.hpp>
 
 #include "spec_adt.hpp"
@@ -856,6 +855,10 @@ namespace dwarf
 //             else*/ m_parent_offset = 0UL;
 //         }
 
+		/* This private constructor is used by (friend) file_toplevel_die only */
+		basic_die::basic_die(dieset& ds)
+		 : die((assert(ds.p_f), *ds.p_f)), p_ds(&ds) {}
+
 		// "next sibling"
 		basic_die::basic_die(dieset& ds, shared_ptr<basic_die> p_d)
 		 : lib::die(p_d->f, *p_d), p_ds(&ds), m_parent_offset(0UL) 
@@ -1001,6 +1004,20 @@ namespace dwarf
 					dynamic_pointer_cast<const compile_unit_die>(
 						shared_from_this())));
 		}
+		
+		std::string compile_unit_die::source_file_name(unsigned o) const
+		{
+			/* We have the same problem here: we want to get per-CU
+			 * data from libdwarf, but where to store it? Use the toplevel. */
+			auto nonconst_this = const_cast<compile_unit_die *>(this);
+			auto nonconst_toplevel = dynamic_pointer_cast<lib::file_toplevel_die>(
+				nonconst_this->get_ds().toplevel());
+			return nonconst_toplevel->source_file_name_for_cu(
+					dynamic_pointer_cast<compile_unit_die>(nonconst_this->shared_from_this()), 
+					o);
+		}
+
+		
 /*		Dwarf_Unsigned 
         compile_unit_die::get_language() const
         {
@@ -1346,6 +1363,10 @@ namespace dwarf
 			Dwarf_Off offset;
 			int ret;
 			ret = d.offset(&offset); assert(ret == DW_DLV_OK);
+
+			// to catch weird bug where d.f was null
+			assert(&d.f);
+			
             switch(ret = d.tag(&tag), assert(ret == DW_DLV_OK), tag)
             {
 #define factory_case(name, ...) \
@@ -1600,6 +1621,40 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 				->add_cu_info(off, cu_header_length, version_stamp, abbrev_offset,
 					address_size, next_cu_header);
 		}
+		
+		// the actual member function
+		void file_toplevel_die::add_cu_info(Dwarf_Off off,
+			Dwarf_Unsigned cu_header_length,
+			Dwarf_Half version_stamp,
+			Dwarf_Unsigned abbrev_offset,
+			Dwarf_Half address_size,
+			Dwarf_Unsigned next_cu_header)
+		{
+			/* This function is supposed to be idempotent, so don't clobber 
+			 * any existing state. */
+			
+			cu_info[off].version_stamp = version_stamp;
+			cu_info[off].address_size = address_size;
+			// leave srcfiles as-is!
+		}
+			
+		std::string 
+		file_toplevel_die::source_file_name_for_cu(
+			shared_ptr<compile_unit_die> cu,
+			unsigned o
+		)
+		{
+			Dwarf_Off off = cu->get_offset();
+			// don't create cu_info if it's not there
+			assert(cu_info.find(off) != cu_info.end());
+			if (!cu_info[off].source_files) 
+			{
+				cu_info[off].source_files = boost::make_shared<lib::srcfiles>(
+					*cu);
+			}
+			assert(cu_info[off].source_files);
+			return cu_info[off].source_files->get(o);
+		}
 
 		boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
 		{
@@ -1612,7 +1667,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			Dwarf_Unsigned next_cu_header;
 
 			int retval;
-			p_ds->p_f->reset_cu_context(&dwarf::lib::add_cu_info, (void*)this);
+			p_ds->p_f->clear_cu_context(&dwarf::lib::add_cu_info, (void*)this);
 
 			retval = p_ds->p_f->next_cu_header(&cu_header_length, &version_stamp,
 				&abbrev_offset, &address_size, &next_cu_header);
@@ -1657,7 +1712,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			Dwarf_Off off = get_offset();
 			auto found = parent->cu_info.find(off);
 			// We can rely on already having cu_info populated, since 
-			// reset_cu_context runs through all the CU headers once.
+			// clear_cu_context runs through all the CU headers once.
 			assert(found != parent->cu_info.end());
 			
 			++found;
@@ -1676,7 +1731,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			using boost::dynamic_pointer_cast;
 
 			// first reset the CU context (pesky stateful API)
-			retval = p_ds->p_f->reset_cu_context();
+			retval = p_ds->p_f->clear_cu_context();
 			if (retval != DW_DLV_OK) // then it must be DW_DLV_ERROR
 			{
 				assert(retval == DW_DLV_ERROR);
@@ -1703,6 +1758,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 				->cu_info[off].version_stamp = version_stamp;
 				dynamic_pointer_cast<file_toplevel_die>(get_parent())
 				->cu_info[off].address_size = address_size;
+				// don't touch srcfiles
 				if (off == this->get_offset()) // found us
 				{
 					break;

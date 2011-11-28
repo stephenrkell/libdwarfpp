@@ -566,8 +566,9 @@ namespace dwarf {
 #define child_tag(arg) 
 
 #define extra_decls_compile_unit \
-		Dwarf_Half get_address_size() const; 
-		
+		Dwarf_Half get_address_size() const; \
+		std::string source_file_name(unsigned o) const;	
+			
 		class basic_die : public die, public virtual spec::basic_die
 		{
 		private:

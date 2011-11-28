@@ -98,7 +98,8 @@ namespace dwarf
     	boost::shared_ptr<spec::basic_die> attribute_value::get_refdie() const
         //spec::basic_die& attribute_value::get_refdie() const
 	    { assert(f == REF); 
-          return /* * */m_ds[v_ref->off]; }
+		  assert(p_ds);
+          return /* * */(*p_ds)[v_ref->off]; }
 
 		std::ostream& operator<<(std::ostream& s, const attribute_value v)
 		{
@@ -262,7 +263,7 @@ namespace dwarf
 			}			
 		} // end attribute_value::print_as
 		attribute_value::attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a)
-        	: m_ds(ds)
+        	: p_ds(&ds)
 		{
 			int retval;
 			retval = a.whatform(&orig_form);
@@ -315,7 +316,7 @@ namespace dwarf
 						a.formref_global(&o);
                         // o is a section-relative offset
                         // HACK: if ds is encap, create a strong ref, else weak
-                        if (dynamic_cast<encap::dieset *>(&m_ds) == 0)
+                        if (dynamic_cast<encap::dieset *>(p_ds) == 0)
                         {
 							this->v_ref = new weak_ref(ds, o, true, referencing_off, referencing_attr);
                         }
@@ -374,7 +375,7 @@ namespace dwarf
  		
 		attribute_value::attribute_value(spec::abstract_dieset& ds, 
 				boost::shared_ptr<spec::basic_die> ref_target)
-		 : m_ds(ds), orig_form(DW_FORM_ref_addr), f(REF), 
+		 : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), 
 		   v_ref(new weak_ref(ref_target->get_ds(), 
 		        ref_target->get_offset(), false,
 				/* HACK! */ std::numeric_limits<lib::Dwarf_Off>::max(),
@@ -440,7 +441,7 @@ namespace dwarf
  				}
 			}
 		}
-		attribute_value::ref::ref(const ref& r) : weak_ref(*r.p_ds, r.off, r.abs,
+		attribute_value::ref::ref(const ref& r) : weak_ref((assert(r.p_ds), *r.p_ds), r.off, r.abs,
         	r.referencing_off, r.referencing_attr), ds(dynamic_cast<encap::dieset&>(*r.p_ds))  // copy constructor
 		{
 			ds.backrefs()[off].push_back(std::make_pair(referencing_off, referencing_attr));

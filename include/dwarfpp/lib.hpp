@@ -56,6 +56,7 @@ namespace dwarf
         class aranges;
         class ranges;
 		class evaluator;
+		class srclines;
 		
 		class basic_die;
 		class file_toplevel_die;
@@ -77,11 +78,13 @@ namespace dwarf
 			friend class die;
 			friend class global_array;
 			friend class attribute_array;
-            friend class aranges;
-            friend class ranges;
-            
-            friend class file_toplevel_die;
-            friend class compile_unit_die;
+			friend class aranges;
+			friend class ranges;
+			friend class srclines;
+			friend class srcfiles;
+
+			friend class file_toplevel_die;
+			friend class compile_unit_die;
 
 			Dwarf_Debug dbg; // our peer structure
 			Dwarf_Error last_error; // pointer to Dwarf_Error_s detailing our last error
@@ -89,18 +92,26 @@ namespace dwarf
 
 			/*dwarf_elf_handle*/ Elf* elf;
 			bool free_elf; // whether to do elf_end in destructor
-            
-            aranges *p_aranges;
 
-			// public interfaces to these are to use constructor
+			aranges *p_aranges;
+
+			// public interfaces to these are to use die constructors
 			int siblingof(die& d, die *return_sib, Dwarf_Error *error = 0);
 			int first_die(die *return_die, Dwarf_Error *error = 0); // special case of siblingof
 
 		protected:
+			bool have_cu_context; 
+
+			/* We have a default constructor so that 
+			 * - encap::file can inherit from us
+			 * - we can wrap the libdwarf producer interface too.
+			 * Note that dummy_file has gone away! */
 			// protected constructor
-			file() {} // uninitialised default value, s.t. die can have a default value too	
-            
-			// we call out to a function like this when we hit a CU in reset_cu_context
+			file() : dbg(0), last_error(0), 
+			  elf(0), p_aranges(0), have_cu_context(false)
+			{} 
+
+			// we call out to a function like this when we hit a CU in clear_cu_context
 			typedef void (*cu_callback_t)(void *arg, 
 				Dwarf_Off cu_offset,
 				Dwarf_Unsigned cu_header_length,
@@ -110,7 +121,7 @@ namespace dwarf
 				Dwarf_Unsigned next_cu_header);
 				
             // libdwarf has a weird stateful API for getting compile unit DIEs.
-            int reset_cu_context(cu_callback_t cb = 0, void *arg = 0);
+            int clear_cu_context(cu_callback_t cb = 0, void *arg = 0);
 
 			// TODO: forbid copying or assignment by adding private definitions 
 		public:
@@ -124,6 +135,21 @@ namespace dwarf
 			virtual ~file();
 
 			/* Useful functions -- all trivial wrappers of libdwarf API functions */
+			int advance_cu_context(Dwarf_Unsigned *cu_header_length = 0,
+				Dwarf_Half *version_stamp = 0,
+				Dwarf_Unsigned *abbrev_offset = 0,
+				Dwarf_Half *address_size = 0, 
+				Dwarf_Unsigned *next_cu_header = 0,
+				cu_callback_t cb = 0, void *arg = 0);
+			int ensure_cu_context()
+			{ if (have_cu_context) return DW_DLV_OK;
+			  else { int retval = advance_cu_context();
+			         assert(retval != DW_DLV_OK || have_cu_context);
+			         return retval; }
+			}
+			
+		protected:
+			// public interface to this: use advance_cu_context
 			int next_cu_header(
 				Dwarf_Unsigned *cu_header_length,
 				Dwarf_Half *version_stamp,
@@ -155,12 +181,15 @@ namespace dwarf
 			friend class dwarf::encap::die;
 			friend class block;
 			friend class loclist;
-            friend class ranges;
+			friend class ranges;
+			friend class srclines;
+			friend class srcfiles;
 			
 			friend class basic_die;
 			friend class file_toplevel_die;
-			
+		public: // HACK while I debug the null-f bug
 			file& f;
+		private:
 			Dwarf_Error *const p_last_error;
 			Dwarf_Die my_die;
 			die(file& f, Dwarf_Die d, Dwarf_Error *perror);
@@ -170,26 +199,34 @@ namespace dwarf
 			int first_child(die *return_kid, Dwarf_Error *error = 0);
 			
 			// "uninitialized" DIE is used to back file_toplevel_die
-			static file dummy_file;
-			die() : f(dummy_file), p_last_error(0) {}
+			//static file dummy_file;
+			// get rid of this ^^! basic_die now no longer needs it
+			
+			bool have_cu_context; 
 
-	public:
+		public:
 			virtual ~die();
 			die(file& f) : f(f), p_last_error(&f.last_error)
-				{ 	int retval = f.first_die(this, p_last_error);
+				{	/* ask the file to initialize us with the first DIE of the current CU */
+					int cu_retval = f.ensure_cu_context();
+					if (cu_retval != DW_DLV_OK) throw Error(*p_last_error, f.get_dbg());
+					int retval = f.first_die(this, p_last_error);
 					if (retval == DW_DLV_NO_ENTRY) throw No_entry();
 					else if (retval == DW_DLV_ERROR) throw Error(*p_last_error, f.get_dbg()); }
 			die(file& f, const die& d) : f(f), p_last_error(&f.last_error)
-				{ 	int retval = f.siblingof(const_cast<die&>(d), this, p_last_error);
+				{	/* ask the file to initialize us with the next sibling of d */
+					int retval = f.siblingof(const_cast<die&>(d), this, p_last_error);
 					if (retval == DW_DLV_NO_ENTRY) throw No_entry(); 
 					else if (retval == DW_DLV_ERROR) throw Error(*p_last_error, f.get_dbg()); }
 			// this is *not* a copy constructor! it constructs the child
 			explicit die(const die& d) : f(const_cast<die&>(d).f), p_last_error(&f.last_error)
-				{ 	int retval = const_cast<die&>(d).first_child(this, p_last_error); 
+				{	/* ask the file to initialize us with the first child of d */
+					int retval = const_cast<die&>(d).first_child(this, p_last_error); 
 					if (retval == DW_DLV_NO_ENTRY) throw No_entry(); 
 					else if (retval == DW_DLV_ERROR) throw Error(*p_last_error, f.get_dbg()); }
 			die(file& f, Dwarf_Off off) : f(f), p_last_error(&f.last_error)
-				{	assert (off != 0UL); // file_toplevel_die should use protected constructor
+				{	/* ask the file to initialize us with a DIE from a known offset */
+					assert (off != 0UL); // file_toplevel_die should use protected constructor
 					int retval = f.offdie(off, this, p_last_error);
 					if (retval == DW_DLV_ERROR) throw Error(*p_last_error, f.get_dbg()); }			
 
@@ -409,6 +446,70 @@ namespace dwarf
             	dwarf_ranges_dealloc(d.f.dbg, p_ranges, cnt);
             }
         };
+		
+		class srclines
+		{
+			const file& f;
+			Dwarf_Line *linebuf;
+			Dwarf_Signed linecount;
+			Dwarf_Error *const p_last_error;
+		
+		public:
+			srclines(die& d, Dwarf_Error *error = 0) : f(d.f), 
+				p_last_error(error ? error : &d.f.last_error)
+			{
+				linecount = -1;
+				if (error == 0) error = p_last_error;
+				int ret = dwarf_srclines(d.my_die, &linebuf, &linecount, error);
+				if (ret == DW_DLV_OK) linecount = -1; // don't deallocate anything
+				assert(ret == DW_DLV_OK);
+			}
+			
+			virtual ~srclines()
+			{
+				if (linecount != -1 /*&& &d.f != &die::dummy_file*/)
+				{
+					dwarf_srclines_dealloc(f.dbg, linebuf, linecount);
+				}
+			}
+		};
+
+		class srcfiles
+		{
+			const file& f;
+			char **filesbuf;
+			Dwarf_Signed filescount;
+			Dwarf_Error *const p_last_error;
+		
+		public:
+			srcfiles(die& d, Dwarf_Error *error = 0) : f(d.f),
+				p_last_error(error ? error : &d.f.last_error)
+			{
+				filescount = -1;
+				if (error == 0) error = p_last_error;
+				int ret = dwarf_srcfiles(d.my_die, &filesbuf, &filescount, error);
+				if (ret == DW_DLV_NO_ENTRY) filescount = -1; // don't deallocate anything
+				assert(ret == DW_DLV_OK);
+			}
+			
+			virtual ~srcfiles()
+			{
+				if (filescount != -1 /*&& &d.f != &die::dummy_file*/) 
+				{
+					for (int i = 0; i < filescount; ++i)
+					{
+						dwarf_dealloc(f.dbg, filesbuf[i], DW_DLA_STRING);
+					}
+					dwarf_dealloc(f.dbg, filesbuf, DW_DLA_LIST);
+				}
+			}
+			
+			std::string get(unsigned o)
+			{
+				if (o < filescount) return filesbuf[o];
+				else throw No_entry();
+			}
+		};		
 		class Not_supported
         {
         	const string& m_msg;
@@ -422,7 +523,7 @@ namespace dwarf
         	virtual Dwarf_Signed get(int regnum) = 0;
             virtual void set(int regnum, Dwarf_Signed val) 
             { throw Not_supported("writing registers"); }
-		};        
+		};
 
 		class evaluator {
 			std::stack<Dwarf_Unsigned> m_stack;
