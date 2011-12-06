@@ -66,7 +66,11 @@ case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(parent, di
 		{
 			return "FIXME";
 		}
-		
+		unsigned
+		compile_unit_die::source_file_count() const
+		{
+			return 0;
+		}		
 //         
 //         Die_encap_all_compile_units::subprograms_iterator
 //         Die_encap_all_compile_units::subprograms_begin()

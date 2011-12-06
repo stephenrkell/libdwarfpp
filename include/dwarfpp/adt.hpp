@@ -125,6 +125,7 @@ namespace dwarf
 			Dwarf_Half get_address_size_for_cu(shared_ptr<compile_unit_die> cu) const;
 			std::string source_file_name_for_cu(shared_ptr<compile_unit_die> cu,
 				unsigned o);
+			unsigned source_file_count_for_cu(shared_ptr<compile_unit_die> cu);
 			
 			// toplevel DIE has no attrs
 			std::map<Dwarf_Half, encap::attribute_value> get_attrs()
@@ -297,7 +298,8 @@ namespace dwarf
 		boost::shared_ptr<spec::basic_die> get_next_sibling(); \
 		Dwarf_Off get_next_sibling_offset() const; \
 		Dwarf_Half get_address_size() const; \
-		std::string source_file_name(unsigned o) const; 
+		std::string source_file_name(unsigned o) const; \
+		unsigned source_file_count() const;
 
 #include "dwarf3-adt.h"
 

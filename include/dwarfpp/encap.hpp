@@ -567,7 +567,8 @@ namespace dwarf {
 
 #define extra_decls_compile_unit \
 		Dwarf_Half get_address_size() const; \
-		std::string source_file_name(unsigned o) const;	
+		std::string source_file_name(unsigned o) const;	\
+		unsigned source_file_count() const;
 			
 		class basic_die : public die, public virtual spec::basic_die
 		{

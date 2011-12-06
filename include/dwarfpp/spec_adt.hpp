@@ -288,37 +288,48 @@ namespace dwarf
 				 *    because they inherently lose context. So maybe iterator_here is sadly
 				 *    necessary, and parent_cache is still a good idea!
 				 */
-			
-            	typedef std::pair<Dwarf_Off, boost::shared_ptr<spec::basic_die> > pair_type;
-            	policy& m_policy;
-                bool operator==(const basic_iterator_base& arg) const
-                { return this->off == arg.off && this->p_ds == arg.p_ds
-                	&& (off == std::numeric_limits<Dwarf_Off>::max () || // HACK: == end() works
-                    	this->m_policy == arg.m_policy);               // for any policy
-                }
-                bool operator!=(const basic_iterator_base& arg) const { return !(*this == arg); }
-                basic_iterator_base(abstract_dieset& ds, Dwarf_Off off,
-                	 const path_type& path_from_root,
-                	 policy& pol = default_policy_sg);
-                basic_iterator_base() // path_from_root is empty
+				
+				typedef std::pair<Dwarf_Off, boost::shared_ptr<spec::basic_die> > pair_type;
+				//policy& m_policy;
+				policy *p_policy;
+				/* We have to use a pointer because some clients 
+				 * (like boost graph algorithms, where we are playing the edge_iterator)
+				 * want to default-construct an iterator, then assign to it. Although
+				 * we don't want to assign different policies, we do want to be able
+				 * to construct with a dummy policy, then overwrite with a real policy. */
+
+				bool operator==(const basic_iterator_base& arg) const
+				{ return this->off == arg.off && this->p_ds == arg.p_ds
+					&& (off == std::numeric_limits<Dwarf_Off>::max () || // HACK: == end() works
+						*this->p_policy == *arg.p_policy);			   // for any policy
+				}
+				bool operator!=(const basic_iterator_base& arg) const { return !(*this == arg); }
+
+				basic_iterator_base(abstract_dieset& ds, Dwarf_Off off,
+					 const path_type& path_from_root,
+					 policy& pol = default_policy_sg);
+				basic_iterator_base() // path_from_root is empty
 				: position_and_path((position){0, 0UL}), 
-				  m_policy(dummy_policy_sg) { canonicalize_position(); } 
+				  p_policy(&dummy_policy_sg) { canonicalize_position(); } 
 				basic_iterator_base(const position_and_path& arg)
-				: position_and_path(arg), m_policy(dummy_policy_sg) { canonicalize_position(); } 
-                typedef std::bidirectional_iterator_tag iterator_category;
-                typedef spec::basic_die value_type;
-                typedef Dwarf_Off difference_type;
-                typedef spec::basic_die *pointer;
-                typedef spec::basic_die& reference;
+				: position_and_path(arg), p_policy(&dummy_policy_sg) { canonicalize_position(); } 
+
+				typedef std::bidirectional_iterator_tag iterator_category;
+				typedef spec::basic_die value_type;
+				typedef Dwarf_Off difference_type;
+				typedef spec::basic_die *pointer;
+				typedef spec::basic_die& reference;
 				
 				basic_iterator_base& operator=(const basic_iterator_base& arg)
 				{
-					assert(m_policy.is_undefined() || m_policy == arg.m_policy);
+					assert(p_policy->is_undefined() || *p_policy == *arg.p_policy);
+					// HMM: do we want to deep-copy the policy? Not for now
+					if (p_policy->is_undefined()) p_policy = arg.p_policy;
 					this->path_from_root = arg.path_from_root;
 					*static_cast<position*>(this) = arg;
 					return *this;
 				}
-            }; // end basic_iterator_base
+			}; // end basic_iterator_base
 
             struct iterator;
         	virtual iterator find(Dwarf_Off off) = 0;
@@ -372,9 +383,9 @@ namespace dwarf
                     	*arg.base().p_ds, arg.base().off, arg.base().path_from_root, pol)) {}
                             	
                 void increment()        
-                { this->base().m_policy.increment(this->base_reference(), this->base_reference().path_from_root); }
+                { this->base().p_policy->increment(this->base_reference(), this->base_reference().path_from_root); }
             	void decrement()        
-                { this->base().m_policy.decrement(this->base_reference(), this->base_reference().path_from_root); }
+                { this->base().p_policy->decrement(this->base_reference(), this->base_reference().path_from_root); }
                 Value dereference() { return this->base().p_ds->operator[](this->base().off); }
                 Value dereference() const { return this->base().p_ds->operator[](this->base().off); }
                 position& pos() { return this->base_reference(); }
@@ -832,6 +843,7 @@ template <class Iter>
 struct with_iterator_partial_order : public Iter
 {
 	typedef with_iterator_partial_order self;
+	typedef signed long difference_type;
 	
 	/* HACK: add back in the comparison operators from abstract_dieset::iterator. 
 	 * We need this because transform_iterator and
@@ -945,7 +957,8 @@ end_class(with_data_members)
 #define extra_decls_compile_unit \
 		opt<Dwarf_Unsigned> implicit_array_base() const; \
 		virtual Dwarf_Half get_address_size() const { return this->get_ds().get_address_size(); } \
-		virtual std::string source_file_name(unsigned o) const = 0;
+		virtual std::string source_file_name(unsigned o) const = 0; \
+		virtual unsigned source_file_count() const = 0;
 #define extra_decls_subprogram \
         opt< std::pair<Dwarf_Off, boost::shared_ptr<spec::with_dynamic_location_die> > > \
         contains_addr_as_frame_local_or_argument( \

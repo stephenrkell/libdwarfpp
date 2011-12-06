@@ -506,9 +506,14 @@ namespace dwarf
 			
 			std::string get(unsigned o)
 			{
-				if (o < filescount) return filesbuf[o];
+				/* Source file numbers in DWARF are indexed starting from 1. 
+				 * Source file zero means "no source file".
+				 * However, our array filesbuf is indexed beginning zero! */
+				if (o >= 1 && o <= filescount) return filesbuf[o-1];
 				else throw No_entry();
 			}
+			
+			unsigned count() { return filescount; }
 		};		
 		class Not_supported
         {

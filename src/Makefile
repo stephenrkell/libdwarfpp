@@ -13,6 +13,7 @@ CXXFLAGS += -I../include
 SRC := $(wildcard *.cpp)
 DEPS := $(patsubst %.cpp,.%.d,$(SRC))
 OBJS := $(patsubst %.cpp,%.o,$(SRC))
+$(warning OBJS is $(OBJS))
 #HDRS := $(wildcard *.hpp)
 
 # HACK to support rebuilding with/without debug enabled.

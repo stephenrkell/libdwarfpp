@@ -1016,6 +1016,15 @@ namespace dwarf
 					dynamic_pointer_cast<compile_unit_die>(nonconst_this->shared_from_this()), 
 					o);
 		}
+		
+		unsigned compile_unit_die::source_file_count() const
+		{
+			auto nonconst_this = const_cast<compile_unit_die *>(this);
+			auto nonconst_toplevel = dynamic_pointer_cast<lib::file_toplevel_die>(
+				nonconst_this->get_ds().toplevel());
+			return nonconst_toplevel->source_file_count_for_cu(
+					dynamic_pointer_cast<compile_unit_die>(nonconst_this->shared_from_this()));
+		}
 
 		
 /*		Dwarf_Unsigned 
@@ -1153,7 +1162,7 @@ namespace dwarf
             policy& pol)
         : position_and_path((position){&ds, off}, path_from_root), 
           //path_from_root(path_from_root),
-          m_policy(pol) 
+          p_policy(&pol) 
         { 
         	/* We've been given an offset but no path. So search for the 
              * offset, which will give us the path. */
@@ -1654,6 +1663,23 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			}
 			assert(cu_info[off].source_files);
 			return cu_info[off].source_files->get(o);
+		}
+		
+		unsigned 
+		file_toplevel_die::source_file_count_for_cu(
+			shared_ptr<compile_unit_die> cu)
+		{
+			Dwarf_Off off = cu->get_offset();
+			// don't create cu_info if it's not there
+			assert(cu_info.find(off) != cu_info.end());
+			if (!cu_info[off].source_files) 
+			{
+				cu_info[off].source_files = boost::make_shared<lib::srcfiles>(
+					*cu);
+			}
+			assert(cu_info[off].source_files);
+			return cu_info[off].source_files->count();
+		
 		}
 
 		boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
