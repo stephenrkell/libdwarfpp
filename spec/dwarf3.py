@@ -216,7 +216,7 @@ tags = [ \
 ("thrown_type", ( [], [], ["type_chain"]  ) ), \
 ("try_block", ( [], [], ["basic"]  ) ), \
 ("variant_part", ( [], [], ["basic"]  ) ), \
-("variable", ( [], [] , ["program_element", "with_static_location", "with_dynamic_location"] ) ), \
+("variable", ( [("location", False)], [] , ["program_element", "with_static_location", "with_dynamic_location"] ) ), \
 ("volatile_type", ( [], [], ["type_chain"]  ) ), \
 ("dwarf_procedure", ( [], [], ["basic"]  ) ), \
 ("restrict_type", ( [], [], ["type_chain"]  ) ), \

@@ -179,7 +179,10 @@ namespace dwarf
             loc_expr loc_for_vaddr(Dwarf_Addr vaddr) const;
 		};
 		std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll);	
-	}    
+		
+		/* Utility function for loclists. */
+		loclist absolute_loclist_to_additive_loclist(const loclist& l);
+	}
 }
 
 #endif

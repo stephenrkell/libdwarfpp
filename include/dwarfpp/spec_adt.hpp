@@ -711,6 +711,11 @@ namespace dwarf
 				Dwarf_Addr instantiating_instance_location,
 				Dwarf_Off dieset_relative_ip,
 				dwarf::lib::regs *p_regs = 0) const = 0;
+			
+			/** This gets a location list describing the location of the thing, 
+			    assuming that the instantiating_instance_location has been pushed
+			    onto the operand stack. */
+			virtual encap::loclist get_dynamic_location() const = 0;
 		protected:
 			/* ditto */
 			virtual Dwarf_Addr calculate_addr_on_stack(
@@ -941,7 +946,8 @@ end_class(with_data_members)
 				Dwarf_Addr fb, \
 				Dwarf_Off dr_ip, \
 				dwarf::lib::regs *p_regs = 0) const \
-				{ return calculate_addr_on_stack(fb, dr_ip, p_regs); }
+				{ return calculate_addr_on_stack(fb, dr_ip, p_regs); } \
+	encap::loclist get_dynamic_location() const;
 #define has_object_based_location \
 	opt<Dwarf_Off> contains_addr( \
                     Dwarf_Addr aa, \
@@ -953,7 +959,8 @@ end_class(with_data_members)
 				Dwarf_Addr io, \
 				Dwarf_Off dr_ip, \
 				dwarf::lib::regs *p_regs = 0) const \
-				{ return calculate_addr_in_object(io, dr_ip, p_regs); }
+				{ return calculate_addr_in_object(io, dr_ip, p_regs); } \
+	encap::loclist get_dynamic_location() const;
 #define extra_decls_compile_unit \
 		opt<Dwarf_Unsigned> implicit_array_base() const; \
 		virtual Dwarf_Half get_address_size() const { return this->get_ds().get_address_size(); } \

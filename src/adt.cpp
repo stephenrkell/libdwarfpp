@@ -411,7 +411,7 @@ namespace dwarf
         	    return loclist_from_pc_values(
                 	attrs.find(DW_AT_low_pc)->second.get_address().addr);
             }
-        } 
+        }
 /* from spec::subprogram_die */
 		opt< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >
         subprogram_die::contains_addr_as_frame_local_or_argument( 
@@ -528,7 +528,26 @@ namespace dwarf
             }
             return opt<Dwarf_Off>();
         }
+/* from with_dynamic_location_die, stack-based cases */
+		encap::loclist formal_parameter_die::get_dynamic_location() const
+		{
+			/* These guys are probably relative to a frame base. 
+			   If they're not, it's an error. So we rewrite the loclist
+			   so that it's relative to a frame base. */
+			absolute_loclist_to_additive_loclist(
+				*this->get_location());
 		
+		}
+		encap::loclist variable_die::get_dynamic_location() const
+		{
+			// we need an enclosing subprogram or lexical_block
+			auto p_lexical = this->nearest_enclosing(DW_TAG_lexical_block);
+			auto p_subprogram = this->nearest_enclosing(DW_TAG_subprogram);
+			if (!p_lexical && !p_subprogram) throw No_entry();
+			
+			return 	absolute_loclist_to_additive_loclist(
+				*this->get_location());
+		}
 /* from spec::with_dynamic_location_die */
 		opt<Dwarf_Off> with_dynamic_location_die::contains_addr_in_object(
                     Dwarf_Addr absolute_addr,
@@ -548,6 +567,17 @@ namespace dwarf
             }
             return opt<Dwarf_Off>();
         }
+/* from with_dynamic_location_die, object-based cases */
+		encap::loclist member_die::get_dynamic_location() const
+		{
+			/* These guys have loclists that adding to what on the
+			   top-of-stack, which is what we want. */
+			return *this->get_data_member_location();
+		}
+		encap::loclist inheritance_die::get_dynamic_location() const
+		{
+			return *this->get_data_member_location();
+		}
 /* from spec::with_dynamic_location_die */
 		Dwarf_Addr 
 		with_dynamic_location_die::calculate_addr_on_stack(

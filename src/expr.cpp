@@ -148,5 +148,21 @@ namespace dwarf
             }
             throw No_entry(); // bogus vaddr
         }
+		loclist absolute_loclist_to_additive_loclist(const loclist& l)
+		{
+			/* Total HACK, for now: just rewrite DW_OP_fbreg to DW_OP_plus_uconst. */
+			loclist new_ll = l;
+			for (auto i_l = new_ll.begin(); i_l != new_ll.end(); ++i_l)
+			{
+				for (auto i_instr = i_l->begin(); i_instr != i_l->end(); ++i_instr)
+				{
+					if (i_instr->lr_atom == DW_OP_fbreg)
+					{
+						i_instr->lr_atom = DW_OP_plus_uconst;
+					}
+				}
+			}
+			return new_ll;
+		}
     }
 }
