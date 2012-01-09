@@ -148,6 +148,8 @@ namespace dwarf
 			std::string cxx_name_from_string(const std::string& s, const char *prefix);
             std::string cxx_name_from_die(boost::shared_ptr<spec::basic_die> p_d);
             
+			bool cxx_type_can_be_qualified(boost::shared_ptr<spec::type_die> p_d);
+			
             std::string cxx_declarator_from_type_die(boost::shared_ptr<spec::type_die> p_d, 
             	boost::optional<const std::string&> infix_typedef_name 
                  = boost::optional<const std::string&>(),

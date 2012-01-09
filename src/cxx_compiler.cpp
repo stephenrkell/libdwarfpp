@@ -56,7 +56,7 @@ namespace dwarf { namespace tool {
 
         int funcount = 0;
         for (std::vector<std::string>::iterator i_tn = base_typenames_vec.begin();
-    		    i_tn != base_typenames_vec.end(); i_tn++)
+    		    i_tn != base_typenames_vec.end(); ++i_tn)
         {
         	// prototype
 		    test_src << "void foo_" << funcount++
@@ -95,7 +95,7 @@ namespace dwarf { namespace tool {
         cmd.push_back(std::string(tmpnam_src_outfile_buf));
         
         for (std::vector<std::string>::iterator i_arg = cmd.begin();
-        		i_arg != cmd.end(); i_arg++) cmdstream << *i_arg << ' ';
+        		i_arg != cmd.end(); ++i_arg) cmdstream << *i_arg << ' ';
         
 		std::cerr << "About to execute: " << cmdstream.str().c_str() << std::endl;
         int retval = system(cmdstream.str().c_str());
@@ -163,15 +163,21 @@ namespace dwarf { namespace tool {
 
     bool cxx_compiler::type_infixes_name(boost::shared_ptr<spec::basic_die> p_d)
     {
+		auto t = dynamic_pointer_cast<spec::type_die>(p_d);
+		std::cerr << "Does this type infix a name? " << *t << std::endl;
+		assert(t);
+		auto unq_t = t->get_unqualified_type();
         return 
-            p_d->get_tag() == DW_TAG_subroutine_type
-            ||  p_d->get_tag() == DW_TAG_array_type
+			unq_t && (
+            unq_t->get_tag() == DW_TAG_subroutine_type
+            ||  unq_t->get_tag() == DW_TAG_array_type
             || 
-            (p_d->get_tag() == DW_TAG_pointer_type &&
-                dynamic_pointer_cast<spec::pointer_type_die>(p_d)->get_type()
+            (unq_t->get_tag() == DW_TAG_pointer_type &&
+                dynamic_pointer_cast<spec::pointer_type_die>(unq_t)->get_type()
                 && 
-                dynamic_pointer_cast<spec::pointer_type_die>(p_d)->get_type()
-                    ->get_tag()	== DW_TAG_subroutine_type);
+                dynamic_pointer_cast<spec::pointer_type_die>(unq_t)->get_type()
+                    ->get_tag()	== DW_TAG_subroutine_type)
+				);
 	}            
 
 	std::string cxx_compiler::cxx_name_from_string(const std::string& s, const char *prefix)
@@ -198,6 +204,12 @@ namespace dwarf { namespace tool {
             return s.str();
         }
 	}
+	
+	bool cxx_compiler::cxx_type_can_be_qualified(boost::shared_ptr<spec::type_die> p_d)
+	{
+		if (p_d->get_tag() == DW_TAG_array_type) return false;
+		return true; // FIXME: correct?
+	}
 
     std::string cxx_compiler::cxx_declarator_from_type_die(boost::shared_ptr<spec::type_die> p_d, 
         boost::optional<const std::string&> infix_typedef_name,
@@ -222,6 +234,7 @@ namespace dwarf { namespace tool {
 //         }
 
 	    std::string name_prefix;
+		std::string qualifier_suffix;
 	    switch (p_d->get_tag())
         {
     	    // return the friendly compiler-determined name or not, depending on argument
@@ -295,17 +308,12 @@ namespace dwarf { namespace tool {
                 catch (lib::No_entry) { s << ")"; }
                 return s.str();
             }
-            case DW_TAG_const_type: {
-				/* Note that many DWARF emitters record C/C++ "const void" (as in "const void *")
-				 * as a const type with no "type" attribute. So handle this case. */
-        	    auto chained_type =  dynamic_pointer_cast<spec::const_type_die>(p_d)->get_type();
-				return "const " + (chained_type ? cxx_declarator_from_type_die(chained_type) : " void ");
-				}
-            case DW_TAG_volatile_type: {
-				/* Ditto as for const_type. */
-        	    auto chained_type =  dynamic_pointer_cast<spec::volatile_type_die>(p_d)->get_type();
-				return "volatile " + (chained_type ? cxx_declarator_from_type_die(chained_type) : " void ");
-				}
+            case DW_TAG_const_type:
+				qualifier_suffix = " const";
+				goto handle_qualified_type;
+			case DW_TAG_volatile_type:
+				qualifier_suffix = " volatile";
+				goto handle_qualified_type;
             case DW_TAG_structure_type:
         	    name_prefix = "struct ";
                 goto handle_named_type;
@@ -318,6 +326,21 @@ namespace dwarf { namespace tool {
             handle_named_type:
 		    default:
 				return name_prefix + cxx_name_from_die(p_d);
+			handle_qualified_type: {
+				/* This is complicated by the fact that array types in C/C++ can't be qualified directly,
+				 * but such qualified types can be defined using typedefs. (FIXME: I think this is correct
+				 * but don't quote me -- there might just be some syntax I'm missing.) */
+				auto chained_type =  dynamic_pointer_cast<spec::type_chain_die>(p_d)->get_type();
+				/* Note that many DWARF emitters record C/C++ "const void" (as in "const void *")
+				 * as a const type with no "type" attribute. So handle this case. */
+				if (!chained_type) return "void" + qualifier_suffix;
+				else if (cxx_type_can_be_qualified(chained_type))
+				{
+					return cxx_declarator_from_type_die(chained_type, infix_typedef_name) + qualifier_suffix;
+				}
+				else throw Not_supported(std::string("C++ qualifiers for types of tag ")
+					 + p_d->get_spec().tag_lookup(chained_type->get_tag()));
+			}
         }
     }
 

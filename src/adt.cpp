@@ -193,7 +193,7 @@ namespace dwarf
 			// HACK
 			abstract_dieset& nonconst_ds = const_cast<abstract_dieset&>(ds);
 			assert(nonconst_ds.begin().base().path_from_root.size() == 1);
-			for (auto i_dfs = nonconst_ds.begin(); i_dfs != nonconst_ds.end(); i_dfs++)
+			for (auto i_dfs = nonconst_ds.begin(); i_dfs != nonconst_ds.end(); ++i_dfs)
 			{
 				// fix up our indent level
 				int indent_level = (int) i_dfs.base().path_from_root.size() - 1;
@@ -442,7 +442,7 @@ namespace dwarf
             unsigned initial_depth = start_iterator.base().path_from_root.size();
             for (auto i_bfs = start_iterator;
             		i_bfs.base().path_from_root.size() >= initial_depth;
-                    i_bfs++)
+                    ++i_bfs)
             {
             	std::cerr << "Considering whether DIE has stack location: " << **i_bfs << std::endl;
             	auto with_stack_loc = boost::dynamic_pointer_cast<spec::with_dynamic_location_die>(
@@ -682,6 +682,23 @@ namespace dwarf
         {
         	return const_cast<const type_die *>(this)->get_concrete_type();
         }
+        boost::shared_ptr<type_die> type_die::get_unqualified_type() const
+        {
+        	// by default, our unqualified self is our self
+        	return boost::dynamic_pointer_cast<type_die>(
+            	const_cast<type_die *>(this)->get_ds()[this->get_offset()]);
+        } 
+/* from spec::qualified_type_die */
+        boost::shared_ptr<type_die> qualified_type_die::get_unqualified_type() const
+        {
+        	// for qualified types, our unqualified self is our get_type, recursively unqualified
+			if (!this->get_type()) return shared_ptr<type_die>();
+        	return this->get_type()->get_unqualified_type();
+        } 
+        boost::shared_ptr<type_die> qualified_type_die::get_unqualified_type()
+        {
+        	return const_cast<const qualified_type_die *>(this)->get_unqualified_type();
+        }
 /* from spec::type_chain_die */
         opt<Dwarf_Unsigned> type_chain_die::calculate_byte_size() const
         {
@@ -798,11 +815,11 @@ namespace dwarf
                     // static storage is recorded in DWARF using 
                     // register-relative addressing....
                     auto loclist = attrs.find(DW_AT_location)->second.get_loclist();
-                    for (auto i_loc_expr = loclist.begin(); i_loc_expr != loclist.end(); i_loc_expr++)
+                    for (auto i_loc_expr = loclist.begin(); i_loc_expr != loclist.end(); ++i_loc_expr)
                     {
                     	for (auto i_instr = i_loc_expr->begin(); 
                         	i_instr != i_loc_expr->end();
-                            i_instr++)
+                            ++i_instr)
                         {
                         	if (this->get_spec().op_reads_register(i_instr->lr_atom)) return false;
                         }
@@ -1014,7 +1031,14 @@ namespace dwarf
 				    Dwarf_Half attr; 
 				    dwarf::lib::attribute a = arr.get(i);
 				    retval = a.whatattr(&attr);
-				    ret.insert(std::make_pair(attr, encap::attribute_value(this->get_ds(), a)));
+					try
+					{
+				    	ret.insert(std::make_pair(attr, encap::attribute_value(this->get_ds(), a)));
+					} catch (dwarf::lib::Not_supported)
+					{
+						/* This means we didn't recognise the attribute_value. Skip over it silently. */
+						// we could print a warning....
+					}
 			    } // end for
             //}
             return ret;
@@ -1241,7 +1265,7 @@ namespace dwarf
         { 
             is_visible visible;
             for (auto i_cu = compile_unit_children_begin();
-                    i_cu != compile_unit_children_end(); i_cu++)
+                    i_cu != compile_unit_children_end(); ++i_cu)
             {
                 //std::cerr << "Looking for child named " << name << std::endl;
                 for (auto i = (*i_cu)->children_begin();

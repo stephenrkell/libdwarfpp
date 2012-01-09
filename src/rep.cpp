@@ -39,7 +39,7 @@ namespace dwarf
 
 			for (auto i_child = arg1_with_named_children->children_begin();
 				i_child != arg1_with_named_children->children_end();
-				i_child++)
+				++i_child)
 			{
 				if ((*i_child)->get_tag() != DW_TAG_member) continue;
 				

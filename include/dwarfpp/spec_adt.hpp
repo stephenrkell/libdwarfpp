@@ -924,6 +924,7 @@ begin_class(type, base_initializations(initialize_base(program_element)), declar
         virtual opt<Dwarf_Unsigned> calculate_byte_size() const;
         virtual bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 		virtual boost::shared_ptr<type_die> get_concrete_type() const;
+		virtual boost::shared_ptr<type_die> get_unqualified_type() const;
         boost::shared_ptr<type_die> get_concrete_type();
 end_class(type)
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
@@ -931,6 +932,10 @@ begin_class(type_chain, base_initializations(initialize_base(type)), declare_bas
         opt<Dwarf_Unsigned> calculate_byte_size() const;
         boost::shared_ptr<type_die> get_concrete_type() const;
 end_class(type_chain)
+begin_class(qualified_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
+        virtual boost::shared_ptr<type_die> get_unqualified_type() const;
+        boost::shared_ptr<type_die> get_unqualified_type();
+end_class(qualified_type)
 begin_class(with_data_members, base_initializations(initialize_base(type)), declare_base(type))
         child_tag(member)
 end_class(with_data_members)

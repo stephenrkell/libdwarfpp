@@ -27,7 +27,7 @@ namespace dwarf
         	/* Search through loc expressions for the one that matches vaddr. */
             for (auto i_loc_expr = loclist.begin();
         		    i_loc_expr != loclist.end();
-                    i_loc_expr++)
+                    ++i_loc_expr)
             {
 				/* HACK: we should instead use address_size as reported by next_cu_header,
 				 * lifting it to a get_address_size() method in spec::compile_unit_die. */
@@ -108,7 +108,7 @@ namespace dwarf
 
             std::vector<expr_instr>::const_iterator done_up_to_here = /*m_expr.*/begin();
             Dwarf_Unsigned done_this_many_bytes = 0UL;
-            for (auto i_instr = /*m_expr.*/begin(); i_instr != /*m_expr.*/end(); i_instr++)
+            for (auto i_instr = /*m_expr.*/begin(); i_instr != /*m_expr.*/end(); ++i_instr)
             {
                 if (i_instr->lr_atom == DW_OP_piece) 
                 {

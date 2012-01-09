@@ -105,6 +105,7 @@ artificial_tags = [ \
 ("with_instances", ([], [], ["program_element"])), \
 ("type", ([("byte_size", False )], [], ["with_instances"]) ), \
 ("type_chain", ([("type", False)],  [], ["type"]) ), \
+("qualified_type", ([], [], ["type_chain"]) ), \
 ("with_named_children", ([], [], ["basic"])), \
 ("with_static_location", ([], [], ["basic"])), \
 ("with_dynamic_location", ([], [], ["with_type_describing_layout"])), \
@@ -202,14 +203,14 @@ tags = [ \
 ("access_declaration", ( [], [], ["basic"]  ) ), \
 ("base_type", ( [ ("encoding", True), ("bit_size", False), ("bit_offset", False)], [], ["type"] ) ), \
 ("catch_block", ( [], [], ["basic"]  ) ), \
-("const_type", ( [], [], ["type_chain"]  ) ), \
+("const_type", ( [], [], ["qualified_type"]  ) ), \
 ("constant", ( [], [] , ["program_element"] ) ), \
 ("enumerator", ( [], [], ["basic"]  ) ), \
 ("file_type", ( [], [], ["type"]  ) ), \
 ("friend", ( [], [], ["basic"]  ) ), \
 ("namelist", ( [], [], ["basic"]  ) ), \
 ("namelist_item", ( [], [], ["basic"]  ) ), \
-("packed_type", ( [], [], ["type_chain"]  ) ), \
+("packed_type", ( [], [], ["qualified_type"]  ) ), \
 ("subprogram", ( [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["program_element", "with_static_location", "with_named_children"]  ) ), \
 ("template_type_parameter", ( [], [], ["basic"]  ) ), \
 ("template_value_parameter", ( [], [], ["basic"]  ) ), \
@@ -217,9 +218,9 @@ tags = [ \
 ("try_block", ( [], [], ["basic"]  ) ), \
 ("variant_part", ( [], [], ["basic"]  ) ), \
 ("variable", ( [("location", False)], [] , ["program_element", "with_static_location", "with_dynamic_location"] ) ), \
-("volatile_type", ( [], [], ["type_chain"]  ) ), \
+("volatile_type", ( [], [], ["qualified_type"]  ) ), \
 ("dwarf_procedure", ( [], [], ["basic"]  ) ), \
-("restrict_type", ( [], [], ["type_chain"]  ) ), \
+("restrict_type", ( [], [], ["qualified_type"]  ) ), \
 ("interface_type", ( [], [ "member" ], ["type"]  ) ), \
 ("namespace", ( [], [], ["basic"]  ) ), \
 ("imported_module", ( [], [], ["basic"]  ) ), \

@@ -110,7 +110,7 @@ namespace dwarf
         std::ostream& operator<<(std::ostream& s, const rangelist& rl)
         {
         	s << "rangelist { ";
-            for (auto i_r = rl.begin(); i_r != rl.end(); i_r++)
+            for (auto i_r = rl.begin(); i_r != rl.end(); ++i_r)
             {
             	if (i_r != rl.begin()) s << ", ";
             	s << *i_r;

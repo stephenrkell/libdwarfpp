@@ -447,12 +447,14 @@ proto_for_specialization(unspecified_parameters)
 proto_for_specialization(array_type) 
 {
 	// use typedef again, and infix the name
-    out << "typedef ";
-	auto p_type = dynamic_pointer_cast<spec::type_die>(d.shared_from_this());
-    if (d.get_name()) out << protect_ident(name_for_type(compiler, 
-		p_type, *d.get_name()));
-    else out << protect_ident(name_for_type(compiler, p_type, create_ident_for_anonymous_die(d.shared_from_this())));
-    out << ";" << std::endl;
+//     out << "typedef ";
+// 	auto p_type = dynamic_pointer_cast<spec::type_die>(d.shared_from_this());
+//     if (d.get_name()) out << protect_ident(name_for_type(compiler, 
+// 		p_type, *d.get_name()));
+//     else out << protect_ident(name_for_type(compiler, p_type, create_ident_for_anonymous_die(d.shared_from_this())));
+//     out << ";" << std::endl;
+	emit_typedef(out, compiler, create_ident_for_anonymous_die(d.shared_from_this()),
+		dynamic_pointer_cast<spec::type_die>(d.shared_from_this()));
 }
 proto_for_specialization(enumeration_type) 
 {
@@ -650,10 +652,13 @@ void emit_typedef(std::ostream& out,
 	dwarf::tool::cxx_compiler& compiler, const std::string& name, shared_ptr<spec::type_die> p_d)
 {
     std::string name_to_use = compiler.cxx_name_from_string(name, "_dwarfhpp_");
-            
+    
+	// make sure that if we're going to throw an exception, we do it before
+	// we write any output.
+	std::string declarator = name_for_type(compiler, p_d,
+        	name_to_use);
     out << "typedef " 
-    	<< protect_ident(name_for_type(compiler, p_d,
-        	name_to_use));
+    	<< protect_ident(declarator);
     // HACK: we use the infix for subroutine types
     if (!compiler.type_infixes_name(p_d->get_this()))
     {
@@ -685,10 +690,34 @@ proto_for_specialization(const_type)
 {
     // we always emit a typedef with synthetic name
     // (but the user could just use the pointed-to type and "const")
-    out << "typedef " << protect_ident(name_for_type(compiler, dynamic_pointer_cast<spec::type_die>(d.shared_from_this()))) << " ";
-    out << protect_ident(create_ident_for_anonymous_die(d.shared_from_this()))
-        << ";" << std::endl;
 
+//	auto name_to_use = protect_ident(create_ident_for_anonymous_die(d.shared_from_this()));
+//     out << "typedef " 
+// 		<< protect_ident(name_for_type(compiler, 
+// 			dynamic_pointer_cast<spec::type_die>(d.shared_from_this()),
+// 			name_to_use
+// 			))
+// 		<< " ";
+//     if (!compiler.type_infixes_name(d.shared_from_this())) out << 
+//         << ";" << std::endl;
+	try
+	{
+		emit_typedef(out, compiler, create_ident_for_anonymous_die(d.shared_from_this()),
+			dynamic_pointer_cast<spec::type_die>(d.shared_from_this()));
+	}
+	catch (dwarf::lib::Not_supported)
+	{
+		/* This happens when the debug info contains (broken) 
+		 * qualified types that can't be expressed in a single declarator,
+		 * e.g. (const (array t)). 
+		 * Work around it by getting the name we would have used for a typedef
+		 * of the anonymous DIE defining the typedef'd-to (target) type. 
+		 * FIXME: bug in cases where we didn't output such
+		 * a typedef! */
+		
+		out << "typedef " << create_ident_for_anonymous_die(d.get_type())
+			<< " const " << create_ident_for_anonymous_die(d.shared_from_this()) << ";" << std::endl;
+	}
 }
 proto_for_specialization(volatile_type) 
 {
