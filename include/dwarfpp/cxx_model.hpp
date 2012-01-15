@@ -47,7 +47,8 @@ public:
 class cxx_generator_from_dwarf : public cxx_generator
 {
 protected:
-	virtual string get_anonymous_prefix() = 0;
+	virtual string get_anonymous_prefix()
+	{ return "_dwarfhpp_anon_"; } // HACK: remove hard-coding of this in libdwarfpp, dwarfhpp and cake
 	virtual string get_untyped_argument_typename() = 0;
 
 public:
@@ -125,8 +126,8 @@ public:
 
 	string
 	make_typedef(
-		const string& name, 
-		shared_ptr<spec::type_die> p_d
+		shared_ptr<spec::type_die> p_d,
+		const string& name 
 	);
 
 	string 

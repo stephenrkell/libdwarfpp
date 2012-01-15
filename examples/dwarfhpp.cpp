@@ -55,15 +55,14 @@ public:
 	out(out)
 	{}
 	
-	string get_anonymous_prefix() { return "_dwarfhpp_anon_"; }
 	string get_untyped_argument_typename() { return m_untyped_argument_typename; }
 	
 	void 
 	emit_typedef(
-		const string& name, 
-		shared_ptr<spec::type_die> p_d
+		shared_ptr<spec::type_die> p_d,
+		const string& name
 	)
-	{ out << make_typedef(name, p_d); }
+	{ out << make_typedef(p_d, name); }
 
 	// our emitter is a function template
 	template <typename T> 
@@ -288,8 +287,8 @@ PROTO(unspecified_parameters)
 
 PROTO(array_type) 
 {
-	emit_typedef(create_ident_for_anonymous_die(d.shared_from_this()),
-		dynamic_pointer_cast<spec::type_die>(d.shared_from_this()));
+	emit_typedef(dynamic_pointer_cast<spec::type_die>(d.shared_from_this()),
+		create_ident_for_anonymous_die(d.shared_from_this()));
 }
 PROTO(enumeration_type) 
 {
@@ -456,8 +455,8 @@ PROTO(pointer_type)
 	}
 	else 
 	{
-		emit_typedef(name_to_use, 
-			dynamic_pointer_cast<spec::type_die>(d.shared_from_this()));
+		emit_typedef(dynamic_pointer_cast<spec::type_die>(d.shared_from_this()),
+			name_to_use);
 	}
 }
 PROTO(structure_type) 
@@ -494,8 +493,8 @@ PROTO(typedef)
 		return;
 	}
 	emit_typedef(
-		*d.get_name(), 
-		dynamic_pointer_cast<spec::type_die>(d.get_type())
+		dynamic_pointer_cast<spec::type_die>(d.get_type()),
+		*d.get_name() 
 	);
 }
 PROTO(union_type) 
@@ -520,8 +519,10 @@ PROTO(const_type)
 
 	try
 	{
-		emit_typedef(create_ident_for_anonymous_die(d.shared_from_this()),
-			dynamic_pointer_cast<spec::type_die>(d.shared_from_this()));
+		emit_typedef(
+			dynamic_pointer_cast<spec::type_die>(d.shared_from_this()),
+			create_ident_for_anonymous_die(d.shared_from_this())
+		);
 	}
 	catch (dwarf::lib::Not_supported)
 	{
@@ -546,8 +547,9 @@ PROTO(volatile_type)
 	try
 	{
 		emit_typedef(
-			create_ident_for_anonymous_die(d.shared_from_this()),
-			dynamic_pointer_cast<spec::type_die>(d.shared_from_this()));
+			dynamic_pointer_cast<spec::type_die>(d.shared_from_this()),
+			create_ident_for_anonymous_die(d.shared_from_this())
+		);
 	}
 	catch (dwarf::lib::Not_supported)
 	{

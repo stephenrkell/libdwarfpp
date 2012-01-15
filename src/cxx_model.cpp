@@ -432,8 +432,8 @@ namespace tool {
 	
 	string 
 	cxx_generator_from_dwarf::make_typedef(
-		const string& name, 
-		shared_ptr<spec::type_die> p_d
+		shared_ptr<spec::type_die> p_d,
+		const string& name
 	)
 	{
 		std::ostringstream out;
