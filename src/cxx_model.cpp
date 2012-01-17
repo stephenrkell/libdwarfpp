@@ -121,9 +121,10 @@ namespace tool {
 	string 
 	cxx_generator_from_dwarf::cxx_declarator_from_type_die(
 		shared_ptr<spec::type_die> p_d, 
-		optional<const string&> infix_typedef_name,
-		bool use_friendly_names /*= true*/ 
-		 /*= optional<const std::string&>()*/)
+		optional<const string&> infix_typedef_name/*= optional<const std::string&>()*/,
+		bool use_friendly_names /*= true*/,  
+		optional<const string&> extra_prefix /* = optional<const string&>() */,
+		bool use_struct_and_union_prefixes /* = true */ )
 	{
 		string name_prefix;
 		string qualifier_suffix;
@@ -131,10 +132,12 @@ namespace tool {
 		{
 			// return the friendly compiler-determined name or not, depending on argument
 			case DW_TAG_base_type:
-				return local_name_for(dynamic_pointer_cast<spec::base_type_die>(p_d),
+				return 
+				((extra_prefix && !use_friendly_names) ? *extra_prefix : "")
+				+ local_name_for(dynamic_pointer_cast<spec::base_type_die>(p_d),
 					use_friendly_names);
 			case DW_TAG_typedef:
-				return *p_d->get_name();
+				return (extra_prefix ? *extra_prefix : "") + *p_d->get_name();
 			case DW_TAG_pointer_type: {
 				shared_ptr<spec::pointer_type_die> pointer 
 				 = dynamic_pointer_cast<spec::pointer_type_die>(p_d);
@@ -144,9 +147,14 @@ namespace tool {
 					{
 						// we have a pointer to a subroutine type -- pass on the infix name
 						return cxx_declarator_from_type_die(
-							pointer->get_type(), infix_typedef_name);
+							pointer->get_type(), optional<const string&>(), 
+							use_friendly_names, extra_prefix, 
+							use_struct_and_union_prefixes);
 					}
-					else return cxx_declarator_from_type_die(pointer->get_type()) + "*";
+					else return cxx_declarator_from_type_die(
+						pointer->get_type(), optional<const string&>(),
+						use_friendly_names, extra_prefix, 
+							use_struct_and_union_prefixes) + "*";
 				}
 				else return "void *";
 			}
@@ -163,7 +171,10 @@ namespace tool {
 				auto array_size = arr->element_count();
 				ostringstream arrsize; 
 				if (array_size) arrsize << *array_size;
-				return cxx_declarator_from_type_die(arr->get_type())
+				return cxx_declarator_from_type_die(arr->get_type(), 
+							optional<const string&>(), 
+							use_friendly_names, extra_prefix, 
+							use_struct_and_union_prefixes)
 					+ " " + (infix_typedef_name ? *infix_typedef_name : "") + "[" 
 					// add size, if we have a subrange type
 					+ arrsize.str()
@@ -174,8 +185,11 @@ namespace tool {
 				shared_ptr<spec::subroutine_type_die> subroutine_type 
 				 = dynamic_pointer_cast<spec::subroutine_type_die>(p_d);
 				s << (subroutine_type->get_type() 
-					? cxx_declarator_from_type_die(
-						subroutine_type->get_type()) 
+					? cxx_declarator_from_type_die(subroutine_type->get_type(),
+					optional<const string&>(), 
+							use_friendly_names, extra_prefix, 
+							use_struct_and_union_prefixes
+					) 
 					: string("void "));
 				s << "(*" << (infix_typedef_name ? *infix_typedef_name : "")
 					<< ")(";
@@ -188,7 +202,11 @@ namespace tool {
 						{
 							case DW_TAG_formal_parameter:
 								s << cxx_declarator_from_type_die( 
-								 dynamic_pointer_cast<spec::formal_parameter_die>(i)->get_type());
+										dynamic_pointer_cast<spec::formal_parameter_die>(i)->get_type(),
+											optional<const string&>(), 
+											use_friendly_names, extra_prefix, 
+											use_struct_and_union_prefixes
+										);
 								break;
 							case DW_TAG_unspecified_parameters:
 								s << "...";
@@ -207,17 +225,17 @@ namespace tool {
 				qualifier_suffix = " volatile";
 				goto handle_qualified_type;
 			case DW_TAG_structure_type:
-				name_prefix = "struct ";
+				if (use_struct_and_union_prefixes) name_prefix = "struct ";
 				goto handle_named_type;
 			case DW_TAG_union_type:
-				name_prefix = "union ";
+				if (use_struct_and_union_prefixes) name_prefix = "union ";
 				goto handle_named_type;
 			case DW_TAG_class_type:
-				name_prefix = "class ";
+				if (use_struct_and_union_prefixes) name_prefix = "class ";
 				goto handle_named_type;
 			handle_named_type:
 			default:
-				return name_prefix + cxx_name_from_die(p_d);
+				return (extra_prefix ? *extra_prefix : "") + name_prefix + cxx_name_from_die(p_d);
 			handle_qualified_type: {
 				/* This is complicated by the fact that array types in C/C++ can't be qualified directly,
 				 * but such qualified types can be defined using typedefs. (FIXME: I think this is correct
@@ -228,7 +246,12 @@ namespace tool {
 				if (!chained_type) return "void" + qualifier_suffix;
 				else if (cxx_type_can_be_qualified(chained_type))
 				{
-					return cxx_declarator_from_type_die(chained_type, infix_typedef_name) + qualifier_suffix;
+					return cxx_declarator_from_type_die(
+						chained_type, 
+						infix_typedef_name,
+						use_friendly_names, extra_prefix, 
+						use_struct_and_union_prefixes
+						) + qualifier_suffix;
 				}
 				else throw Not_supported(string("C++ qualifiers for types of tag ")
 					 + p_d->get_spec().tag_lookup(chained_type->get_tag()));

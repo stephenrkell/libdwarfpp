@@ -101,7 +101,9 @@ public:
 	cxx_declarator_from_type_die(
 		shared_ptr<spec::type_die> p_d, 
 		optional<const string&> infix_typedef_name = optional<const string&>(),
-		bool use_friendly_names = true
+		bool use_friendly_names = true,
+		optional<const string&> extra_prefix = optional<const string&>(),
+		bool use_struct_and_union_prefixes = true
 	);
 
 	bool 

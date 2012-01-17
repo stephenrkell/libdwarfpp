@@ -358,17 +358,23 @@ namespace dwarf {
 			boost::shared_ptr<all_refs_dfs_sequence> all_refs_dfs_seq()
 			{
 				auto p_seq = boost::make_shared<all_refs_dfs_sequence>();
-				// to do a depth-first walk under this DIE, our termination condition is
-				// that the prefix from the root is shared with the toplevel
 				auto my_path = this->iterator_here().base().path_from_root;
-				for (auto dfs = this->iterator_here(); 
-						spec::abstract_dieset::path_type(
-							dfs.base().path_from_root.begin(), 
-							dfs.base().path_from_root.begin() + my_path.size()
-						) == my_path;
-						dfs++)
+				
+				// To do a depth-first walk under this DIE, our termination condition is
+				// that the prefix from the root is shared with the toplevel.
+				
+				// Build a sequence out of subsequences. Each subsequence is the
+				// sequence of reference attributes that a given DIE has.
+				// FIXME: make this "subtree depthfirst walk" a reusable traversal policy 
+				for (auto i_dfs = this->iterator_here(); 
+						i_dfs.base().path_from_root.size() >= my_path.size() &&
+						my_path == spec::abstract_dieset::path_type(
+								i_dfs.base().path_from_root.begin(), 
+								i_dfs.base().path_from_root.begin() + my_path.size()
+							);
+						++i_dfs)
 				{
-					die& d = dynamic_cast<die&>(**dfs);
+					die& d = dynamic_cast<die&>(**i_dfs);
 					//std::cerr << "Appending ref attrs from DIE at 0x" 
 					//	<< std::hex << d.m_offset << std::dec << std::endl;
 					p_seq->append(d.ref_attrs_begin(), d.ref_attrs_end());
