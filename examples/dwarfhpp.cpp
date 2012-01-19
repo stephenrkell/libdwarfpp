@@ -208,7 +208,7 @@ PROTO(subprogram)
 
 	// wrap with extern "lang"
 	switch(dynamic_pointer_cast<encap::compile_unit_die>(
-		d.get_parent())->get_language())
+		d.enclosing_compile_unit())->get_language())
 	{
 		case DW_LANG_C:
 		case DW_LANG_C89:

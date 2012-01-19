@@ -1120,7 +1120,7 @@ end_class(with_data_members)
                 if (path_pos == path_end) { found = this->get_this(); break; }
                 auto found_under_cu = (*i_cu)->named_child(*path_pos);
 
-                Iter cur_plus_one = path_pos; cur_plus_one++;
+                Iter cur_plus_one = path_pos; ++cur_plus_one;
                 if (cur_plus_one == path_end && found_under_cu
                         && visible(found_under_cu))
                 { found = found_under_cu; break; }

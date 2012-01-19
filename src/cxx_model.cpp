@@ -147,7 +147,7 @@ namespace tool {
 					{
 						// we have a pointer to a subroutine type -- pass on the infix name
 						return cxx_declarator_from_type_die(
-							pointer->get_type(), optional<const string&>(), 
+							pointer->get_type(), infix_typedef_name, 
 							use_friendly_names, extra_prefix, 
 							use_struct_and_union_prefixes);
 					}
