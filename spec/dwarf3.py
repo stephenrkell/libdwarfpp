@@ -27,11 +27,9 @@ attr_types = [ \
 ("string_length", "loclist" ), \
 ("common_reference", "refdie" ), \
 ("comp_dir", "string" ), \
-("const_value", "signed" ), \
 ("containing_type", "refdie" ), \
 ("default_value", "refdie" ), \
 ("inline", "signed" ), \
-("is_optional", "flag" ), \
 ("lower_bound", "unsigned" ), \
 ("producer", "string" ), \
 ("prototyped", "flag" ), \
@@ -45,6 +43,7 @@ attr_types = [ \
 ("artificial", "flag" ), \
 ("base_types", "refdie" ), \
 ("calling_convention", "unsigned" ), \
+("const_value", "flag"), \
 ("count", "unsigned" ), \
 ("data_member_location", "loclist" ), \
 ("decl_column", "unsigned" ), \
@@ -57,6 +56,7 @@ attr_types = [ \
 ("frame_base", "loclist" ), \
 ("friend", "refdie" ), \
 ("identifier_case", "unsigned" ), \
+("is_optional", "flag"), \
 ("macro_info", "offset" ), \
 ("namelist_item", "refdie" ), \
 ("priority", "refdie" ), \
@@ -65,7 +65,7 @@ attr_types = [ \
 ("static_link", "loclist" ), \
 ("type", "refdie_is_type" ), \
 ("use_location", "loclist" ), \
-("variable_parameter", "flat" ), \
+("variable_parameter", "flag" ), \
 ("virtuality", "unsigned" ), \
 ("vtable_elem_location", "loclist" ), \
 ("allocated", "refdie" ), \
@@ -171,12 +171,17 @@ artificial_tag_map = dict(artificial_tags)
 # abbreviations
 member_types = [ "class_type", "typedef", "structure_type", "enumeration_type", "union_type" ]
 
+# HACKs below:
+# formal_parameter is listed with the is_optional, const_value and variable_parameter attrs
+# but NOTE that these were added for the benefit of Cake, which 
+# totally abuses them for its own purposes. In particular, const_value is inappropriate.
+
 tags = [ \
 ("array_type", ( [("type", False)], ["subrange_type"], ["type"] ) ), \
 ("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["with_data_members", "with_named_children"] ) ), \
 ("entry_point", ( [], [] , ["basic"] ) ), \
 ("enumeration_type", ( [("type", False)], ["enumerator"] , ["type", "with_named_children"] ) ), \
-("formal_parameter", ( [("location", False)], [] , ["program_element", "with_dynamic_location"] ) ), \
+("formal_parameter", ( [("location", False), ("is_optional", False), ("variable_parameter", False), ("const_value", False)], [] , ["program_element", "with_dynamic_location"] ) ), \
 ("imported_declaration", ( [], [], ["basic"]  ) ), \
 ("label", ( [], [], ["basic"]  ) ), \
 ("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_static_location"] ) ), \
