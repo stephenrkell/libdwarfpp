@@ -231,9 +231,9 @@ namespace dwarf
 						{
 							auto child_count = srk31::count(
 								p_all_cus->children_begin(), p_all_cus->children_end());
-							cerr << "dies size before: " << ds().size() << endl;
-							cerr << "all_cus.children() size before: " << child_count
-								<< endl;
+							//cerr << "dies size before: " << ds().size() << endl;
+							//cerr << "all_cus.children() size before: " << child_count
+							//	<< endl;
 							assert(ds().size() > 0 && child_count > 0);
 							shared_ptr<subprogram_die> subprogram
 							 = dynamic_pointer_cast<subprogram_die>(
@@ -243,7 +243,7 @@ namespace dwarf
 									std::string(symname)
 								)
 							);
-							cerr << "dies size after: " << ds().size() << endl;
+							//cerr << "dies size after: " << ds().size() << endl;
 
 							// IMPORTANT: it's a declaration, not a definition
 							subprogram->set_external(true);

@@ -191,7 +191,7 @@ tags = [ \
 ("compile_unit", ( [ ("language", True), ("comp_dir", False), ("producer", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_static_location"]  ) ), \
 ("string_type", ( [], [], ["type"]  ) ), \
 ("structure_type", ( [], [ "member", "access_declaration" ] + member_types, ["with_data_members", "with_named_children"]  ) ), \
-("subroutine_type", ( [("type", False)], [], ["type"]  ) ), \
+("subroutine_type", ( [("type", False)], ["formal_parameter", "unspecified_parameters"], ["type"]  ) ), \
 ("typedef", ( [], [], ["type_chain"]  ) ), \
 ("union_type", ([], [ "member" ], ["with_data_members", "with_named_children"]  ) ), \
 ("unspecified_parameters", ( [], [], ["program_element"]  ) ), \

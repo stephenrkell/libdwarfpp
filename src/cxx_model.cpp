@@ -476,6 +476,49 @@ namespace tool {
 		out << ";" << endl;
 		return out.str();
 	}
+	
+	string
+	cxx_generator_from_dwarf::make_function_declaration_of_type(
+		shared_ptr<spec::subroutine_type_die> p_d,
+		const string& name,
+		bool write_semicolon /* = true */
+	)
+	{
+		std::ostringstream out;
+		string name_to_use = cxx_name_from_string(name, "_dwarfhpp_");
+		
+		if (p_d->get_type()) out << name_for_type(p_d->get_type());
+		else out << "void";
+		out << " " << name << "(";
+		
+		bool written_an_arg = false;
+		for (auto i_fp = p_d->formal_parameter_children_begin();
+			i_fp != p_d->formal_parameter_children_end();
+			++i_fp)
+		{
+			if (i_fp != p_d->formal_parameter_children_begin()) out << ", ";
+			
+			if ((*i_fp)->get_type())
+			{
+				if ((*i_fp)->get_name()) out << name_for_type((*i_fp)->get_type(), *(*i_fp)->get_name());
+				else out << name_for_type((*i_fp)->get_type());
+				
+				if (!type_infixes_name((*i_fp)->get_type())) out << " " 
+					<< ((*i_fp)->get_name() ? *(*i_fp)->get_name() : "");
+				else out << "void *" << ((*i_fp)->get_name() ? *(*i_fp)->get_name() : "");
+				written_an_arg = true;
+			}
+		}
+		if (p_d->unspecified_parameters_children_begin() != 
+			p_d->unspecified_parameters_children_end())
+		{
+			if (written_an_arg) out << ", ";
+			out << "...";
+		}
+		out << ")";
+		if (write_semicolon) out << ";";
+		out << endl;
+	}
 
 	optional<string>
 	cxx_target::name_for_base_type(shared_ptr<spec::base_type_die> p_d)

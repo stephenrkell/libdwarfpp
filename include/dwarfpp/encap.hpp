@@ -72,7 +72,7 @@ namespace dwarf {
 			dieset() : destructing(false), p_spec(0)
 			{
 				create_toplevel_entry();
-				std::cerr << "Default-constructed a dieset!" << std::endl;
+				//std::cerr << "Default-constructed a dieset!" << std::endl;
 			}
 		public:
 			typedef super::iterator map_iterator;
@@ -84,7 +84,7 @@ namespace dwarf {
 			: destructing(false), p_spec(&spec) 
 			{
 				create_toplevel_entry();
-				std::cerr << "Non-default-constructed a dieset!" << std::endl;
+				//std::cerr << "Non-default-constructed a dieset!" << std::endl;
 			}
 			virtual ~dieset() { destructing = true; }
 			const ::dwarf::spec::abstract_def& spec() const { return *p_spec; }
@@ -101,7 +101,7 @@ namespace dwarf {
 			};
 			Dwarf_Off next_free_offset() const 
 			{ 
-				std::cerr << "getting next free offset from dieset of size " << size() << std::endl;
+				//std::cerr << "getting next free offset from dieset of size " << size() << std::endl;
 				return std::max_element(
 					this->super::begin(), this->super::end(), pair_compare_by_key())->first + 1; 
 			}

@@ -35,7 +35,7 @@ namespace dwarf
 		std::ostream& operator<<(std::ostream& s, const basic_die& d);
 		std::ostream& operator<<(std::ostream& s, const abstract_dieset& ds);
 
-		class abstract_dieset : public boost::enable_shared_from_this<abstract_dieset>
+		class abstract_dieset //: public boost::enable_shared_from_this<abstract_dieset>
         {
         public:
             /* This is all you need to denote a member of a dieset. */

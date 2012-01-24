@@ -131,6 +131,13 @@ public:
 		shared_ptr<spec::type_die> p_d,
 		const string& name 
 	);
+	
+	string
+	make_function_declaration_of_type(
+		shared_ptr<spec::subroutine_type_die> p_d,
+		const string& name,
+		bool write_semicolon = true
+	);
 
 	string 
 	create_ident_for_anonymous_die(
