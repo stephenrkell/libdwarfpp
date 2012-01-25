@@ -136,7 +136,8 @@ public:
 	make_function_declaration_of_type(
 		shared_ptr<spec::subroutine_type_die> p_d,
 		const string& name,
-		bool write_semicolon = true
+		bool write_semicolon = true,
+		bool wrap_with_extern_lang = true
 	);
 
 	string 

@@ -40,12 +40,15 @@ namespace dwarf
 
 		protected:
 			std::map<base_type, std::string> base_types;
+			string m_producer_string;
 			//struct base_type dwarf_base_type(const dwarf::encap::Die_encap_base_type& d);
 			//static const std::string dummy_return;
 			void discover_base_types();
 		public:
 			cxx_compiler(const std::vector<std::string>& argv);
 			cxx_compiler();
+			
+			string get_producer_string() const { return m_producer_string; }
 			
 			std::ostream& print(std::ostream& out, const spec::abstract_def& s);
 

@@ -287,6 +287,24 @@ namespace dwarf
 //		 {
 //		 	return m_aranges.at(i);
 //		 }
+
+		/* Copy constructor. */
+		dieset& dieset::operator=(const dieset& arg)
+		{
+			this->destructing = arg.destructing;
+			this->p_spec = arg.p_spec;
+			for (auto i = arg.map_begin(); i != arg.map_end(); ++i)
+			{
+				auto p_d = dynamic_pointer_cast<encap::basic_die>(i->second);
+				this->insert(make_pair(i->first,
+					factory::for_spec(*arg.p_spec).clone_die(
+						*this, 
+						p_d)));
+			}
+
+			this->all_compile_units()->integrity_check();
+			return *this;
+		}
 		
 		void 
 		dieset::build_path_from_root
@@ -438,9 +456,11 @@ namespace dwarf
 			else
 			{
 				// don't assert(false) -- this *might* happen, because
-				// the std::map red-black tree structure won't mirror the DWARF tree structure
+				// (1) the std::map red-black tree structure won't mirror the DWARF tree structure
 				// so parents might get destroyed before children
-				assert(m_ds.destructing);
+				// (2) the toplevel node is special -- it gets constructed by default,
+				// and we can remove it from the map if we assign to the dieset.
+				assert(m_ds.destructing || m_offset == 0UL);
 			}
 		}
 		

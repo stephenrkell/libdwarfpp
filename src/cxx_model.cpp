@@ -481,11 +481,31 @@ namespace tool {
 	cxx_generator_from_dwarf::make_function_declaration_of_type(
 		shared_ptr<spec::subroutine_type_die> p_d,
 		const string& name,
-		bool write_semicolon /* = true */
+		bool write_semicolon /* = true */,
+		bool wrap_with_extern_lang /* = true */
 	)
 	{
 		std::ostringstream out;
 		string name_to_use = cxx_name_from_string(name, "_dwarfhpp_");
+		
+		string lang_to_use;
+		switch (p_d->enclosing_compile_unit()->get_language())
+		{
+			case DW_LANG_C:
+			case DW_LANG_C89:
+			case DW_LANG_C99:
+				lang_to_use = "C";
+				break;
+			default: 
+				assert(false);
+				wrap_with_extern_lang = false;
+				break;
+		}
+		
+		if (wrap_with_extern_lang)
+		{
+			out << "extern \"" << lang_to_use << "\" {\n";
+		}
 		
 		if (p_d->get_type()) out << name_for_type(p_d->get_type());
 		else out << "void";
@@ -518,6 +538,12 @@ namespace tool {
 		out << ")";
 		if (write_semicolon) out << ";";
 		out << endl;
+		if (write_semicolon && wrap_with_extern_lang) 
+		{
+			out << "} // end extern " << lang_to_use << endl;
+		}
+		
+		return out.str();
 	}
 
 	optional<string>

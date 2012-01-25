@@ -111,8 +111,11 @@ namespace dwarf { namespace tool {
 
 		try
 		{
-			auto p_cu = ds.toplevel()->get_first_child();
-			assert(p_cu->get_tag() == DW_TAG_compile_unit);
+			auto p_cu = dynamic_pointer_cast<spec::compile_unit_die>(
+				ds.toplevel()->get_first_child());
+			assert(p_cu);
+			assert(p_cu->get_producer());
+			this->m_producer_string = *p_cu->get_producer();
 			for (auto i_bt = p_cu->get_first_child();
 					i_bt;
 					i_bt = i_bt->get_next_sibling())

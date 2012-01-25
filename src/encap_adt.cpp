@@ -35,7 +35,7 @@ case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(ds, d, par
 	        }
 			shared_ptr<basic_die>
 			create_die(Dwarf_Half tag, shared_ptr<basic_die> parent,
-				opt<const std::string&> die_name 
+				opt<std::string> die_name 
 					/* = opt<const std::string&>()*/) const
 			{
                 switch(tag)
@@ -48,6 +48,28 @@ case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(parent, di
                     default: assert(false);
                 }
 			}
+			
+			shared_ptr<basic_die>
+			clone_die(dieset& dest_ds, shared_ptr<basic_die> p_d) const
+			{
+                switch(p_d->get_tag())
+                {
+                    case 0: return my_make_shared<encap::file_toplevel_die>(dest_ds); // toplevel isn't instantiated from here
+#define factory_case(name, ...) /* use the "full" constructor*/ \
+case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(dest_ds, \
+    p_d->m_parent, \
+    p_d->m_offset, \
+    p_d->cu_offset, \
+    p_d->m_attrs, \
+    /* p_d->m_children*/encap::die_off_list() /* children will be handled by attach_to_ds */ ); \
+    attach_to_ds(p); return p; }
+#include "dwarf3-factory.h" // HACK: here ^ we avoid make_shared because of its private constructor problem
+#undef factory_case
+                    default: assert(false);
+                }
+			}
+						
+			
 		} the_dwarf3_factory;        
         factory *const factory::dwarf3_factory = &the_dwarf3_factory;
 		

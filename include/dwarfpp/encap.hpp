@@ -105,6 +105,7 @@ namespace dwarf {
 				return std::max_element(
 					this->super::begin(), this->super::end(), pair_compare_by_key())->first + 1; 
 			}
+			encap::dieset& operator=(const encap::dieset& arg);
 			std::pair<map_iterator, bool> insert(const value_type& val)
 			{
 			   	//std::cerr << "inserted!" << std::endl;
@@ -306,10 +307,12 @@ namespace dwarf {
 		};
 
 		class basic_die; // forward decl
+		class dwarf3_factory_t; // HACK
 		class die : public virtual spec::basic_die
 		{
 			friend struct die_out_edge_iterator<attribute_value::weak_ref>; // in encap_graph.hpp
 			friend class factory;
+			friend class dwarf3_factory_t; // HACK
 			friend std::pair<
 				die_out_edge_iterator<attribute_value::weak_ref>, 
 				die_out_edge_iterator<attribute_value::weak_ref> > 
@@ -512,7 +515,7 @@ namespace dwarf {
 	public: \
 			/* "create" constructor */ \
 	fragment ## _die(shared_ptr<encap::basic_die> parent, \
-				opt<const std::string&> name = opt<const std::string&>()) \
+				opt<std::string> name = opt<string>()) \
 			 :	basic_die(parent->get_ds(), parent->get_offset(), DW_TAG_ ## fragment, \
 			 	parent->get_ds().next_free_offset(),  \
 			 	0, encap::die::attribute_map(), encap::die_off_list()) \
@@ -657,7 +660,9 @@ namespace dwarf {
 				{
 					Dwarf_Off target = i->second.get_ref().off;
 					bool abs = i->second.get_ref().abs;
-					assert(abs);
+					
+					//assert(abs);
+					
 					bool is_valid = this->get_ds().map_find(target) != this->get_ds().map_end();
 					retval &= is_valid;
 					if (!is_valid)
@@ -751,8 +756,11 @@ namespace dwarf {
 			virtual 
 			boost::shared_ptr<basic_die> 
 			create_die(Dwarf_Half tag, shared_ptr<basic_die> parent,
-				opt<const std::string&> name 
-					= opt<const std::string&>()) const = 0;
+				opt<std::string> name 
+					= opt<std::string>()) const = 0;
+			virtual
+			boost::shared_ptr<basic_die>
+			clone_die(dieset& dest_ds, boost::shared_ptr<basic_die> p_d) const = 0;
 		};
 	} // end namespace encap
 } // end namespace dwarf
