@@ -1283,8 +1283,32 @@ namespace dwarf
                 }
             }
             return boost::shared_ptr<basic_die>();
-        }            
-    }
+        } 
+		
+		boost::shared_ptr<file_toplevel_die::grandchildren_sequence_t>
+		file_toplevel_die::grandchildren_sequence()
+		{
+			auto seq = boost::make_shared<grandchildren_sequence_t>();
+			for (auto i_cu = this->compile_unit_children_begin();	
+				i_cu != this->compile_unit_children_end();
+				++i_cu)
+			{
+				seq->append((*i_cu)->children_begin(), (*i_cu)->children_end());
+			}
+			return seq;
+		}
+		
+		shared_ptr<file_toplevel_die::visible_grandchildren_sequence_t> 
+		file_toplevel_die::visible_grandchildren_sequence()
+		{
+			return boost::shared_ptr<visible_grandchildren_sequence_t>(
+				new visible_grandchildren_sequence_t(
+					*grandchildren_sequence()
+				)
+			);
+		}
+
+    } // end namespace spec
     namespace lib
     {
 		/* WARNING: only use find() when you're not sure that a DIE exists

@@ -70,8 +70,8 @@ case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(dest_ds, \
 			}
 						
 			
-		} the_dwarf3_factory;        
-        factory *const factory::dwarf3_factory = &the_dwarf3_factory;
+		} the_dwarf3_factory;
+		factory *const factory::dwarf3_factory = &the_dwarf3_factory;
 		
 		factory&
 		factory::for_spec(spec::abstract_def const& arg)

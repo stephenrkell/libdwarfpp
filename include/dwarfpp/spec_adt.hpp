@@ -11,6 +11,7 @@
 #include <boost/iterator/transform_iterator.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/enable_shared_from_this.hpp>
+#include <srk31/conjoining_iterator.hpp>
 #include "lib.hpp"
 #include "expr.hpp"
 #include "attr.hpp"
@@ -26,6 +27,8 @@ namespace dwarf
 		using namespace lib;
 		using std::pair;
 		using std::make_pair;
+		using srk31::conjoining_sequence;
+		using srk31::conjoining_iterator;
 		
 		class compile_unit_die;
 		class program_element_die;
@@ -903,9 +906,46 @@ struct with_iterator_partial_order : public Iter
             visible_resolve(Iter path_pos, Iter path_end);
             
             virtual boost::shared_ptr<basic_die>
-            visible_named_child(const std::string& name);
-            
-            child_tag(compile_unit)
+            visible_named_child(const std::string& name); 
+			// FIXME: should be "visible_named_grandchild"
+			
+			child_tag(compile_unit)
+			
+			typedef conjoining_sequence<abstract_dieset::iterator> grandchildren_sequence_t;
+			typedef conjoining_iterator<abstract_dieset::iterator> grandchildren_iterator;
+			shared_ptr<grandchildren_sequence_t> grandchildren_sequence();
+			
+			typedef filter_iterator<is_visible, grandchildren_iterator> visible_grandchildren_iterator;
+			struct visible_grandchildren_sequence_t;
+			shared_ptr<visible_grandchildren_sequence_t> visible_grandchildren_sequence();
+			struct visible_grandchildren_sequence_t
+			 : /* private */ public grandchildren_sequence_t 
+			 // should be private, but make_shared won't work if it is
+			{
+				/* make_shared is our friend */
+				friend shared_ptr<visible_grandchildren_sequence_t> 
+				file_toplevel_die::visible_grandchildren_sequence();
+				
+				visible_grandchildren_sequence_t(const grandchildren_sequence_t& arg)
+				: grandchildren_sequence_t(arg) {}
+				
+				visible_grandchildren_iterator begin() 
+				{ 
+					return visible_grandchildren_iterator(
+						//this->grandchildren_sequence_t::begin(),
+						this->grandchildren_sequence_t::begin(),
+						this->grandchildren_sequence_t::end()
+						);
+				}
+				visible_grandchildren_iterator end() 
+				{ 
+					return visible_grandchildren_iterator(
+						this->grandchildren_sequence_t::end(),
+						//this->grandchildren_sequence_t::begin(),
+						this->grandchildren_sequence_t::end()
+						);
+				}
+			};
         };
                 
 // define additional virtual dies first -- note that
