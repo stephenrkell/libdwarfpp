@@ -1,5 +1,6 @@
 #include <deque>
 #include <utility>
+#include <sstream>
 #include <boost/make_shared.hpp>
 
 #include "spec_adt.hpp"
@@ -13,10 +14,21 @@ namespace dwarf
 	using boost::dynamic_pointer_cast;
 	using boost::optional;
 	using std::string;
+	using std::ostringstream;
 
 	namespace spec
     {
 /* from spec::basic_die */
+		string basic_die::to_string() const
+		{
+			ostringstream s;
+			s << *this;
+			return s.str();
+		}
+		void basic_die::print_to_stderr() const
+		{
+			cerr << *this;
+		}
         boost::shared_ptr<basic_die> basic_die::get_this()
         { return this->get_ds()[this->get_offset()]; }
         boost::shared_ptr<basic_die> basic_die::get_this() const

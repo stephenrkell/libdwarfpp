@@ -442,6 +442,8 @@ namespace dwarf
 		struct basic_die : public boost::enable_shared_from_this<basic_die>
 		{
 			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
+			string to_string() const;
+			void print_to_stderr() const; // debugging
 		
 			virtual Dwarf_Off get_offset() const = 0;
 			virtual Dwarf_Half get_tag() const = 0;
