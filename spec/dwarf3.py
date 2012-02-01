@@ -101,7 +101,7 @@ attr_type_map = dict(attr_types)
 # 
 artificial_tags = [ \
 ("basic", ([], [], []) ),
-("program_element", ([("name", False), ("decl_column", False ), ("decl_file", False), ("decl_line", False), ("prototyped", False), ("declaration", False), ("external", False), ("visibility", False)], [], ["basic"]) ), \
+("program_element", ([("name", False), ("decl_column", False ), ("decl_file", False), ("decl_line", False), ("prototyped", False), ("declaration", False), ("external", False), ("visibility", False), ("artificial", False)], [], ["basic"]) ), \
 ("with_instances", ([], [], ["program_element"])), \
 ("type", ([("byte_size", False )], [], ["with_instances"]) ), \
 ("type_chain", ([("type", False)],  [], ["type"]) ), \

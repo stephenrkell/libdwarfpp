@@ -960,6 +960,7 @@ begin_class(program_element, base_initializations(initialize_base(basic)), decla
         attr_optional(declaration, flag)
         attr_optional(external, flag)
         attr_optional(visibility, unsigned)
+        attr_optional(artificial, flag)
 end_class(program_element)
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
         attr_optional(byte_size, unsigned)
