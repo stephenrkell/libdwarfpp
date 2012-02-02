@@ -15,18 +15,24 @@
 #include <algorithm>
 #include <sstream>
 #include <boost/regex.hpp>
+#include <srk31/indenting_ostream.hpp>
 
 #include "cxx_compiler.hpp"
 
 namespace dwarf {
 namespace tool {
 
-using namespace dwarf::lib;
+using namespace dwarf;
+using dwarf::lib::Dwarf_Half;
+using dwarf::lib::Dwarf_Off;
 using std::vector;
 using std::map;
 using std::string;
 using boost::optional;
 using boost::shared_ptr;
+using dwarf::spec::basic_die;
+using srk31::indenting_ostream;
+using dwarf::spec::abstract_dieset;
 
 /** This class contains generally useful stuff for generating C++ code.
  *  It should be free from DWARF details. */
@@ -147,7 +153,77 @@ public:
 
 	string 
 	protect_ident(const string& ident);
+	
+	template <Dwarf_Half tag>
+	void 
+	emit_model(
+		indenting_ostream& out,
+		abstract_dieset::iterator i_d
+	);
+	
+
+protected:
+	void 
+	recursively_emit_children(
+		indenting_ostream& out,
+		abstract_dieset::iterator i_d
+	);
+// 	template <typename Ret, typename Func, typename Args...>
+// 	Ret dispatch(const Func&, shared_ptr<spec::basic_die> p_d, Args...)
+// 	{
+// 		switch(p_d->get_tag())
+// 		{
+// 			case DW_TAG_base_type: 
+// 			case DW_TAG_subprogram:
+// 			case DW_TAG_formal_parameter:
+// 			case DW_TAG_unspecified_parameters:
+// 			case DW_TAG_array_type:
+// 			case DW_TAG_enumeration_type:
+// 			case DW_TAG_member:
+// 			case DW_TAG_pointer_type:
+// 			case DW_TAG_structure_type:
+// 			case DW_TAG_subroutine_type:
+// 			case DW_TAG_typedef:
+// 			case DW_TAG_union_type:
+// 			case DW_TAG_const_type:
+// 			case DW_TAG_constant:
+// 			case DW_TAG_enumerator:
+// 			case DW_TAG_variable:
+// 			case DW_TAG_volatile_type:
+// 			case DW_TAG_restrict_type:
+// 			case DW_TAG_subrange_type:
+// 
+// 		}
+// 	}
+	
+public:
+	string
+	make_model(
+		abstract_dieset::iterator i_d
+	);
 };
+
+/* specializations of the above */
+template<> void cxx_generator_from_dwarf::emit_model<0>                            (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_base_type>             (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_subprogram>            (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_formal_parameter>      (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_unspecified_parameters>(indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_array_type>            (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_enumeration_type>      (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_member>                (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_pointer_type>          (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_structure_type>        (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_subroutine_type>       (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_typedef>               (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_union_type>            (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_const_type>            (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_constant>              (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_enumerator>            (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_variable>              (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_volatile_type>         (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_restrict_type>         (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_subrange_type>         (indenting_ostream& out, abstract_dieset::iterator i_d);
 
 /** This class supports generation of C++ code targetting a particular C++ compiler. */
 class cxx_target : public cxx_generator_from_dwarf, public cxx_compiler
