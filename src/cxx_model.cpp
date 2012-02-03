@@ -142,6 +142,16 @@ namespace tool {
 					use_friendly_names);
 			case DW_TAG_typedef:
 				return (extra_prefix ? *extra_prefix : "") + *p_d->get_name();
+			case DW_TAG_reference_type: {
+				shared_ptr<spec::reference_type_die> reference 
+				 = dynamic_pointer_cast<spec::reference_type_die>(p_d);
+				assert(reference);
+				assert(reference->get_type());
+				return cxx_declarator_from_type_die(
+						reference->get_type(), optional<const string&>(),
+						use_friendly_names, extra_prefix, 
+							use_struct_and_union_prefixes) + "&";
+			}
 			case DW_TAG_pointer_type: {
 				shared_ptr<spec::pointer_type_die> pointer 
 				 = dynamic_pointer_cast<spec::pointer_type_die>(p_d);
@@ -573,10 +583,12 @@ namespace tool {
 		return raw_out.str();
 	}
 	
+	template <typename Pred>
 	void 
 	cxx_generator_from_dwarf::recursively_emit_children(
 		indenting_ostream& out,
-		abstract_dieset::iterator i_d
+		abstract_dieset::iterator i_d,
+		const Pred& pred /* = Pred() */
 	)
 	{ 
 		auto p_d = *i_d;
@@ -584,6 +596,9 @@ namespace tool {
 		for (dwarf::spec::abstract_dieset::iterator i = p_d->children_begin(); 
 				i != p_d->children_end(); ++i)
 		{
+			// if the caller asked only for one tag, we oblige
+			if (!pred(*i)) continue;
+			
 			//auto new_context = context;
 			emit_model<0>(out, i);
 		}
@@ -646,9 +661,22 @@ namespace tool {
 			<< *p_d->get_name()
 			<< '(';		
 
-		// recurse on children
-		recursively_emit_children(out, i_d);
-
+		/* recurse on children -- we do children in a particular order!
+		 * formal parameters,
+		 * then unspecified parameters,
+		 * then others. */
+		recursively_emit_children(out, i_d, 
+			[](shared_ptr<basic_die> p){ return p->get_tag() == DW_TAG_formal_parameter; }
+		);
+		recursively_emit_children(out, i_d, 
+			[](shared_ptr<basic_die> p){ return p->get_tag() == DW_TAG_unspecified_parameters; }
+		);
+		recursively_emit_children(out, i_d, 
+			[](shared_ptr<basic_die> p){ 
+				return p->get_tag() != DW_TAG_unspecified_parameters
+				    && p->get_tag() != DW_TAG_formal_parameter; }
+		);
+		
 		// end the prototype
 		out	<< ");";
 
@@ -759,24 +787,28 @@ namespace tool {
 				if (!prev_member_calculated_byte_size)
 				{
 					cerr << "couldn't calculate size of data member " << prev_member
+						<< " so giving up control of layout in struct " << *p_type
 						<< endl;
-					assert(false);
+					cur_offset = std::numeric_limits<Dwarf_Unsigned>::max(); // sentinel value
 				}
-				cur_offset = evaluator(
-					prev_member->get_data_member_location()->at(0), 
-					p_d->get_ds().get_spec(),
-					stack<Dwarf_Unsigned>(
-						// push zero as the initial stack value
-						deque<Dwarf_Unsigned>(1, 0UL)
-						)
-					).tos()
-					+ *prev_member_calculated_byte_size;
+				else
+				{
+					cur_offset = evaluator(
+						prev_member->get_data_member_location()->at(0), 
+						p_d->get_ds().get_spec(),
+						stack<Dwarf_Unsigned>(
+							// push zero as the initial stack value
+							deque<Dwarf_Unsigned>(1, 0UL)
+							)
+						).tos()
+						+ *prev_member_calculated_byte_size;
+				}
 			}
 			else
 			{
 				cerr << "no data member location: context die is " << *p_d->get_parent() << endl;
 				cur_offset = (p_d->get_parent()->get_tag() == DW_TAG_union_type) 
-					? 0 : (assert(false), 0);
+					? 0 : std::numeric_limits<Dwarf_Unsigned>::max();
 			}
 		}
 
@@ -805,7 +837,7 @@ namespace tool {
 					)
 				).tos();
 
-			if (offset > 0)
+			if (offset > 0 && cur_offset != std::numeric_limits<Dwarf_Unsigned>::max())
 			{
 				/* Calculate a sensible align value for this. We could just use the offset,
 				 * but that might upset the compiler if it's larger than what it considers
@@ -847,6 +879,33 @@ namespace tool {
 	template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_pointer_type>          (indenting_ostream& out, abstract_dieset::iterator i_d)
 	{
 		auto p_d = dynamic_pointer_cast<pointer_type_die>(*i_d);
+		
+		// we always emit a typedef with synthetic name
+		// (but the user could just use the pointed-to type and "*")
+
+		// std::cerr << "pointer type: " << d << std::endl;
+		//assert(!d.get_name() || (d.get_type() && d.get_type()->get_tag() == DW_TAG_subroutine_type));
+
+		std::string name_to_use
+		 = p_d->get_name() 
+		 ? cxx_name_from_string(*p_d->get_name(), "_dwarfhpp_") 
+		 : create_ident_for_anonymous_die(p_d);
+
+		if (!p_d->get_type())
+		{
+			out << "typedef void *" 
+				<< protect_ident(name_to_use) 
+				<< ";" << std::endl;
+		}
+		else 
+		{
+			out << make_typedef(dynamic_pointer_cast<spec::type_die>(p_d), name_to_use);
+		}
+	}
+	
+	template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_reference_type>        (indenting_ostream& out, abstract_dieset::iterator i_d)
+	{
+		auto p_d = dynamic_pointer_cast<reference_type_die>(*i_d);
 		
 		// we always emit a typedef with synthetic name
 		// (but the user could just use the pointed-to type and "*")

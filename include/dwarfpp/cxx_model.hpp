@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <sstream>
 #include <boost/regex.hpp>
+#include <srk31/algorithm.hpp>
 #include <srk31/indenting_ostream.hpp>
 
 #include "cxx_compiler.hpp"
@@ -163,10 +164,12 @@ public:
 	
 
 protected:
+	template <typename Pred = srk31::True< shared_ptr<spec::basic_die> > >
 	void 
 	recursively_emit_children(
 		indenting_ostream& out,
-		abstract_dieset::iterator i_d
+		abstract_dieset::iterator i_d,
+		const Pred& pred = Pred()
 	);
 // 	template <typename Ret, typename Func, typename Args...>
 // 	Ret dispatch(const Func&, shared_ptr<spec::basic_die> p_d, Args...)
@@ -213,6 +216,7 @@ template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_array_type>         
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_enumeration_type>      (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_member>                (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_pointer_type>          (indenting_ostream& out, abstract_dieset::iterator i_d);
+template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_reference_type>        (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_structure_type>        (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_subroutine_type>       (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_typedef>               (indenting_ostream& out, abstract_dieset::iterator i_d);
