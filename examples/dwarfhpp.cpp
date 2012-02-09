@@ -219,31 +219,11 @@ void skip_edge_iterator<Value>::decrement()
 	} while (//this->base() != old_base &&
 		is_skipped(this->base()));
 }
-template <class Edge, class Graph>
-void cycle_detector::back_edge(Edge e, Graph& g)
+
+template <class Vertex, class Graph>
+cycle_handler::PathMap cycle_handler::get_bfs_paths(Vertex from, Graph& g)
 {
-	std::cerr << "Found a back-edge! Declaration of DIEe at 0x" 
-		<< std::hex << e.referencing_off << std::dec;
-	encap::basic_die *my_source = source(e, g);
-		//&dynamic_cast<dwarf::encap::Die_encap_base&>(*(*(e.p_ds))[e.referencing_off]);
-	encap::basic_die *my_target = target(e, g);
-		//&dynamic_cast<dwarf::encap::Die_encap_base&>(*(*(e.p_ds))[e.off]);
-	 std::cerr << ", name " <<
-				( my_source->has_attr(DW_AT_name) ?
-				  my_source->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-			<< " depends on declaration of DIE at 0x" << std::hex << e.off << std::dec << ", name " <<
-				( my_target->has_attr(DW_AT_name) ?
-				  my_target->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-			<< " owing to attribute " << e.p_ds->get_spec().attr_lookup(e.referencing_attr)
-			<< " from DIE at offset " << std::hex << e.referencing_off << ", name "
-			<< (boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off])->has_attr(DW_AT_name) ? 
-				boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off])->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-			<< " to DIE at offset " << std::hex << e.off << ", name "
-			<< (boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off])->has_attr(DW_AT_name) ? 
-				boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off])->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-			<< std::endl;
-	assert(e.p_ds != 0);
-	// BFS from the target node...
+	PathMap paths;
 	std::map<
 		dwarf::encap::basic_die *, 
 		typename boost::default_color_type
@@ -253,195 +233,267 @@ void cycle_detector::back_edge(Edge e, Graph& g)
 	); 
 	bfs_path_recorder<PathMap> vis(paths);
 	auto visitor = boost::visitor(vis).color_map(bfs_color_map);
-	boost::breadth_first_search(g, target(e, g), visitor);
-	/// now we have the tree-path and a back-edge that completes the cycle
-	assert(paths.find(my_source) != paths.end()); // hmm, true for a self-loop?
+	boost::breadth_first_search(g, from, visitor);
+	return paths;
+}
+
+template <class Edge, class Graph>
+void cycle_handler::print_back_edge_and_cycle(Edge e, Graph& g, PathMap& paths)
+{
+	encap::basic_die *my_source = source(e, g);
+	encap::basic_die *my_target = target(e, g);
+	assert(e.p_ds != 0);
+	
+	/* If we have a back-edge u-->v, 
+	 * then we know that there is some path of tree edges
+	 * v --> ... --> u. 
+	 * We want to print that path. */
+	
+	// doing a fresh BFS (specific to this back edge), so clear paths
+	//paths.clear();
+	
+	// BFS from the target node, looking for the path *back* to the source.
 	PathMap::mapped_type::iterator i_e = paths.find(my_source)->second.begin();
-	for (; 
+
+	// print out the whole cycle
+	auto print_edge = [g](Edge e)
+	{
+		assert(e.p_ds != 0);
+		
+		shared_ptr<encap::die> from_die = 
+			boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off]);
+		shared_ptr<encap::die> from_projected_die = 
+			boost::dynamic_pointer_cast<encap::die>(source(e, g)->shared_from_this());
+		shared_ptr<encap::die> to_die = 
+			boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off]);
+		shared_ptr<encap::die> to_projected_die = 
+			boost::dynamic_pointer_cast<encap::die>(target(e, g)->shared_from_this());
+		
+		std::cerr << "@0x" << std::hex << e.referencing_off 
+						<< " " << from_die->get_spec().tag_lookup(from_die->get_tag())
+						<< " " << (from_die->has_attr(DW_AT_name) ? 
+							   from_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
+				  << ", projection "
+					<< "@0x" << std::hex << from_projected_die->get_offset()
+						<< " " << from_projected_die->get_spec().tag_lookup(from_projected_die->get_tag())
+						<< " " << (from_projected_die->has_attr(DW_AT_name) ? 
+							   from_projected_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
+				<< endl
+				  << " ---> @0x" << std::hex << e.off 
+						<< " " << to_die->get_spec().tag_lookup(to_die->get_tag())
+						<< " " << (to_die->has_attr(DW_AT_name) ? 
+							   to_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
+				  << ", projection "
+					<< "@0x" << std::hex << to_projected_die->get_offset()
+						<< " " << to_projected_die->get_spec().tag_lookup(to_projected_die->get_tag())
+						<< " " << (to_projected_die->has_attr(DW_AT_name) ? 
+							   to_projected_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
+				<< std::endl;
+	};
+	
+	cerr << "*** begin cycle" << endl;
+	Edge cur_edge = e;
+	Edge next_edge;
+	for (PathMap::mapped_type::iterator i_e = paths.find(my_source)->second.begin(); 
 			i_e != paths.find(my_source)->second.end();
 			i_e++)
 	{
-		auto e = *i_e;
-		assert(e.p_ds != 0);
-		
-		std::cerr << "Following edge from DIE at offset " << std::hex << e.referencing_off << ", name "
-			<< (boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off])->has_attr(DW_AT_name) ? 
-				boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off])->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-			<< " to DIE at offset " << std::hex << e.off << ", name "
-			<< (boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off])->has_attr(DW_AT_name) ? 
-				boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off])->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-			<< std::endl;
-			
-			
-			// << *source(e, g)
-			//<< " to " << *target(e, g) << std::endl;
-
-		// is the target of this edge forward-declarable?
-		if (target(e, g)->get_tag() == DW_TAG_structure_type
-			&& target(e, g)->get_name())
-		{
-			if (std::find(g.forward_decls.begin(), g.forward_decls.end(),
-				target(e, g)) != g.forward_decls.end())
-			{
-				std::cerr << "Cycle already broken in previous round by removing this edge; can continue."
-					<< std::endl;
-				break;
-			}
-			else if (std::find(new_forward_decls.begin(), new_forward_decls.end(),
-				target(e, g)) != new_forward_decls.end())
-			{
-				std::cerr << "Cycle already broken in this round by removing this edge; can continue."
-					<< std::endl;
-				break;
-			}			
-			else
-			{
-				std::cerr << "Breaking cycle by skipping this edge." << std::endl;
-				// remove the edge
-				new_skipped_edges.push_back(*i_e);
-
-				// add the target to the forward-declare list
-				new_forward_decls.push_back(target(e, g));
-
-				// we can now exit the loop
-				break;
-			}
-		}
+		print_edge(*i_e);
 	}
-	// if we didn't exit the loop early, we're not finished yet
-	if (i_e == paths.find(my_source)->second.end())
+	print_edge(e);
+	cerr << "*** end cycle" << endl;
+}
+template <class Edge, class Graph>
+void cycle_handler::back_edge(Edge e, Graph& g)
+{
+	// Print it
+	// print_back_edge_and_cycle(e, g);
+	
+	// Try to break it
+	encap::basic_die *my_source = source(e, g);
+	encap::basic_die *my_target = target(e, g);
+	// Get the path back from target to source, i.e. the tree-edge path
+	auto paths = get_bfs_paths(my_target, g); // from target, to source
+	// paths[u] is the shortest path from my_target to u
+	auto paths_found = paths.find(my_source);
+	if (paths_found != paths.end())
 	{
-		// last gasp: target of back-edge is a struct
-		std::cerr << "Following edge from " << *my_source
-			<< " to " << *my_target << std::endl;
-		if (my_target->get_tag() == DW_TAG_structure_type)
-		{
-			if (std::find(g.forward_decls.begin(), g.forward_decls.end(),
-				my_target) != g.forward_decls.end())
-			{
-				std::cerr << "Cycle already broken in previous round by removing this edge; can continue."
-					<< std::endl;
-			}
-			else if (std::find(new_forward_decls.begin(), new_forward_decls.end(),
-				my_target) != new_forward_decls.end())
-			{
-				std::cerr << "Cycle already broken in this round by removing this edge; can continue."
-					<< std::endl;
-			}
-			else
-			{
-				std::cerr << "Breaking cycle by skipping this edge." << std::endl;
-				// remove the edge
-				new_skipped_edges.push_back(e);
+		PathMap::mapped_type::iterator i_e = paths_found->second.begin();
 
-				// add the target to the forward-declare list
-				new_forward_decls.push_back(my_target);
-			}
-		}
-		else
+		auto remove_edge_if_fwddeclable
+		 = [g, &new_forward_decls, &new_skipped_edges]
+		 (Edge candidate_e)
 		{
+			auto e_source_projected = source(candidate_e, g);
+			auto e_source_ultimate = dynamic_pointer_cast<encap::basic_die>(
+				(*candidate_e.p_ds)[candidate_e.referencing_off]).get();
+			auto e_target_projected = target(candidate_e, g);
+			auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
+				(*candidate_e.p_ds)[candidate_e.off]).get();
+				
+			// is the target of this edge forward-declarable?
+			if ((e_target_projected->get_tag() == DW_TAG_structure_type
+				&& e_target_projected->get_name())
+				|| (e_target_ultimate->get_tag() == DW_TAG_structure_type
+				&& e_target_ultimate->get_name())
+				)
+			{
+				bool use_projected_target = 
+					(e_target_projected->get_tag() == DW_TAG_structure_type
+						&& e_target_projected->get_name());
+				//if (std::find(g.forward_decls.begin(), g.forward_decls.end(),
+				//	e_target) != g.forward_decls.end())
+				//{
+				//	std::cerr << "Cycle already broken in previous round by removing this edge; can continue."
+				//		<< std::endl;
+				//	return true;
+				//}
+				/*else*/ if (std::find(new_forward_decls.begin(), new_forward_decls.end(),
+					e_target_projected) != new_forward_decls.end())
+				{
+					std::cerr << "Cycle already broken in this round by removing this edge; can continue."
+						<< std::endl;
+					return true;
+				}			
+				else
+				{
+					std::cerr << "Breaking cycle by skipping this edge." << std::endl;
+					// remove the edge
+					new_skipped_edges.push_back(candidate_e);
+
+					// add the target to the forward-declare list
+					new_forward_decls.push_back(
+						use_projected_target ? e_target_projected : e_target_ultimate);
+
+					// we can now exit the loop
+					return true;
+				}
+			}
+			return false;
+		};
+
+		bool removed = false;
+		for (PathMap::mapped_type::iterator i_e = paths_found->second.begin();
+				i_e != paths_found->second.end();
+				++i_e)
+		{
+			if (remove_edge_if_fwddeclable(*i_e))
+			{ removed = true; break; }
+		}
+		// if we didn't exit the loop early, we're not finished yet
+		if (!removed)
+		{
+			removed = remove_edge_if_fwddeclable(e);
+		}
+		if (!removed)
+		{
+			cerr << "Could not break cycle as follows." << endl;
+			print_back_edge_and_cycle(e, g, paths);
+
 			assert(false);
 		}
+	}
+	else
+	{
+		cerr << "No path from back_edge target to source!" << endl;
+		assert(false);
 	}
 }
 
 cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
-	: /*is_initialized(false),*/ p_parent(&parent)//, cycle_det(paths, *this)
+	: /*is_initialized(false),*/ p_parent(&parent)//, cycle_hnd(paths, *this)
 {
-	unsigned old_skipped_edges_count = 0;
-	unsigned new_skipped_edges_count = -1;
-	while (old_skipped_edges_count != new_skipped_edges_count)
+	unsigned old_total_edges_skipped = 0;
+	unsigned new_total_edges_skipped = -1;
+	unsigned cycle_count = 0;
+
+	unsigned initial_graph_edge_count = 0;
+	auto vs = boost::vertices(parent);
+	for (boost::graph_traits<encap::basic_die>::vertex_iterator i_v =
+			vs.first; i_v != vs.second; i_v++)
 	{
-		old_skipped_edges_count = new_skipped_edges_count; 
-		cycle_detector::PathMap paths;
+		auto es = boost::out_edges(*i_v, parent);
+		initial_graph_edge_count += srk31::count(es.first, es.second);
+	}
+	
+	while (old_total_edges_skipped != new_total_edges_skipped)
+	{
+		old_total_edges_skipped = new_total_edges_skipped; 
+		//cycle_handler::PathMap paths;
 		std::vector<dwarf::encap::basic_die *> new_forward_decls;
 		std::vector<dwarf::encap::attribute_value::weak_ref> new_skipped_edges;
-	 	cycle_detector cycle_det(paths, new_forward_decls, new_skipped_edges);
+		cycle_handler cycle_hnd(/*paths,*/ new_forward_decls, new_skipped_edges);
 		
 		// DEBUG: print all edges
-		unsigned total_edge_count = 0;
-		auto vs = boost::vertices(parent);
-		for (boost::graph_traits<encap::basic_die>::vertex_iterator i_v =
-				vs.first; i_v != vs.second; i_v++)
+		unsigned pre_graph_edge_count = 0;
+		auto vs = vertices(*this);
+		for (auto i_v = vs.first; i_v != vs.second; i_v++)
 		{
-			auto es = boost::out_edges(*i_v, parent);
-			for (boost::graph_traits<encap::basic_die>::out_edge_iterator i_e =
-				es.first; i_e != es.second; i_e++)
-			{
-				//std::cerr << "Node at " << std::hex << boost::source(*i_e, parent)->get_offset()
-				//	<< " depends on node at " << std::hex << boost::target(*i_e, parent)->get_offset()
-				//	<< " because of edge from offset " << i_e->referencing_off
-				//	<< " to offset " << i_e->off
-				//	<< " with attribute " 
-				//	<< parent.get_ds().get_spec().attr_lookup(i_e->referencing_attr)
-				//	<< std::endl;
-				total_edge_count++;
-			}
+			auto es = out_edges(*i_v, *this);
+			pre_graph_edge_count += srk31::count(es.first, es.second);
 		}	
 		/* Find cycles and remove edges. */
 		std::map<
 			boost::graph_traits<encap::basic_die>::vertex_descriptor, 
 			boost::default_color_type
 		> underlying_dfs_node_color_map;
-	   auto dfs_color_map = boost::make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
+		auto dfs_color_map = boost::make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
 				underlying_dfs_node_color_map
 			);
-		auto visitor = boost::visitor(cycle_det).color_map(dfs_color_map);
+		auto visitor = boost::visitor(cycle_hnd).color_map(dfs_color_map);
+		// go!
 		boost::depth_first_search(*this, visitor);
-		//is_initialized = true;
 
-		// count edges in the de-cycled graph
-		unsigned weeded_edge_count = 0;
-		auto wvs = vertices(*this);
-  		std::cerr << "diagraph Blah { " << std::endl;
-		for (boost::graph_traits<cpp_dependency_order>::vertex_iterator i_v =
-			wvs.first; i_v != wvs.second; i_v++)
-		{
-
-			auto es = out_edges(*i_v, *this);
-			for (boost::graph_traits<cpp_dependency_order>::out_edge_iterator i_e =
-				es.first; i_e != es.second; i_e++)
-			{
-				//std::cerr << "Node at " << std::hex << boost::source(*i_e, parent)->get_offset()
-				//	<< " depends on node at " << std::hex << boost::target(*i_e, parent)->get_offset()
-				//	<< " because of edge from offset " << i_e->referencing_off
-				//	<< " to offset " << i_e->off
-				//	<< " with attribute " 
-				//	<< parent.get_ds().get_spec().attr_lookup(i_e->referencing_attr)
-				//	<< std::endl;
-				//std::cerr << std::hex << source(*i_e, *this)->get_offset() << " --> " 
-				//	<< std::hex << target(*i_e, *this)->get_offset() << ";" << std::endl;
-				weeded_edge_count++;
-			}
-		}
-		std::cerr << "}" << std::endl;
-		new_skipped_edges_count = skipped_edges.size();
-		assert(weeded_edge_count + new_skipped_edges_count == total_edge_count);
-
-// 		/* Find cycles and remove edges. AGAIN. */
-//		 std::cerr << "About to check for cycles AGAIN." << std::endl;
-//		 std::map<
-//	 		boost::graph_traits<encap::Die_encap_base>::vertex_descriptor, 
-//	 		boost::default_color_type
-//		 > underlying_dfs_node_color_map_again;
-//		 auto dfs_color_map_again = boost::make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
-//		 		underlying_dfs_node_color_map_again
-//			 );
-//		 cycle_detector::PathMap paths_again;
-//		 cycle_detector cycle_det_again(paths, *this);
-//		 auto visitor_again = boost::visitor(cycle_det_again).color_map(dfs_color_map_again);
-//		 boost::depth_first_search(parent, visitor_again);
-//		 //is_initialized = true;
-
+		// add the skipped edges
 		for (auto i_skipped_edge = new_skipped_edges.begin(); 
 			i_skipped_edge != new_skipped_edges.end();
 			i_skipped_edge++) skipped_edges.push_back(*i_skipped_edge);
 		for (auto i_forward_decl = new_forward_decls.begin(); 
 			i_forward_decl != new_forward_decls.end();
 			i_forward_decl++) forward_decls.push_back(*i_forward_decl);
+
+		// count edges in the de-cycled graph
+		unsigned post_graph_edge_count = 0;
+		auto wvs = vertices(*this);
+		//std::cerr << "diagraph Blah { " << std::endl;
+		for (auto i_v = wvs.first; i_v != wvs.second; i_v++)
+		{
+			auto es = out_edges(*i_v, *this);
+			post_graph_edge_count += srk31::count(es.first, es.second);
+		}
+		//std::cerr << "}" << std::endl;
+
+
+		new_total_edges_skipped = skipped_edges.size();
+		cerr << "On cycle " << cycle_count << " we started with "
+			<< pre_graph_edge_count << " edges "
+			<< "and ended with "
+			<< post_graph_edge_count << " edges "
+			<< "having skipped another "
+			<< new_skipped_edges.size() << " edges." << endl;
+		assert(post_graph_edge_count + skipped_edges.size() == initial_graph_edge_count);
+		
+		++cycle_count;
 	}
 	
-	// DEBUG:verify that we have no cycle
+	/* Find cycles and remove edges. AGAIN. */
+	cerr << "Reached a fixed point after skipping " << skipped_edges.size() << " edges." << endl;
+	std::cerr << "About to print remaining cycles (hopefully none)." << std::endl;
+
+	std::map<
+		boost::graph_traits<encap::basic_die>::vertex_descriptor, 
+		boost::default_color_type
+	> underlying_dfs_node_color_map_again;
+	auto dfs_color_map_again = boost::make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
+			underlying_dfs_node_color_map_again
+		);
+	std::vector<dwarf::encap::basic_die *> new_forward_decls_again;
+	std::vector<dwarf::encap::attribute_value::weak_ref> new_skipped_edges_again;
+	noop_cycle_handler cycle_hnd_again(new_forward_decls_again, new_skipped_edges_again);
+	auto visitor_again = boost::visitor(cycle_hnd_again).color_map(dfs_color_map_again);
+	boost::depth_first_search(*this, visitor_again);
+	
+	// DEBUG: verify that we have no cycle
 	std::map<
 		boost::graph_traits<cpp_dependency_order>::vertex_descriptor, 
 		boost::default_color_type

@@ -37,23 +37,49 @@ public:
 	void increment(); 
 	void decrement(); 
 };
-struct cycle_detector : public boost::dfs_visitor<>
+struct cycle_handler : public boost::dfs_visitor<>
 {
+	/* We use this map to record the shortest path 
+	 * from our back edge target 
+	 * to our back edge source, i.e. the "forward" path
+	 * that forms path of the cycle. */ 
  	typedef std::map<
 		dwarf::encap::basic_die *, 
 		std::vector<
 			skip_edge_iterator<>::value_
 		> 
 	> PathMap;
-	PathMap& paths;
+	//PathMap& paths;
 	std::vector<dwarf::encap::basic_die *>& new_forward_decls;
 	std::vector<dwarf::encap::attribute_value::weak_ref>& new_skipped_edges;
-	cycle_detector(PathMap& paths, std::vector<dwarf::encap::basic_die *>& new_forward_decls,
+	cycle_handler(/*PathMap& paths,*/ std::vector<dwarf::encap::basic_die *>& new_forward_decls,
 		std::vector<dwarf::encap::attribute_value::weak_ref>& new_skipped_edges) 
-	  : paths(paths), new_forward_decls(new_forward_decls), new_skipped_edges(new_skipped_edges) { }
+	  : /*paths(paths),*/ new_forward_decls(new_forward_decls), new_skipped_edges(new_skipped_edges) 
+	{ /*assert(paths.size() == 0);*/ }
+
+	template <class Vertex, class Graph>
+	PathMap get_bfs_paths(Vertex from, Graph& g);
 
 	template <class Edge, class Graph>
+	void print_back_edge_and_cycle(Edge e, Graph& g, PathMap& paths);
+	
+	template <class Edge, class Graph>
 	void back_edge(Edge e, Graph& g);
+};
+struct noop_cycle_handler : public cycle_handler
+{
+	template <class Edge, class Graph>
+	void back_edge(Edge e, Graph& g) 
+	{
+		auto my_target = target(e, g);
+		PathMap paths = get_bfs_paths(my_target, g);
+		print_back_edge_and_cycle(e, g, paths); 
+	}
+	
+	noop_cycle_handler(//PathMap& paths, 
+		std::vector<dwarf::encap::basic_die *>& new_forward_decls,
+		std::vector<dwarf::encap::attribute_value::weak_ref>& new_skipped_edges)
+	: cycle_handler(new_forward_decls, new_skipped_edges) {}
 };
 struct cpp_dependency_order
 {
@@ -124,8 +150,10 @@ namespace dwarf { namespace tool {
 template <typename PathMap>
 class bfs_path_recorder : public boost::default_bfs_visitor
 {
-	public:
-	bfs_path_recorder(PathMap& path) : p(path) { }
+private:
+	PathMap& p;
+public:
+	bfs_path_recorder(PathMap& pm) : p(pm) { }
 
 	template <typename Edge, typename Graph>
 	void tree_edge(Edge e, const Graph& g) 
@@ -133,10 +161,16 @@ class bfs_path_recorder : public boost::default_bfs_visitor
  		typename boost::graph_traits<Graph>::vertex_descriptor 
 			u = source(e, g), 
 			v = target(e, g);
-		p[v] = p[u]; p.find(v)->second.push_back(e);
+		
+		// the shortest path to v...
+		p[v]
+		// ... is the shortest path to u...
+		= p[u]
+		// ... plus the edge from u to v
+		; p.find(v)->second.push_back(e);
+		// sanity check
+		assert(p[v].size() == p[u].size() + 1);
 	}
-	private:
-	  PathMap& p;
 };
 	inline std::pair<
 		graph_traits<dwarf::tool::cpp_dependency_order>::out_edge_iterator,

@@ -88,7 +88,7 @@ namespace tool {
 	cxx_generator_from_dwarf::type_infixes_name(shared_ptr<spec::basic_die> p_d)
 	{
 		auto t = dynamic_pointer_cast<spec::type_die>(p_d);
-		cerr << "Does this type infix a name? " << *t << endl;
+		//cerr << "Does this type infix a name? " << *t << endl;
 		assert(t);
 		auto unq_t = t->get_unqualified_type();
 		return 
@@ -436,7 +436,6 @@ namespace tool {
 		shared_ptr<spec::basic_die> p_d
 	)
 	{
-		assert(!p_d->get_name());
 		std::ostringstream s;
 		s << "_dwarfhpp_anon_" << std::hex << p_d->get_offset();
 		return s.str();
@@ -801,7 +800,7 @@ namespace tool {
 							deque<Dwarf_Unsigned>(1, 0UL)
 							)
 						).tos()
-						+ *prev_member_calculated_byte_size;
+						+ *prev_member_calculated_byte_size; // -1 HACK: see below
 				}
 			}
 			else
@@ -828,7 +827,7 @@ namespace tool {
 
 		if (p_d->get_data_member_location() && p_d->get_data_member_location()->size() == 1)
 		{
-			Dwarf_Unsigned offset = evaluator(
+			Dwarf_Unsigned target_offset = evaluator(
 				p_d->get_data_member_location()->at(0), 
 				p_d->get_ds().get_spec(),
 				stack<Dwarf_Unsigned>(
@@ -837,7 +836,7 @@ namespace tool {
 					)
 				).tos();
 
-			if (offset > 0 && cur_offset != std::numeric_limits<Dwarf_Unsigned>::max())
+			if (target_offset > 0 && cur_offset != std::numeric_limits<Dwarf_Unsigned>::max())
 			{
 				/* Calculate a sensible align value for this. We could just use the offset,
 				 * but that might upset the compiler if it's larger than what it considers
@@ -851,14 +850,36 @@ namespace tool {
 				// our target offset is the first one we find
 				unsigned power = 1;
 				bool is_good = false;
+				unsigned test_offset = cur_offset;
 				do
 				{
-					unsigned test_offset = cur_offset;
-					while (test_offset % power != 0) test_offset++;
+					// keep incrementing test offset until it's congruent to our power of two
+					while (test_offset % power != 0) ++test_offset;
+					// now we have the offset we'd get if we chose aligned(power)
+					
+					// HMM: what if test_offset
+					// also divides by the *next* power of two?
+					// In that case, we will go straight through.
+					// Eventually we will get a power that is bigger than it.
+					// Then it won't be divisible.
+					
 					// now test_offset is a multiple of power -- check it's our desired offset
-					is_good = (test_offset == offset);
-				} while (!is_good && (power <<= 1, true));
-
+					is_good = (test_offset == target_offset);
+				} while (!is_good && (power <<= 1, power != 0));
+				
+				if (power == 0)
+				{
+					// This happens for weird object layouts, i.e. with gaps in.
+					// Test case: start 48, target 160; the relevant power 
+					// cannot be higher than 32, because that's the highest that
+					// divides 160. But if we choose align(32), we will get offset 64.
+					out << "// WARNING: could not infer alignment for offset "
+						<< target_offset << " starting at " << cur_offset << endl;
+					out << "char " << create_ident_for_anonymous_die(p_d) << "_padding["
+						<< target_offset - cur_offset << "];" << endl;
+					power = 1;
+				}
+					
 				out << " __attribute__((aligned(" << power << ")))";
 			}
 			out << ";" 
@@ -866,7 +887,7 @@ namespace tool {
 				<< name_for_type(compiler, p_type, boost::optional<const std::string&>())
 				<< ", "
 				<< protect_ident(*d.get_name())
-				<< ") == " << offset << ");" */<< " // offset: " << offset << endl;
+				<< ") == " << offset << ");" */<< " // offset: " << target_offset << endl;
 		}
 		else 
 		{
