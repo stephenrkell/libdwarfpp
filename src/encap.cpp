@@ -291,15 +291,55 @@ namespace dwarf
 		/* Copy constructor. */
 		dieset& dieset::operator=(const dieset& arg)
 		{
+			cerr << "Copying from dieset at " << &arg << " to dieset at " << this << endl;
+			this->map::clear();
 			this->destructing = arg.destructing;
 			this->p_spec = arg.p_spec;
 			for (auto i = arg.map_begin(); i != arg.map_end(); ++i)
 			{
 				auto p_d = dynamic_pointer_cast<encap::basic_die>(i->second);
-				this->insert(make_pair(i->first,
-					factory::for_spec(*arg.p_spec).clone_die(
+				auto cloned_die = factory::for_spec(*arg.p_spec).clone_die(
 						*this, 
-						p_d)));
+						p_d);
+				/* We have to update the p_ds pointer in each weak_ref 
+				 * so that it points to the new dieset. */
+				die::attribute_map& cloned_attrs = cloned_die->attrs();
+				die::attribute_map& orig_attrs = i->second->attrs();
+				auto i_orig_attr = orig_attrs.begin();
+				for (auto i_clone_attr = cloned_attrs.begin(); i_clone_attr != cloned_attrs.end(); 
+					++i_clone_attr, ++i_orig_attr)
+				{
+					i_clone_attr->second.p_ds = this;
+					if (i_clone_attr->second.get_form() == attribute_value::REF)
+					{
+						cerr << "Copied a ref, from ref obj at addr " << i_orig_attr->second.v_ref
+							<< " to ref obj at attr " << i_clone_attr->second.v_ref << endl;
+						i_clone_attr->second.v_ref->p_ds = this;
+					}
+					// for all reference attributes, assert that if we follow them,
+					// we are still within the same dieset.
+					assert(&cloned_die->get_ds() == this);
+					assert((*cloned_die)[i_clone_attr->first].get_form() != attribute_value::REF
+					   ||  (*cloned_die)[i_clone_attr->first].get_ref().p_ds == this);
+				}
+				
+				this->insert(make_pair(i->first, cloned_die));
+				assert(this->find(i->first) != this->end()
+					&& &(this->map::find(i->first)->second->m_ds) == this);
+			}
+			
+			for (auto i_die = this->begin(); i_die != this->end(); ++i_die)
+			{
+				assert(&(*i_die)->get_ds() == this);
+				for (auto i_attr = dynamic_pointer_cast<encap::die>(*i_die)->attrs().begin(); 
+					i_attr != dynamic_pointer_cast<encap::die>(*i_die)->attrs().end();
+					++i_attr)
+				{
+					// for all reference attributes, assert that if we follow them,
+					// we are still within the same dieset.
+					assert((*dynamic_pointer_cast<encap::die>(*i_die))[i_attr->first].get_form() != attribute_value::REF
+					   ||  (*dynamic_pointer_cast<encap::die>(*i_die))[i_attr->first].get_ref().p_ds == this);
+				}
 			}
 
 			this->all_compile_units()->integrity_check();

@@ -418,7 +418,7 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 	
 	while (old_total_edges_skipped != new_total_edges_skipped)
 	{
-		old_total_edges_skipped = new_total_edges_skipped; 
+		old_total_edges_skipped = (new_total_edges_skipped == -1) ? 0 : new_total_edges_skipped; 
 		//cycle_handler::PathMap paths;
 		std::vector<dwarf::encap::basic_die *> new_forward_decls;
 		std::vector<dwarf::encap::attribute_value::weak_ref> new_skipped_edges;

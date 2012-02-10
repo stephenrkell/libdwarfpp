@@ -122,7 +122,7 @@ namespace tool {
 		return true; // FIXME: correct?
 	}
 
-	string 
+	pair<string, bool>
 	cxx_generator_from_dwarf::cxx_declarator_from_type_die(
 		shared_ptr<spec::type_die> p_d, 
 		optional<const string&> infix_typedef_name/*= optional<const std::string&>()*/,
@@ -136,21 +136,23 @@ namespace tool {
 		{
 			// return the friendly compiler-determined name or not, depending on argument
 			case DW_TAG_base_type:
-				return 
-				((extra_prefix && !use_friendly_names) ? *extra_prefix : "")
-				+ local_name_for(dynamic_pointer_cast<spec::base_type_die>(p_d),
-					use_friendly_names);
+				return make_pair(
+					((extra_prefix && !use_friendly_names) ? *extra_prefix : "")
+					+ local_name_for(dynamic_pointer_cast<spec::base_type_die>(p_d),
+						use_friendly_names),
+					false);
 			case DW_TAG_typedef:
-				return (extra_prefix ? *extra_prefix : "") + *p_d->get_name();
+				return make_pair((extra_prefix ? *extra_prefix : "") + *p_d->get_name(), false);
 			case DW_TAG_reference_type: {
 				shared_ptr<spec::reference_type_die> reference 
 				 = dynamic_pointer_cast<spec::reference_type_die>(p_d);
 				assert(reference);
 				assert(reference->get_type());
-				return cxx_declarator_from_type_die(
+				auto declarator = cxx_declarator_from_type_die(
 						reference->get_type(), optional<const string&>(),
 						use_friendly_names, extra_prefix, 
-							use_struct_and_union_prefixes) + "&";
+							use_struct_and_union_prefixes);
+				return make_pair(declarator.first + "&", declarator.second);
 			}
 			case DW_TAG_pointer_type: {
 				shared_ptr<spec::pointer_type_die> pointer 
@@ -165,12 +167,16 @@ namespace tool {
 							use_friendly_names, extra_prefix, 
 							use_struct_and_union_prefixes);
 					}
-					else return cxx_declarator_from_type_die(
+					else 
+					{
+						auto declarator = cxx_declarator_from_type_die(
 						pointer->get_type(), optional<const string&>(),
 						use_friendly_names, extra_prefix, 
-							use_struct_and_union_prefixes) + "*";
+							use_struct_and_union_prefixes);
+						return make_pair(declarator.first + "*", declarator.second);
+					}
 				}
-				else return "void *";
+				else return make_pair("void *", false);
 			}
 			case DW_TAG_array_type: {
 				// we only understand C arrays, for now
@@ -185,14 +191,14 @@ namespace tool {
 				auto array_size = arr->element_count();
 				ostringstream arrsize; 
 				if (array_size) arrsize << *array_size;
-				return cxx_declarator_from_type_die(arr->get_type(), 
+				return make_pair(cxx_declarator_from_type_die(arr->get_type(), 
 							optional<const string&>(), 
 							use_friendly_names, extra_prefix, 
-							use_struct_and_union_prefixes)
+							use_struct_and_union_prefixes).first
 					+ " " + (infix_typedef_name ? *infix_typedef_name : "") + "[" 
 					// add size, if we have a subrange type
 					+ arrsize.str()
-					+ "]";
+					+ "]", infix_typedef_name ? true : false);
 			}
 			case DW_TAG_subroutine_type: {
 				ostringstream s;
@@ -203,7 +209,7 @@ namespace tool {
 					optional<const string&>(), 
 							use_friendly_names, extra_prefix, 
 							use_struct_and_union_prefixes
-					) 
+					).first 
 					: string("void "));
 				s << "(*" << (infix_typedef_name ? *infix_typedef_name : "")
 					<< ")(";
@@ -220,7 +226,7 @@ namespace tool {
 											optional<const string&>(), 
 											use_friendly_names, extra_prefix, 
 											use_struct_and_union_prefixes
-										);
+										).first;
 								break;
 							case DW_TAG_unspecified_parameters:
 								s << "...";
@@ -230,7 +236,7 @@ namespace tool {
 					}
 				}
 				catch (lib::No_entry) { s << ")"; }
-				return s.str();
+				return make_pair(s.str(), true);
 			}
 			case DW_TAG_const_type:
 				qualifier_suffix = " const";
@@ -249,7 +255,9 @@ namespace tool {
 				goto handle_named_type;
 			handle_named_type:
 			default:
-				return (extra_prefix ? *extra_prefix : "") + name_prefix + cxx_name_from_die(p_d);
+				return make_pair(
+					(extra_prefix ? *extra_prefix : "") + name_prefix + cxx_name_from_die(p_d),
+					false);
 			handle_qualified_type: {
 				/* This is complicated by the fact that array types in C/C++ can't be qualified directly,
 				 * but such qualified types can be defined using typedefs. (FIXME: I think this is correct
@@ -257,18 +265,27 @@ namespace tool {
 				auto chained_type =  dynamic_pointer_cast<spec::type_chain_die>(p_d)->get_type();
 				/* Note that many DWARF emitters record C/C++ "const void" (as in "const void *")
 				 * as a const type with no "type" attribute. So handle this case. */
-				if (!chained_type) return "void" + qualifier_suffix;
+				if (!chained_type) return make_pair("void" + qualifier_suffix, false);
 				else if (cxx_type_can_be_qualified(chained_type))
 				{
-					return cxx_declarator_from_type_die(
+					auto declarator = cxx_declarator_from_type_die(
 						chained_type, 
 						infix_typedef_name,
 						use_friendly_names, extra_prefix, 
 						use_struct_and_union_prefixes
-						) + qualifier_suffix;
+						);
+					return make_pair(declarator.first + qualifier_suffix, declarator.second);
 				}
-				else throw Not_supported(string("C++ qualifiers for types of tag ")
-					 + p_d->get_spec().tag_lookup(chained_type->get_tag()));
+				else 
+				{
+					// fallback: assume that the more primitive (unqualified) type
+					// already has a typedef. So we just qualify that typedef and return.
+					return make_pair(create_ident_for_anonymous_die(chained_type)
+						+ " " + qualifier_suffix, false);
+
+					//throw Not_supported(string("C++ qualifiers for types of tag ")
+					//	 + p_d->get_spec().tag_lookup(chained_type->get_tag()));
+				}
 			}
 		}
 	}
@@ -407,15 +424,32 @@ namespace tool {
 		return true;
 	}
 	
-	string 
+	pair<string, bool>
 	cxx_generator_from_dwarf::name_for_type(
 		shared_ptr<spec::type_die> p_d, 
 		boost::optional<const string&> infix_typedef_name /*= none*/,
 		bool use_friendly_names/*= true*/)
 	{
-		return cxx_declarator_from_type_die(p_d, 
-			infix_typedef_name,
-			use_friendly_names);
+// 		try
+// 		{
+			return cxx_declarator_from_type_die(p_d, 
+				infix_typedef_name,
+				use_friendly_names);
+// 		} 
+// 		catch (dwarf::lib::Not_supported)
+// 		{
+// 			// HACK around this strange (const (array)) case
+// 			if (p_d->get_tag() == DW_TAG_const_type
+// 			 && dynamic_pointer_cast<const_type_die>(p_d)->get_type()->get_concrete_type()->get_tag()
+// 			 	== DW_TAG_array_type)
+// 			{
+// 				// assume that we will be emitting a typedef for the const type itself,
+// 				// so just output its anonymous name.
+// 				// BUT how did we emit that typedef? We would run down this same path.
+// 				return make_pair(create_ident_for_anonymous_die(p_d), false);
+// 			}
+// 			else throw;
+// 		}
 	}	
 
 	string 
@@ -477,11 +511,11 @@ namespace tool {
 
 		// make sure that if we're going to throw an exception, we do it before
 		// we write any output.
-		string declarator = name_for_type(p_d, name_to_use);
+		auto declarator = name_for_type(p_d, name_to_use);
 		out << "typedef " 
-			<< protect_ident(declarator);
+			<< protect_ident(declarator.first);
 		// HACK: we use the infix for subroutine types
-		if (!type_infixes_name(p_d->get_this()))
+		if (!declarator.second)
 		{
 			out << " "
 				<< protect_ident(name_to_use);
@@ -520,7 +554,7 @@ namespace tool {
 			out << "extern \"" << lang_to_use << "\" {\n";
 		}
 		
-		if (p_d->get_type()) out << name_for_type(p_d->get_type());
+		if (p_d->get_type()) out << name_for_type(p_d->get_type()).first;
 		else out << "void";
 		out << " " << name << "(";
 		
@@ -533,10 +567,11 @@ namespace tool {
 			
 			if ((*i_fp)->get_type())
 			{
-				if ((*i_fp)->get_name()) out << name_for_type((*i_fp)->get_type(), *(*i_fp)->get_name());
-				else out << name_for_type((*i_fp)->get_type());
-				
-				if (!type_infixes_name((*i_fp)->get_type())) out << " " 
+				auto declarator = ((*i_fp)->get_name())
+					? name_for_type((*i_fp)->get_type(), *(*i_fp)->get_name())
+					: name_for_type((*i_fp)->get_type());
+				out << declarator.first;
+				if (!declarator.second) out << " " 
 					<< ((*i_fp)->get_name() ? *(*i_fp)->get_name() : "");
 				else out << "void *" << ((*i_fp)->get_name() ? *(*i_fp)->get_name() : "");
 				written_an_arg = true;
@@ -613,15 +648,16 @@ namespace tool {
 
 		if (!type_name_in_compiler) return; // FIXME: could define a C++ ADT!
 
-		string our_name_for_this_type = name_for_type(
+		auto our_name_for_this_type = name_for_type(
 			dynamic_pointer_cast<spec::type_die>(p_d), 
 			0 /* no infix */, 
 			false /* no friendly names*/);
+		assert(!our_name_for_this_type.second);
 
-		if (our_name_for_this_type != *type_name_in_compiler)
+		if (our_name_for_this_type.first != *type_name_in_compiler)
 		{
 			out << "typedef " << *type_name_in_compiler
-				<< ' ' << protect_ident(our_name_for_this_type)
+				<< ' ' << protect_ident(our_name_for_this_type.first)
 				<< ';' << endl;
 		}
 	}
@@ -653,7 +689,7 @@ namespace tool {
 		}
 
 		out  << (p_d->get_type() 
-					? protect_ident(name_for_type(p_d->get_type()))
+					? protect_ident(name_for_type(p_d->get_type()).first)
 					: std::string("void")
 				)
 			<< ' '
@@ -702,7 +738,7 @@ namespace tool {
 		if (argpos != 0) out << ", ";
 
 		out	<< (p_d->get_type() 
-				? protect_ident(name_for_type(p_d->get_type()))
+				? protect_ident(name_for_type(p_d->get_type()).first)
 				: get_untyped_argument_typename()
 				)
 			<< ' '
@@ -800,7 +836,7 @@ namespace tool {
 							deque<Dwarf_Unsigned>(1, 0UL)
 							)
 						).tos()
-						+ *prev_member_calculated_byte_size; // -1 HACK: see below
+						+ *prev_member_calculated_byte_size; 
 				}
 			}
 			else
@@ -811,16 +847,13 @@ namespace tool {
 			}
 		}
 
-		if (p_d->get_name())
-		{
-			out << protect_ident(name_for_type(member_type, *p_d->get_name()));
-		}
-		else 
-		{
-			out << protect_ident(name_for_type(member_type, optional<const string&>()));
-		}
+		auto declarator = (p_d->get_name())
+			? name_for_type(member_type, *p_d->get_name())
+			: name_for_type(member_type, optional<const string&>());
+		
+		out << protect_ident(declarator.first);
 		out	<< " ";
-		if (!type_infixes_name(member_type->get_this()))
+		if (!declarator.second)
 		{
 			out << protect_ident(*p_d->get_name());
 		}
@@ -853,8 +886,13 @@ namespace tool {
 				unsigned test_offset = cur_offset;
 				do
 				{
-					// keep incrementing test offset until it's congruent to our power of two
-					while (test_offset % power != 0) ++test_offset;
+					// if it doesn't divide by our power of two,
+					// set it to the next-highest multiple of our power
+					if (test_offset % power != 0)
+					{
+						test_offset = ((test_offset / power) + 1) * power;
+					}
+					assert(test_offset % power == 0);
 					// now we have the offset we'd get if we chose aligned(power)
 					
 					// HMM: what if test_offset
@@ -1088,7 +1126,7 @@ namespace tool {
 		// emit a typedef of the underlying type.
 		out << "typedef " 
 			<< protect_ident(name_for_type( 
-				dynamic_pointer_cast<spec::type_chain_die>(p_d)->get_type())
+				dynamic_pointer_cast<spec::type_chain_die>(p_d)->get_type()).first
 				)
 			<< " " 
 			<< protect_ident(

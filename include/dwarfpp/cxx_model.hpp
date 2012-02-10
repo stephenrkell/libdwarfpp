@@ -27,6 +27,7 @@ using namespace dwarf;
 using dwarf::lib::Dwarf_Half;
 using dwarf::lib::Dwarf_Off;
 using std::vector;
+using std::pair;
 using std::map;
 using std::string;
 using boost::optional;
@@ -104,7 +105,7 @@ public:
 	bool 
 	cxx_type_can_be_qualified(shared_ptr<spec::type_die> p_d);
 
-	string 
+	pair<string, bool>
 	cxx_declarator_from_type_die(
 		shared_ptr<spec::type_die> p_d, 
 		optional<const string&> infix_typedef_name = optional<const string&>(),
@@ -122,7 +123,7 @@ public:
 	bool 
 	cxx_is_complete_type(shared_ptr<spec::type_die> t);
 	
-	string 
+	pair<string, bool>
 	name_for_type(
 		shared_ptr<spec::type_die> p_d, 
 		optional<const string&> infix_typedef_name = optional<const string&>(),

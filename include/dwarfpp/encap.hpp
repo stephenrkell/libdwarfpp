@@ -312,6 +312,7 @@ namespace dwarf {
 		{
 			friend struct die_out_edge_iterator<attribute_value::weak_ref>; // in encap_graph.hpp
 			friend class factory;
+			friend class dieset;
 			friend class dwarf3_factory_t; // HACK
 			friend std::pair<
 				die_out_edge_iterator<attribute_value::weak_ref>, 

@@ -80,10 +80,13 @@ namespace dwarf
 				friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
 				friend std::ostream& dwarf::spec::operator<<(std::ostream& o, const dwarf::spec::basic_die& d);                
 				friend class encap::die; // for the "convert to strong references" hack
+				friend class encap::dieset;
 		public: 
 			struct weak_ref { 
 				friend class attribute_value;
-	        	friend struct die_out_edge_iterator<weak_ref>; // in encap_graph.hpp
+ 				//friend dieset::operator=(const dieset& arg);
+				friend class encap::dieset;
+ 	        	friend struct die_out_edge_iterator<weak_ref>; // in encap_graph.hpp
                 friend struct sibling_dep_edge_iterator<weak_ref>; // in encap_sibling_graph.hpp
 				Dwarf_Off off; bool abs;
 				Dwarf_Off referencing_off; // off of DIE keeping the reference
