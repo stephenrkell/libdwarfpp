@@ -25,6 +25,14 @@ namespace dwarf
 			s << *this;
 			return s.str();
 		}
+		string basic_die::summary() const
+		{
+			ostringstream s;
+			s << "DIE at 0x" << std::hex << get_offset() << std::dec
+				<< ", tag " << get_spec().tag_lookup(get_tag())
+				<< ", name " << (get_name() ? *get_name() : "(anonymous)");
+			return s.str();
+		}
 		void basic_die::print_to_stderr() const
 		{
 			cerr << *this;
@@ -660,23 +668,45 @@ namespace dwarf
         }
 /* from spec::compile_unit_die */
 		opt<Dwarf_Unsigned> compile_unit_die::implicit_array_base() const
-        {
-        	switch(this->get_language())
-            {
-            	/* See DWARF 3 sec. 5.12! */
-            	case DW_LANG_C:
-                case DW_LANG_C89:
-                case DW_LANG_C_plus_plus:
-                case DW_LANG_C99:
-                	return opt<Dwarf_Unsigned>(0UL);
-                case DW_LANG_Fortran77:
-                case DW_LANG_Fortran90:
-                case DW_LANG_Fortran95:
-                	return opt<Dwarf_Unsigned>(1UL);
-                default:
-                	return opt<Dwarf_Unsigned>();
-            }
-        }
+		{
+			switch(this->get_language())
+			{
+				/* See DWARF 3 sec. 5.12! */
+				case DW_LANG_C:
+				case DW_LANG_C89:
+				case DW_LANG_C_plus_plus:
+				case DW_LANG_C99:
+					return opt<Dwarf_Unsigned>(0UL);
+				case DW_LANG_Fortran77:
+				case DW_LANG_Fortran90:
+				case DW_LANG_Fortran95:
+					return opt<Dwarf_Unsigned>(1UL);
+				default:
+					return opt<Dwarf_Unsigned>();
+			}
+		}
+		shared_ptr<type_die> compile_unit_die::implicit_enum_base_type() const
+		{
+			auto nonconst_this = const_cast<compile_unit_die *>(this);
+			switch(this->get_language())
+			{
+				case DW_LANG_C:
+				case DW_LANG_C89:
+				case DW_LANG_C_plus_plus:
+				case DW_LANG_C99: {
+					const char *attempts[] = { "signed int", "int" };
+					auto total_attempts = sizeof attempts / sizeof attempts[0];
+					for (auto i_attempt = 0; i_attempt < total_attempts; ++i_attempt)
+					{
+						auto found = nonconst_this->named_child(attempts[i_attempt]);
+						if (found) return dynamic_pointer_cast<type_die>(found);
+					}
+					assert(false && "enum but no int or signed int");
+				}
+				default:
+					return shared_ptr<type_die>();
+			}
+		}
 /* from spec::type_die */
         opt<Dwarf_Unsigned> type_die::calculate_byte_size() const
         {
@@ -807,6 +837,16 @@ namespace dwarf
             if (count && calculated_byte_size) return *count * *calculated_byte_size;
             else return opt<Dwarf_Unsigned>();
 		}
+/* from spec::structure_type_die */
+		opt<Dwarf_Unsigned> structure_type_die::calculate_byte_size() const
+		{
+			// HACK: for now, do nothign
+			// We should make this more reliable,
+			// but it's difficult because overall size of a struct is
+			// language- and implementation-dependent.
+			return this->type_die::calculate_byte_size();
+		}
+
 /* from spec::variable_die */        
 		bool variable_die::has_static_storage() const
         {

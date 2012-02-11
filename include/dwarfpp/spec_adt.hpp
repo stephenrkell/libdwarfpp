@@ -25,7 +25,9 @@ namespace dwarf
 	namespace spec 
 	{
 		using namespace lib;
+		using std::string;
 		using std::pair;
+		using std::ostream;
 		using std::make_pair;
 		using srk31::conjoining_sequence;
 		using srk31::conjoining_iterator;
@@ -35,8 +37,8 @@ namespace dwarf
 		struct basic_die;
 		struct file_toplevel_die;
 		struct member_die;
-		std::ostream& operator<<(std::ostream& s, const basic_die& d);
-		std::ostream& operator<<(std::ostream& s, const abstract_dieset& ds);
+		ostream& operator<<(ostream& s, const basic_die& d);
+		ostream& operator<<(ostream& s, const abstract_dieset& ds);
 
 		class abstract_dieset //: public boost::enable_shared_from_this<abstract_dieset>
         {
@@ -444,6 +446,7 @@ namespace dwarf
 			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
 			string to_string() const;
 			void print_to_stderr() const; // debugging
+			string summary() const;
 		
 			virtual Dwarf_Off get_offset() const = 0;
 			virtual Dwarf_Half get_tag() const = 0;
@@ -979,7 +982,7 @@ begin_class(qualified_type, base_initializations(initialize_base(type_chain)), d
         virtual boost::shared_ptr<type_die> get_unqualified_type() const;
         boost::shared_ptr<type_die> get_unqualified_type();
 end_class(qualified_type)
-begin_class(with_data_members, base_initializations(initialize_base(type)), declare_base(type))
+begin_class(with_data_members, base_initializations(initialize_base(type), initialize_base(with_named_children)), declare_base(type), declare_base(with_named_children))
         child_tag(member)
 end_class(with_data_members)
 
@@ -1011,6 +1014,7 @@ end_class(with_data_members)
 	encap::loclist get_dynamic_location() const;
 #define extra_decls_compile_unit \
 		opt<Dwarf_Unsigned> implicit_array_base() const; \
+		shared_ptr<type_die> implicit_enum_base_type() const; \
 		virtual Dwarf_Half get_address_size() const { return this->get_ds().get_address_size(); } \
 		virtual std::string source_file_name(unsigned o) const = 0; \
 		virtual unsigned source_file_count() const = 0;
@@ -1042,6 +1046,7 @@ end_class(with_data_members)
 #define extra_decls_base_type \
 		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_structure_type \
+		opt<Dwarf_Unsigned> calculate_byte_size() const; \
 		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_union_type \
 		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;

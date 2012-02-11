@@ -110,7 +110,7 @@ artificial_tags = [ \
 ("with_static_location", ([], [], ["basic"])), \
 ("with_dynamic_location", ([], [], ["with_type_describing_layout"])), \
 ("with_type_describing_layout", ([("type", False)], [], ["basic"])), \
-("with_data_members", ([], ["member"], ["type"]))
+("with_data_members", ([], ["member"], ["type", "with_named_children"]))
 ]
 artificial_tag_map = dict(artificial_tags)
 
@@ -188,10 +188,10 @@ tags = [ \
 ("member", ( [("data_member_location", False)], [], ["program_element", "with_dynamic_location"]  ) ), \
 ("pointer_type", ( [], [], ["type_chain"]  ) ), \
 ("reference_type", ( [], [], ["type_chain"]  ) ), \
-("compile_unit", ( [ ("language", True), ("comp_dir", False), ("producer", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_static_location"]  ) ), \
+("compile_unit", ( [ ("language", True), ("comp_dir", False), ("producer", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False), ("calling_convention", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_static_location"]  ) ), \
 ("string_type", ( [], [], ["type"]  ) ), \
 ("structure_type", ( [], [ "member", "access_declaration" ] + member_types, ["with_data_members", "with_named_children"]  ) ), \
-("subroutine_type", ( [("type", False)], ["formal_parameter", "unspecified_parameters"], ["type"]  ) ), \
+("subroutine_type", ( [("type", False), ("calling_convention", False)], ["formal_parameter", "unspecified_parameters"], ["type"]  ) ), \
 ("typedef", ( [], [], ["type_chain"]  ) ), \
 ("union_type", ([], [ "member" ], ["with_data_members", "with_named_children"]  ) ), \
 ("unspecified_parameters", ( [], [], ["program_element"]  ) ), \

@@ -402,7 +402,7 @@ namespace tool {
 		if (dynamic_pointer_cast<spec::with_named_children_die>(t))
 		{
 			auto nc = dynamic_pointer_cast<spec::with_named_children_die>(t);
-			cerr << "DEBUG: testing completeness of cxx type for " << *t << endl;
+			//cerr << "DEBUG: testing completeness of cxx type for " << *t << endl;
 			for (auto i_member = t->children_begin(); 
 				i_member != t->children_end();
 				i_member++)
