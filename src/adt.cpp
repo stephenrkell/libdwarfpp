@@ -7,6 +7,7 @@
 #include "adt.hpp"
 #include "attr.hpp"
 
+#include <srk31/algorithm.hpp>
 #include <srk31/indenting_ostream.hpp>
 
 namespace dwarf
@@ -1346,6 +1347,11 @@ namespace dwarf
 				++i_cu)
 			{
 				seq->append((*i_cu)->children_begin(), (*i_cu)->children_end());
+				
+				//auto appended_size = srk31::count((*i_cu)->children_begin(), (*i_cu)->children_end());
+				//auto new_size = srk31::count(seq->begin(), seq->end());
+				//cerr << "Appended " << appended_size << " elements." << endl;
+				//cerr << "New size: " << new_size << " elements." << endl;
 			}
 			return seq;
 		}
