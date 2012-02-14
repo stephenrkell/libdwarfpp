@@ -909,6 +909,9 @@ struct with_iterator_partial_order : public Iter
             template <typename Iter>
             boost::shared_ptr<basic_die>
             visible_resolve(Iter path_pos, Iter path_end);
+            template <typename Iter>
+            vector< boost::shared_ptr<basic_die> >
+            visible_resolve_all(Iter path_pos, Iter path_end);
             
             virtual boost::shared_ptr<basic_die>
             visible_named_child(const std::string& name); 
@@ -1190,6 +1193,44 @@ end_class(with_data_members)
             if (found) return found; else return boost::shared_ptr<basic_die>();
         }
 		
+        template <typename Iter>
+        vector< boost::shared_ptr<basic_die> >
+        file_toplevel_die::visible_resolve_all(Iter path_pos, Iter path_end)
+        {
+            is_visible visible;
+            vector< boost::shared_ptr<basic_die> > found;
+            for (auto i_cu = this->compile_unit_children_begin();
+                    i_cu != this->compile_unit_children_end(); i_cu++)
+            {
+                if (path_pos == path_end) { found.push_back(this->get_this()); continue; }
+                auto found_under_cu = (*i_cu)->named_child(*path_pos);
+
+                Iter cur_plus_one = path_pos; ++cur_plus_one;
+                if (cur_plus_one == path_end && found_under_cu
+                        && visible(found_under_cu))
+                { found.push_back(found_under_cu); continue; }
+                else
+                {
+                    if (!found_under_cu || 
+                            !visible(found_under_cu)) continue;
+                    auto p_next_hop =
+                        boost::dynamic_pointer_cast<with_named_children_die>(found_under_cu);
+                    if (!p_next_hop) continue; // try next compile unit
+                    else 
+                    { 
+                        auto found_recursive = p_next_hop->resolve(++path_pos, path_end);
+                        if (found_recursive) 
+						{ 
+							//std::copy(found_recursive.begin(), found_recursive.end(),
+							//std::back_inserter(found)); 
+							found.push_back(found_recursive);
+						}
+                        // else continue
+                    }
+                }
+            }
+            return found;
+        }		
 // 		class factory
 // 		{
 // 		public:
