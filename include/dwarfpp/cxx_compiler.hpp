@@ -35,6 +35,13 @@ namespace dwarf
 					|| (byte_size == arg.byte_size && encoding == arg.encoding && bit_offset < arg.bit_offset)
 					|| (byte_size == arg.byte_size && encoding == arg.encoding && bit_offset == arg.bit_offset && bit_size < arg.bit_size);
 				}
+				bool operator==(const base_type& arg) const
+				{
+					return byte_size == arg.byte_size
+					&&	encoding == arg.encoding
+					&&	bit_offset == arg.bit_offset
+					&&	bit_size == arg.bit_size;
+				}
 				base_type(boost::shared_ptr<spec::base_type_die> p_d);
 			};
 

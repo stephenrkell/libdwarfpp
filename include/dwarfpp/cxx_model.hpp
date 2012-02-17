@@ -103,7 +103,10 @@ public:
 	cxx_name_from_die(shared_ptr<spec::basic_die> p_d);
 
 	bool 
-	cxx_type_can_be_qualified(shared_ptr<spec::type_die> p_d);
+	cxx_type_can_be_qualified(shared_ptr<spec::type_die> p_d) const;
+
+	bool 
+	cxx_type_can_have_name(shared_ptr<spec::type_die> p_d) const;
 
 	pair<string, bool>
 	cxx_declarator_from_type_die(
@@ -156,13 +159,20 @@ public:
 	string 
 	protect_ident(const string& ident);
 	
-	template <Dwarf_Half tag>
+	template <Dwarf_Half Tag>
 	void 
 	emit_model(
 		indenting_ostream& out,
 		abstract_dieset::iterator i_d
 	);
 	
+	template<typename Pred = srk31::True<shared_ptr<spec::basic_die> > > 
+	void 
+	dispatch_to_model_emitter(
+		indenting_ostream& out, 
+		abstract_dieset::iterator i_d, 
+		const Pred& pred = Pred()
+	);
 
 protected:
 	template <typename Pred = srk31::True< shared_ptr<spec::basic_die> > >
@@ -208,7 +218,6 @@ public:
 };
 
 /* specializations of the above */
-template<> void cxx_generator_from_dwarf::emit_model<0>                            (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_base_type>             (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_subprogram>            (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_formal_parameter>      (indenting_ostream& out, abstract_dieset::iterator i_d);
@@ -229,6 +238,64 @@ template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_variable>           
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_volatile_type>         (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_restrict_type>         (indenting_ostream& out, abstract_dieset::iterator i_d);
 template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_subrange_type>         (indenting_ostream& out, abstract_dieset::iterator i_d);
+
+	/* The dispatch function (template) defined. */
+	template <typename Pred /* = srk31::True<shared_ptr<spec::basic_die> > */ > 
+	void cxx_generator_from_dwarf::dispatch_to_model_emitter(
+		indenting_ostream& out,
+		abstract_dieset::iterator i_d,
+		const Pred& pred /* = Pred() */)
+	{
+		auto p_d = dynamic_pointer_cast<basic_die>(*i_d);
+
+		// if it's a compiler builtin, skip it
+		if (is_builtin(p_d->get_this())) return;
+		// if it's not visible, skip it
+		// if (!is_visible(p_d->get_this())) return;
+		// if our predicate says no, skip it
+		if (!pred(p_d->get_this())) return;
+	
+		// otherwise dispatch
+		switch(p_d->get_tag())
+		{
+			case 0:
+				assert(false);
+			case DW_TAG_compile_unit: // we use all_compile_units so this shouldn't happen
+				assert(false);
+		#define CASE(fragment) case DW_TAG_ ## fragment:	\
+			emit_model<DW_TAG_ ## fragment>(out, i_d); break; 
+			CASE(subprogram)
+			CASE(base_type)
+			CASE(typedef)
+			CASE(structure_type)
+			CASE(pointer_type)
+			CASE(volatile_type)
+			CASE(formal_parameter)
+			CASE(array_type)
+			CASE(enumeration_type)
+			CASE(member)
+			CASE(subroutine_type)
+			CASE(union_type)
+			CASE(const_type)
+			CASE(constant)
+			CASE(enumerator)
+			CASE(variable)
+			CASE(restrict_type)
+			CASE(subrange_type)   
+			CASE(unspecified_parameters)
+		#undef CASE
+			// The following tags we silently pass over without warning
+			case DW_TAG_condition:
+			case DW_TAG_lexical_block:
+			case DW_TAG_label:
+				break;
+			default:
+				cerr 	<< "Warning: ignoring tag " 
+							<< p_d->get_ds().get_spec().tag_lookup(p_d->get_tag())
+							<< endl;
+				break;
+		}
+	}
 
 /** This class supports generation of C++ code targetting a particular C++ compiler. */
 class cxx_target : public cxx_generator_from_dwarf, public cxx_compiler

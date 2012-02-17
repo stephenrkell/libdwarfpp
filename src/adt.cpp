@@ -452,11 +452,46 @@ namespace dwarf
             if (out_frame_base) *out_frame_base = frame_base_addr;
             
             if (!this->first_child_offset()) return 0;
-         	/* Now we walk children
-             * (not just immediate children, because more might hide under lexical_blocks), 
-             * looking for with_dynamic_location_dies, and 
-             * call contains_addr on what we find. */
-            abstract_dieset::bfs_policy bfs_state;
+			/* Now we walk children
+			 * (not just immediate children, because more might hide under lexical_blocks), 
+			 * looking for with_dynamic_location_dies, and 
+			 * call contains_addr on what we find.
+			 * We skip contained DIEs that do not contain objects located in this frame. 
+			 */
+			struct stack_location_subtree_policy :  public spec::abstract_dieset::bfs_policy
+			{
+				typedef spec::abstract_dieset::bfs_policy super;
+				int increment(spec::abstract_dieset::position& pos,
+					spec::abstract_dieset::path_type& path)
+				{
+					/* If our current DIE is 
+					 * a with_dynamic_location_die
+					 * OR
+					 * is in the "interesting set"
+					 * of DIEs that have no location but might contain such DIEs,
+					 * we increment *with* enqueueing children.
+					 * Otherwise we increment without enqueueing children.
+					 */
+					auto p_die = (*pos.p_ds)[pos.off];
+					if (dynamic_pointer_cast<spec::with_dynamic_location_die>(p_die))
+					{
+						return super::increment(pos, path);
+					}
+					else
+					{
+						switch (p_die->get_tag())
+						{
+							case DW_TAG_lexical_block:
+								return super::increment(pos, path);
+								break;
+							default:
+								return super::increment_skipping_subtree(pos, path);
+								break;
+						}
+					}
+				}
+			} bfs_state;
+			//abstract_dieset::bfs_policy bfs_state;
             abstract_dieset::iterator start_iterator
              = this->get_first_child()->iterator_here(bfs_state);
             std::cerr << "Exploring stack-located children of " << *this << std::endl;

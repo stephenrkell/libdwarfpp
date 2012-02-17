@@ -1,3 +1,4 @@
+#include <set>
 #include <boost/graph/graph_traits.hpp>
 #include <dwarfpp/encap_graph.hpp>
 #include <dwarfpp/encap_sibling_graph.hpp>
@@ -7,24 +8,28 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 
+namespace dwarf { namespace tool { 
+
+using std::set;
+using std::string;
+using std::vector;
 using namespace boost;
 
 using namespace dwarf;
 using namespace dwarf::lib;
 
-namespace dwarf { namespace tool { 
 // we need a new edge iterator only
 struct cpp_dependency_order;
-template<typename Value = dwarf::encap::attribute_value::weak_ref>
+template<typename Value = encap::attribute_value::weak_ref>
 struct skip_edge_iterator
-: public boost::iterator_adaptor<skip_edge_iterator<Value>, // Derived
-			typename boost::graph_traits<dwarf::encap::basic_die>::out_edge_iterator, // Base
+: public iterator_adaptor<skip_edge_iterator<Value>, // Derived
+			typename graph_traits<encap::basic_die>::out_edge_iterator, // Base
 			Value,											   // Value
-			boost::use_default, // Traversal
+			use_default, // Traversal
 			Value // Reference
 		> 
 { 
-	typedef typename boost::graph_traits<dwarf::encap::basic_die>::out_edge_iterator Base;
+	typedef typename graph_traits<encap::basic_die>::out_edge_iterator Base;
 	typedef Value value_;
 	const cpp_dependency_order *p_deps;
 	Base m_begin;
@@ -50,10 +55,10 @@ struct cycle_handler : public boost::dfs_visitor<>
 		> 
 	> PathMap;
 	//PathMap& paths;
-	std::vector<dwarf::encap::basic_die *>& new_forward_decls;
-	std::vector<dwarf::encap::attribute_value::weak_ref>& new_skipped_edges;
-	cycle_handler(/*PathMap& paths,*/ std::vector<dwarf::encap::basic_die *>& new_forward_decls,
-		std::vector<dwarf::encap::attribute_value::weak_ref>& new_skipped_edges) 
+	set<encap::basic_die *>& new_forward_decls;
+	vector<encap::attribute_value::weak_ref>& new_skipped_edges;
+	cycle_handler(/*PathMap& paths,*/ set<encap::basic_die *>& new_forward_decls,
+		vector<encap::attribute_value::weak_ref>& new_skipped_edges) 
 	  : /*paths(paths),*/ new_forward_decls(new_forward_decls), new_skipped_edges(new_skipped_edges) 
 	{ /*assert(paths.size() == 0);*/ }
 
@@ -77,21 +82,21 @@ struct noop_cycle_handler : public cycle_handler
 	}
 	
 	noop_cycle_handler(//PathMap& paths, 
-		std::vector<dwarf::encap::basic_die *>& new_forward_decls,
-		std::vector<dwarf::encap::attribute_value::weak_ref>& new_skipped_edges)
+		set<dwarf::encap::basic_die *>& new_forward_decls,
+		vector<dwarf::encap::attribute_value::weak_ref>& new_skipped_edges)
 	: cycle_handler(new_forward_decls, new_skipped_edges) {}
 };
 struct cpp_dependency_order
 {
-	std::vector<dwarf::encap::basic_die *> forward_decls;
-	std::vector<dwarf::encap::attribute_value::weak_ref> skipped_edges;
+	set<encap::basic_die *> forward_decls;
+	vector<encap::attribute_value::weak_ref> skipped_edges;
 	//bool is_initialized;
-	dwarf::encap::basic_die* p_parent;
-	typedef std::vector<boost::graph_traits<dwarf::encap::basic_die>::vertex_descriptor> 
+	encap::basic_die* p_parent;
+	typedef vector<graph_traits<encap::basic_die>::vertex_descriptor> 
 		container;
 	container topsorted_container;
 
-	explicit cpp_dependency_order(dwarf::encap::basic_die& parent); 
+	explicit cpp_dependency_order(encap::basic_die& parent); 
 };
 } }
 namespace boost
@@ -122,29 +127,39 @@ namespace boost
 }
 
 namespace dwarf { namespace tool {
-	std::pair<
+	using std::pair;
+	using std::make_pair;
+	using std::set;
+	using std::string;
+	using std::vector;
+	using namespace boost;
+
+	using namespace dwarf;
+	using namespace dwarf::lib;
+	
+	pair<
 		skip_edge_iterator<>,
 		skip_edge_iterator<> >  
 	out_edges(
-		boost::graph_traits<cpp_dependency_order>::vertex_descriptor u, 
+		graph_traits<cpp_dependency_order>::vertex_descriptor u, 
 		const cpp_dependency_order& g);
-	std::pair<
-		boost::graph_traits<cpp_dependency_order>::vertex_iterator,
-		boost::graph_traits<cpp_dependency_order>::vertex_iterator >  
+	pair<
+		graph_traits<cpp_dependency_order>::vertex_iterator,
+		graph_traits<cpp_dependency_order>::vertex_iterator >  
 	vertices(const cpp_dependency_order& g);
-	boost::graph_traits<cpp_dependency_order>::degree_size_type
+	graph_traits<cpp_dependency_order>::degree_size_type
 	out_degree(
-		boost::graph_traits<cpp_dependency_order>::vertex_descriptor u,
+		graph_traits<cpp_dependency_order>::vertex_descriptor u,
 		const cpp_dependency_order& g);
-	boost::graph_traits<cpp_dependency_order>::vertex_descriptor
+	graph_traits<cpp_dependency_order>::vertex_descriptor
 	source(
-		boost::graph_traits<cpp_dependency_order>::edge_descriptor e,
+		graph_traits<cpp_dependency_order>::edge_descriptor e,
 		const cpp_dependency_order& g);
-	boost::graph_traits<cpp_dependency_order>::vertex_descriptor
+	graph_traits<cpp_dependency_order>::vertex_descriptor
 	target(
-		boost::graph_traits<cpp_dependency_order>::edge_descriptor e,
+		graph_traits<cpp_dependency_order>::edge_descriptor e,
 		const cpp_dependency_order& g);
-	boost::graph_traits<cpp_dependency_order>::vertices_size_type 
+	graph_traits<cpp_dependency_order>::vertices_size_type 
 	num_vertices(const cpp_dependency_order& g);
 
 template <typename PathMap>
@@ -182,20 +197,20 @@ public:
 	{
 		auto u_all_refs_seq = u->all_refs_dfs_seq();
 		auto relevant_begin = graph_traits<dwarf::encap::basic_die>::relevant_ref_attrs_iterator(
-					std::bind2nd(dwarf::encap::ref_points_under, 
-						const_cast<dwarf::encap::basic_die *>(g.p_parent)),
+					std::bind2nd(encap::ref_points_under, 
+						const_cast<encap::basic_die *>(g.p_parent)),
 					u_all_refs_seq->begin(), 
 					u_all_refs_seq->end());
 		auto relevant_end = graph_traits<dwarf::encap::basic_die>::relevant_ref_attrs_iterator(
-					std::bind2nd(dwarf::encap::ref_points_under, 
-						const_cast<dwarf::encap::basic_die *>(g.p_parent)),
+					std::bind2nd(encap::ref_points_under, 
+						const_cast<encap::basic_die *>(g.p_parent)),
 					u_all_refs_seq->end(), 
 					u_all_refs_seq->end());
 					
-		graph_traits<dwarf::encap::basic_die>::out_edge_iterator transformed_begin(
-			relevant_begin, graph_traits<dwarf::encap::basic_die>::get_ref_t());
-		graph_traits<dwarf::encap::basic_die>::out_edge_iterator transformed_end(
-			relevant_end, graph_traits<dwarf::encap::basic_die>::get_ref_t());
+		graph_traits<encap::basic_die>::out_edge_iterator transformed_begin(
+			relevant_begin, graph_traits<encap::basic_die>::get_ref_t());
+		graph_traits<encap::basic_die>::out_edge_iterator transformed_end(
+			relevant_end, graph_traits<encap::basic_die>::get_ref_t());
 				
 		return std::make_pair(
 			graph_traits<dwarf::tool::cpp_dependency_order>::out_edge_iterator(
@@ -223,7 +238,7 @@ public:
 		// HACK: we shouldn't really do this
 		unsigned count = 0;
 		dwarf::tool::cpp_dependency_order& vg = const_cast<dwarf::tool::cpp_dependency_order&>(g);
-		dwarf::encap::die::attribute_map::iterator attrs_end = vg.p_parent->m_attrs.end();
+		encap::die::attribute_map::iterator attrs_end = vg.p_parent->m_attrs.end();
 		for (dwarf::tool::skip_edge_iterator<> i = out_edges(u, g).first;
 				i != out_edges(u, g).second;
 				i++) count++;

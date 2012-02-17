@@ -116,10 +116,27 @@ namespace tool {
 		}
 	}
 	
-	bool cxx_generator_from_dwarf::cxx_type_can_be_qualified(shared_ptr<spec::type_die> p_d)
+	bool cxx_generator_from_dwarf::cxx_type_can_be_qualified(shared_ptr<spec::type_die> p_d) const
 	{
 		if (p_d->get_tag() == DW_TAG_array_type) return false;
-		return true; // FIXME: correct?
+		if (p_d->get_tag() == DW_TAG_subroutine_type) return false;
+		// FIXME: any more?
+		// now we know this bit of the type is fine for qualifying 
+		// what about chained bits?
+		if (!dynamic_pointer_cast<type_chain_die>(p_d)) return true;
+		// if we're chaining void, also true
+		if (!dynamic_pointer_cast<type_chain_die>(p_d)->get_type()) return true;
+		return cxx_type_can_be_qualified(
+			dynamic_pointer_cast<type_chain_die>(p_d)->get_type()
+		);
+	}
+
+	bool cxx_generator_from_dwarf::cxx_type_can_have_name(shared_ptr<spec::type_die> p_d) const
+	{
+		/* In C++, introducing a name to a modified type requires typedef. */
+		if (p_d->get_tag() == DW_TAG_typedef) return true;
+		else if (dynamic_pointer_cast<type_chain_die>(p_d)) return false;
+		else return true;
 	}
 
 	pair<string, bool>
@@ -159,22 +176,27 @@ namespace tool {
 				 = dynamic_pointer_cast<spec::pointer_type_die>(p_d);
 				if (pointer->get_type())
 				{
-					if (pointer->get_type()->get_tag() == DW_TAG_subroutine_type)
-					{
-						// we have a pointer to a subroutine type -- pass on the infix name
-						return cxx_declarator_from_type_die(
-							pointer->get_type(), infix_typedef_name, 
+//					if (pointer->get_type()->get_tag() == DW_TAG_subroutine_type)
+//					{
+//						// we have a pointer to a subroutine type -- pass on the infix name
+						auto declarator = cxx_declarator_from_type_die(
+							pointer->get_type(), 
+							infix_typedef_name ? ("*" + *infix_typedef_name) : optional<const string&>(), 
 							use_friendly_names, extra_prefix, 
 							use_struct_and_union_prefixes);
-					}
-					else 
-					{
-						auto declarator = cxx_declarator_from_type_die(
-						pointer->get_type(), optional<const string&>(),
-						use_friendly_names, extra_prefix, 
-							use_struct_and_union_prefixes);
-						return make_pair(declarator.first + "*", declarator.second);
-					}
+						if (!declarator.second) return make_pair(declarator.first + "*", false);
+						else return make_pair(declarator.first, true);
+						//return make_pair(declarator.first + "*", declarator.second);
+// 					}
+// 					else 
+// 					{
+// 						// Q. Why don't we pass on the infix name here too?
+// 						auto declarator = cxx_declarator_from_type_die(
+// 							pointer->get_type(), optional<const string&>(),
+// 							use_friendly_names, extra_prefix, 
+// 							use_struct_and_union_prefixes);
+// 						return make_pair(declarator.first + "*", declarator.second);
+// 					}
 				}
 				else return make_pair("void *", false);
 			}
@@ -211,7 +233,7 @@ namespace tool {
 							use_struct_and_union_prefixes
 					).first 
 					: string("void "));
-				s << "(*" << (infix_typedef_name ? *infix_typedef_name : "")
+				s << "(" << (infix_typedef_name ? *infix_typedef_name : "")
 					<< ")(";
 				try
 				{	
@@ -630,11 +652,12 @@ namespace tool {
 		for (dwarf::spec::abstract_dieset::iterator i = p_d->children_begin(); 
 				i != p_d->children_end(); ++i)
 		{
-			// if the caller asked only for one tag, we oblige
+			// if the caller asked only for a subset of children, we oblige
 			if (!pred(*i)) continue;
 			
-			//auto new_context = context;
-			emit_model<0>(out, i);
+			// emit_mode<0> does a dynamic dispatch on the tag
+			// (could really be a separate function, rather than the <0> specialization)
+			dispatch_to_model_emitter(out, i);
 		}
 		out.dec_level(); 
 	}
@@ -847,15 +870,39 @@ namespace tool {
 			}
 		}
 
-		auto declarator = (p_d->get_name())
-			? name_for_type(member_type, *p_d->get_name())
-			: name_for_type(member_type, optional<const string&>());
+		string name_to_use;
+		/* In C code, we can get a problem with tagged namespaces (struct, union, enum) 
+		 * overlapping with member names (and with each other). This causes an error like
+		 * error: declaration of `cake::link_p2k_::kfs::uio_rw cake::link_p2k_::kfs::uio::uio_rw'
+		 * librump.o.hpp:1341:6: error: changes meaning of `uio_rw' from `enum cake::link_p2k_::kfs::uio_rw'
+		 *
+		 * We work around it by using the anonymous DIE name if there is a CU-toplevel 
+		 * decl of this name (HACK: should really be visible file-toplevel).
+		 */
+		auto conflicting_toplevel_die = p_d->enclosing_compile_unit()->named_child(*p_d->get_name());
+		if (p_d->get_name() && !conflicting_toplevel_die)
+		{
+			name_to_use = *p_d->get_name();
+		}
+		else
+		{
+			if (p_d->get_name()) cerr << "Warning: renaming field " << *p_d->get_name()
+				<< " in data type " << p_type->summary()
+				<< " because it conflicts with toplevel " << conflicting_toplevel_die->summary()
+				<< endl;
+			name_to_use = create_ident_for_anonymous_die(p_d);
+		}
+		
+		auto declarator = name_for_type(member_type, name_to_use);
+		// (p_d->get_name())
+		//	? name_for_type(member_type, *p_d->get_name())
+		//	: name_for_type(member_type, optional<const string&>());
 		
 		out << protect_ident(declarator.first);
 		out	<< " ";
 		if (!declarator.second)
 		{
-			out << protect_ident(*p_d->get_name());
+			out << protect_ident(name_to_use);
 		}
 
 		if (p_d->get_data_member_location() && p_d->get_data_member_location()->size() == 1)
@@ -869,7 +916,11 @@ namespace tool {
 					)
 				).tos();
 
-			if (target_offset > 0 && cur_offset != std::numeric_limits<Dwarf_Unsigned>::max())
+			if (!(target_offset > 0 && cur_offset != std::numeric_limits<Dwarf_Unsigned>::max()))
+			{
+				out << ";";
+			}
+			else
 			{
 				/* Calculate a sensible align value for this. We could just use the offset,
 				 * but that might upset the compiler if it's larger than what it considers
@@ -883,6 +934,7 @@ namespace tool {
 				// our target offset is the first one we find
 				unsigned power = 1;
 				bool is_good = false;
+				const unsigned MAXIMUM_SANE_OFFSET = 1<<30; // 1GB
 				unsigned test_offset = cur_offset;
 				do
 				{
@@ -905,27 +957,35 @@ namespace tool {
 					is_good = (test_offset == target_offset);
 				} while (!is_good && (power <<= 1, power != 0));
 				
-				if (power == 0)
+				if (power == 0 || test_offset < cur_offset)
 				{
 					// This happens for weird object layouts, i.e. with gaps in.
 					// Test case: start 48, target 160; the relevant power 
 					// cannot be higher than 32, because that's the highest that
 					// divides 160. But if we choose align(32), we will get offset 64.
+					out << ";" << endl;
 					out << "// WARNING: could not infer alignment for offset "
 						<< target_offset << " starting at " << cur_offset << endl;
-					out << "char " << create_ident_for_anonymous_die(p_d) << "_padding["
-						<< target_offset - cur_offset << "];" << endl;
+					if (target_offset - cur_offset < MAXIMUM_SANE_OFFSET)
+					{
+						out << "char " << create_ident_for_anonymous_die(p_d) << "_padding["
+							<< target_offset - cur_offset << "];" << endl;
+					}
+					else
+					{
+						out << "// FIXME: this struct is WRONG (probably until we support bitfields)" << endl;
+					}
 					power = 1;
 				}
 					
-				out << " __attribute__((aligned(" << power << ")))";
+				out << " __attribute__((aligned(" << power << ")));";
 			}
-			out << ";" 
 				/*<< " static_assert(offsetof(" 
 				<< name_for_type(compiler, p_type, boost::optional<const std::string&>())
 				<< ", "
 				<< protect_ident(*d.get_name())
-				<< ") == " << offset << ");" */<< " // offset: " << target_offset << endl;
+				<< ") == " << offset << ");" << */
+			out << " // offset: " << target_offset << endl;
 		}
 		else 
 		{
@@ -1135,58 +1195,6 @@ namespace tool {
 				: create_ident_for_anonymous_die(p_d)
 				)
 			<< ";" << std::endl;
-	}
-	
-	template <> 
-	void cxx_generator_from_dwarf::emit_model<0>(
-		indenting_ostream& out,
-		abstract_dieset::iterator i_d)
-	{
-		auto p_d = dynamic_pointer_cast<basic_die>(*i_d);
-
-		// if it's a compiler builtin, skip it
-		if (is_builtin(p_d->get_this())) return;
-	
-		// otherwise dispatch
-		switch(p_d->get_tag())
-		{
-			case 0:
-				assert(false);
-			case DW_TAG_compile_unit: // we use all_compile_units so this shouldn't happen
-				assert(false);
-		#define CASE(fragment) case DW_TAG_ ## fragment:	\
-			emit_model<DW_TAG_ ## fragment>(out, i_d); break; 
-			CASE(subprogram)
-			CASE(base_type)
-			CASE(typedef)
-			CASE(structure_type)
-			CASE(pointer_type)
-			CASE(volatile_type)
-			CASE(formal_parameter)
-			CASE(array_type)
-			CASE(enumeration_type)
-			CASE(member)
-			CASE(subroutine_type)
-			CASE(union_type)
-			CASE(const_type)
-			CASE(constant)
-			CASE(enumerator)
-			CASE(variable)
-			CASE(restrict_type)
-			CASE(subrange_type)   
-			CASE(unspecified_parameters)
-		#undef CASE
-			// The following tags we silently pass over without warning
-			case DW_TAG_condition:
-			case DW_TAG_lexical_block:
-			case DW_TAG_label:
-				break;
-			default:
-				cerr 	<< "Warning: ignoring tag " 
-							<< p_d->get_ds().get_spec().tag_lookup(p_d->get_tag())
-							<< endl;
-				break;
-		}
 	}
 
 /* from dwarf::tool::cxx_target */

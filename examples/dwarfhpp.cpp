@@ -2,6 +2,7 @@
 #include <cassert>
 #include <string>
 #include <vector>
+#include <set>
 #include <sstream>
 #include <cmath>
 
@@ -17,6 +18,7 @@ using namespace srk31;
 using namespace dwarf;
 using namespace dwarf::lib;
 using std::vector;
+using std::set;
 using std::map;
 using std::string;
 using std::cout;
@@ -25,6 +27,7 @@ using std::endl;
 using std::hex;
 using std::dec;
 using std::ostringstream;
+using std::istringstream;
 using std::stack;
 using std::deque;
 using boost::optional;
@@ -43,14 +46,13 @@ class dwarfhpp_cxx_target : public cxx_target
 	const string m_untyped_argument_typename;
 	srk31::indenting_ostream& out;
 public:	
+	static const vector<string> default_compiler_argv;
 	dwarfhpp_cxx_target(
 		const string& untyped_argument_typename,
-		srk31::indenting_ostream& out
+		srk31::indenting_ostream& out,
+		const vector<string>& compiler_argv = default_compiler_argv
 	)
-	 : cxx_target((vector<string>) { "g++",
-		"-fno-eliminate-unused-debug-types",
-		"-fno-eliminate-unused-debug-symbols"
-	}), 
+	 : cxx_target(compiler_argv), 
 	m_untyped_argument_typename(untyped_argument_typename), 
 	out(out)
 	{}
@@ -66,10 +68,14 @@ public:
 
 	void emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d);
 	
-	void emit_forward_decls(vector<encap::basic_die *> fds);
+	void emit_forward_decls(const set<encap::basic_die *>& fds);
+};
+const vector<string> dwarfhpp_cxx_target::default_compiler_argv = { "g++",
+	"-fno-eliminate-unused-debug-types",
+	"-fno-eliminate-unused-debug-symbols"
 };
 
-void dwarfhpp_cxx_target::emit_forward_decls(vector<encap::basic_die *> fds)
+void dwarfhpp_cxx_target::emit_forward_decls(const set<encap::basic_die *>& fds)
 {
 	cout << "// begin a group of forward decls" << endl;
 	for (auto i = fds.begin(); i != fds.end(); i++)
@@ -114,7 +120,9 @@ void dwarfhpp_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 	 */
 	 
 	auto i_d = p_d->iterator_here();
-		
+	
+	map< vector<string>, shared_ptr<spec::basic_die> > toplevel_decls_emitted;
+	Dwarf_Off o = 0UL;
 	for (abstract_dieset::iterator cu = p_d->children_begin(); 
 				cu != p_d->children_end(); ++cu)
 	{ 
@@ -124,10 +132,73 @@ void dwarfhpp_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 				i != order.topsorted_container.end(); 
 				i++) 
 		{ 
+			o = (*i)->get_offset();
 			//if (!spec::file_toplevel_die::is_visible()(p_d)) continue; 
-			emit_model<0>( 
+			dispatch_to_model_emitter( 
 				out,
-				dynamic_pointer_cast<encap::basic_die>((*i)->shared_from_this())->iterator_here()
+				dynamic_pointer_cast<encap::basic_die>((*i)->shared_from_this())->iterator_here(),
+				[&toplevel_decls_emitted, this](shared_ptr<spec::basic_die> p_d)
+				{
+					/* We check whether we've been declared already */
+					auto opt_ident_path = p_d->ident_path_from_cu();
+					if (opt_ident_path && opt_ident_path->size() == 1)
+					{
+						auto found = toplevel_decls_emitted.find(*opt_ident_path);
+						if (found != toplevel_decls_emitted.end())
+						{
+							/* This means we would be redecling if we emitted here. */
+							auto current_is_type
+							 = dynamic_pointer_cast<spec::type_die>(p_d);
+							auto previous_is_type
+							 = dynamic_pointer_cast<spec::type_die>(found->second);
+							auto print_name_parts = [](const vector<string>& ident_path)
+							{
+								for (auto i_name_part = ident_path.begin();
+									i_name_part != ident_path.end(); ++i_name_part)
+								{
+									if (i_name_part != ident_path.begin()) cerr << " :: ";
+									cerr << *i_name_part;
+								}
+							};
+							
+							if (current_is_type && previous_is_type)
+							{
+								if (!current_is_type->is_rep_compatible(previous_is_type)
+								||  !previous_is_type->is_rep_compatible(current_is_type))
+								{
+									cerr << "Warning: saw rep-incompatible types with "
+											"identical toplevel names: ";
+									print_name_parts(*opt_ident_path);
+									cerr << endl;
+								}
+							}
+							// we should skip this
+							cerr << "Skipping redeclaration of DIE ";
+							//print_name_parts(*opt_ident_path);
+							cerr << p_d->summary();
+							cerr << " already emitted as " 
+								<< *toplevel_decls_emitted[*opt_ident_path]
+								<< endl;
+							return false;
+						}
+						
+						// if we got here, we will go ahead with emitting; 
+						// if it generates a name, remember this!
+						// NOTE that dwarf info has been observed to contain things like
+						// DW_TAG_const_type, type structure (see evcnt in librump.o)
+						// where the const type and the structure have the same name.
+						// We won't use the name on the const type, so we use the
+						// cxx_type_can_have_name helper to rule those cases out.
+						auto is_type = dynamic_pointer_cast<spec::type_die>(p_d);
+						if (!is_type || (is_type && this->cxx_type_can_have_name(is_type)))
+						{
+							toplevel_decls_emitted.insert(make_pair(*opt_ident_path, p_d));
+						}
+					}
+					
+					// not a redeclaration, so go ahead
+					return true;
+				}
 			); 
 		} 
 	}
@@ -138,6 +209,8 @@ void dwarfhpp_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 #include <boost/graph/graph_concepts.hpp>   
 int main(int argc, char **argv)
 {
+	using dwarf::tool::dwarfhpp_cxx_target;
+	
 	boost::function_requires< boost::IncidenceGraphConcept<dwarf::tool::cpp_dependency_order> >();
 	boost::function_requires< boost::VertexListGraphConcept<dwarf::tool::cpp_dependency_order> >();	
 
@@ -153,7 +226,22 @@ int main(int argc, char **argv)
 	auto all_cus = def.ds().toplevel();
 
 	indenting_ostream& s = srk31::indenting_cout;
-	dwarf::tool::dwarfhpp_cxx_target target(" ::cake::unspecified_wordsize_type", s);
+	vector<string> compiler_argv = dwarfhpp_cxx_target::default_compiler_argv;
+	// we source additional compiler flags from CXXFLAGS
+	const char *cxxflags = getenv("CXXFLAGS");
+	if (cxxflags)
+	{
+		istringstream cxxflags_stream(cxxflags);
+		while (cxxflags_stream)
+		{
+			string s;
+			cxxflags_stream >> s;
+			if (s.length() > 0) compiler_argv.push_back(s);
+		}
+	}
+	
+	dwarfhpp_cxx_target target(" ::cake::unspecified_wordsize_type", s,
+		compiler_argv);
 	
 	target.emit_all_decls(all_cus);
 
@@ -318,7 +406,7 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 	auto paths_found = paths.find(my_source);
 	if (paths_found != paths.end())
 	{
-		PathMap::mapped_type::iterator i_e = paths_found->second.begin();
+		// PathMap::mapped_type::iterator i_path = paths_found->second.begin();
 
 		auto remove_edge_if_fwddeclable
 		 = [g, &new_forward_decls, &new_skipped_edges]
@@ -332,11 +420,17 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 				(*candidate_e.p_ds)[candidate_e.off]).get();
 				
 			// is the target of this edge forward-declarable?
-			if ((e_target_projected->get_tag() == DW_TAG_structure_type
-				&& e_target_projected->get_name())
-				|| (e_target_ultimate->get_tag() == DW_TAG_structure_type
-				&& e_target_ultimate->get_name())
+			// and will a forward declaration break the dependency?
+			if (
+				(
+					e_target_projected->get_tag() == DW_TAG_structure_type
+				 && e_target_projected->get_name()
 				)
+			||	(
+					e_target_ultimate->get_tag() == DW_TAG_structure_type
+				 && e_target_ultimate->get_name()
+				)
+			)
 			{
 				bool use_projected_target = 
 					(e_target_projected->get_tag() == DW_TAG_structure_type
@@ -362,7 +456,7 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 					new_skipped_edges.push_back(candidate_e);
 
 					// add the target to the forward-declare list
-					new_forward_decls.push_back(
+					new_forward_decls.insert(
 						use_projected_target ? e_target_projected : e_target_ultimate);
 
 					// we can now exit the loop
@@ -371,13 +465,52 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 			}
 			return false;
 		};
+		
+		/* We can only usefully remove an edge
+		 * if it represents a dependency from a pointer type
+		 * to a structure type. But this needn't be an immediate edge
+		 * from a DW_TAG_pointer_type to a DW_TAG_structure_type --
+		 * it might have intervening chained modifier DIEs like const, volatile etc.
+		 * It might also have intervening typedefs.
+		 * When we see a pointer type, we track subsequent chained types.
+		 * If we see a structure type */
 
 		bool removed = false;
+		bool been_round_once_already = false;
+		encap::pointer_type_die *coming_from_pointer;
 		for (PathMap::mapped_type::iterator i_e = paths_found->second.begin();
-				i_e != paths_found->second.end();
-				++i_e)
+				i_e != paths_found->second.end(); // will go round TWICE
+				++i_e,
+				been_round_once_already = 
+					(!been_round_once_already && i_e == paths_found->second.end()) 
+						? (i_e = paths_found->second.begin(), true)
+						: been_round_once_already)
 		{
-			if (remove_edge_if_fwddeclable(*i_e))
+			auto e_source_projected = source(*i_e, g);
+			auto e_source_ultimate = dynamic_pointer_cast<encap::basic_die>(
+				(*(*i_e).p_ds)[(*i_e).referencing_off]).get();
+			auto e_target_projected = target(*i_e, g);
+			auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
+				(*(*i_e).p_ds)[(*i_e).off]).get();
+			
+			if (e_source_ultimate->get_tag() == DW_TAG_pointer_type
+			 && i_e->referencing_attr == DW_AT_type)
+			{
+				coming_from_pointer = dynamic_cast<encap::pointer_type_die *>(e_source_ultimate);
+				assert(coming_from_pointer);
+			}
+			else if (dynamic_cast<spec::type_chain_die *>(e_source_ultimate))
+			{
+				// it's another type chain, so do nothing
+			}
+			else coming_from_pointer = 0;
+			// it's another DIE, not a pointer or type chain so reset it
+
+			// we also require that one of the cycle's edges is the
+			// type attr of a pointer type.
+			// It doesn't have to be the one pointing to the struct --
+			// we might have a pointer to a const struct. etc.. 
+			if (coming_from_pointer && remove_edge_if_fwddeclable(*i_e))
 			{ removed = true; break; }
 		}
 		// if we didn't exit the loop early, we're not finished yet
@@ -420,8 +553,8 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 	{
 		old_total_edges_skipped = (new_total_edges_skipped == -1) ? 0 : new_total_edges_skipped; 
 		//cycle_handler::PathMap paths;
-		std::vector<dwarf::encap::basic_die *> new_forward_decls;
-		std::vector<dwarf::encap::attribute_value::weak_ref> new_skipped_edges;
+		set<encap::basic_die *> new_forward_decls;
+		vector<encap::attribute_value::weak_ref> new_skipped_edges;
 		cycle_handler cycle_hnd(/*paths,*/ new_forward_decls, new_skipped_edges);
 		
 		// DEBUG: print all edges
@@ -433,7 +566,7 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 			pre_graph_edge_count += srk31::count(es.first, es.second);
 		}	
 		/* Find cycles and remove edges. */
-		std::map<
+		map<
 			boost::graph_traits<encap::basic_die>::vertex_descriptor, 
 			boost::default_color_type
 		> underlying_dfs_node_color_map;
@@ -450,7 +583,7 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 			i_skipped_edge++) skipped_edges.push_back(*i_skipped_edge);
 		for (auto i_forward_decl = new_forward_decls.begin(); 
 			i_forward_decl != new_forward_decls.end();
-			i_forward_decl++) forward_decls.push_back(*i_forward_decl);
+			i_forward_decl++) forward_decls.insert(*i_forward_decl);
 
 		// count edges in the de-cycled graph
 		unsigned post_graph_edge_count = 0;
@@ -480,28 +613,28 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 	cerr << "Reached a fixed point after skipping " << skipped_edges.size() << " edges." << endl;
 	std::cerr << "About to print remaining cycles (hopefully none)." << std::endl;
 
-	std::map<
-		boost::graph_traits<encap::basic_die>::vertex_descriptor, 
-		boost::default_color_type
+	map<
+		graph_traits<encap::basic_die>::vertex_descriptor, 
+		default_color_type
 	> underlying_dfs_node_color_map_again;
-	auto dfs_color_map_again = boost::make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
+	auto dfs_color_map_again = make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
 			underlying_dfs_node_color_map_again
 		);
-	std::vector<dwarf::encap::basic_die *> new_forward_decls_again;
-	std::vector<dwarf::encap::attribute_value::weak_ref> new_skipped_edges_again;
+	set<dwarf::encap::basic_die *> new_forward_decls_again;
+	vector<dwarf::encap::attribute_value::weak_ref> new_skipped_edges_again;
 	noop_cycle_handler cycle_hnd_again(new_forward_decls_again, new_skipped_edges_again);
-	auto visitor_again = boost::visitor(cycle_hnd_again).color_map(dfs_color_map_again);
-	boost::depth_first_search(*this, visitor_again);
+	auto visitor_again = visitor(cycle_hnd_again).color_map(dfs_color_map_again);
+	depth_first_search(*this, visitor_again);
 	
 	// DEBUG: verify that we have no cycle
-	std::map<
-		boost::graph_traits<cpp_dependency_order>::vertex_descriptor, 
-		boost::default_color_type
+	map<
+		graph_traits<cpp_dependency_order>::vertex_descriptor, 
+		default_color_type
 	> underlying_topsort_node_color_map;
-	 auto topsort_color_map = boost::make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
+	 auto topsort_color_map = make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
 		underlying_topsort_node_color_map
 	);
-	auto named_params = boost::color_map(topsort_color_map);
-	boost::topological_sort(*this, std::back_inserter(topsorted_container), named_params);
+	auto named_params = color_map(topsort_color_map);
+	topological_sort(*this, std::back_inserter(topsorted_container), named_params);
 }
 } } // end namespace dwarf::tool
