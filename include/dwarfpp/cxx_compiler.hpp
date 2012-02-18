@@ -10,6 +10,14 @@ namespace dwarf
 	{
 		using namespace dwarf::lib;
 		using boost::dynamic_pointer_cast;
+		using boost::optional;
+		using boost::shared_ptr;
+		using std::string;
+		using std::vector;
+		using std::pair;
+		using std::multimap;
+		using std::endl;
+		
 		class cxx_compiler
 		{
 			/* Mainly as support for dwarfhpp, this class supports discovering
@@ -17,7 +25,7 @@ namespace dwarf
 			 * it discovers the range of base type encodings available through
 			 * the compiler's implementations of C++ primitive types. */
 
-			std::vector<std::string> compiler_argv;
+			vector<string> compiler_argv;
 			
 		public:
 			// build a map of base types: 
@@ -42,24 +50,37 @@ namespace dwarf
 					&&	bit_offset == arg.bit_offset
 					&&	bit_size == arg.bit_size;
 				}
-				base_type(boost::shared_ptr<spec::base_type_die> p_d);
-			};
+				base_type(shared_ptr<spec::base_type_die> p_d);
+				friend std::ostream& operator<<(std::ostream& s, const base_type& c);
+			}; 
 
 		protected:
-			std::map<base_type, std::string> base_types;
+			multimap<base_type, string> base_types;
 			string m_producer_string;
 			//struct base_type dwarf_base_type(const dwarf::encap::Die_encap_base_type& d);
-			//static const std::string dummy_return;
+			//static const string dummy_return;
 			void discover_base_types();
+			vector<string> parse_cxxflags() const;
 		public:
-			cxx_compiler(const std::vector<std::string>& argv);
+			cxx_compiler(const vector<string>& argv);
+			
+			virtual vector<string>
+			default_compiler_argv(bool use_cxxflags = true) const;
+			
+			typedef multimap<base_type, string>::iterator base_type_name_iterator;
+			
+			pair<base_type_name_iterator, base_type_name_iterator> 
+			names_for_base_type(const base_type& arg)
+			{ return base_types.equal_range(arg); }
+			
 			cxx_compiler();
 			
 			string get_producer_string() const { return m_producer_string; }
 			
 			std::ostream& print(std::ostream& out, const spec::abstract_def& s);
 
-		};
+		}; // end class cxx_compiler
+		std::ostream& operator<<(std::ostream& s, const cxx_compiler::base_type& c);
 	}
 }
 

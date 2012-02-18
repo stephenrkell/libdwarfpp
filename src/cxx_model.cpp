@@ -648,18 +648,22 @@ namespace tool {
 	)
 	{ 
 		auto p_d = *i_d;
-		out.inc_level(); 
+		//out.inc_level(); 
+		bool not_yet_inced = true; // we delay inc'ing because it emits a newline...
 		for (dwarf::spec::abstract_dieset::iterator i = p_d->children_begin(); 
 				i != p_d->children_end(); ++i)
 		{
 			// if the caller asked only for a subset of children, we oblige
 			if (!pred(*i)) continue;
 			
+			// ... and we don't want the newline uness we actually have children
+			if (not_yet_inced) { out.inc_level(); not_yet_inced = false; }
+			
 			// emit_mode<0> does a dynamic dispatch on the tag
 			// (could really be a separate function, rather than the <0> specialization)
 			dispatch_to_model_emitter(out, i);
 		}
-		out.dec_level(); 
+		if (!not_yet_inced) out.dec_level(); 
 	}
 
 	// define specializations here
@@ -705,7 +709,8 @@ namespace tool {
 						<< *p_d << endl;
 					return;
 				}
-				out << "extern \"C\" { ";
+				out << "extern \"C\" { /* C-language subprogram DIE at 0x" 
+					<< std::hex << p_d->get_offset() << std::dec << " */" << endl;
 				break;
 			default:
 				assert(false);
