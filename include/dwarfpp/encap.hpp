@@ -66,6 +66,9 @@ namespace dwarf {
 			friend class file;
 			friend class die;
 			bool destructing;
+		public:
+			bool is_destructing() const { return destructing; }
+		private:
 			friend struct Print_Action;
 			const ::dwarf::spec::abstract_def *p_spec;
 			void create_toplevel_entry();

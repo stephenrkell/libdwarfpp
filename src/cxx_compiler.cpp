@@ -282,7 +282,7 @@ namespace dwarf { namespace tool {
 		return out;
 	}
 	
-	vector<string> cxx_compiler::parse_cxxflags() const
+	vector<string> cxx_compiler::parse_cxxflags()
 	{
 		vector<string> cxxflags_vec;
 		const char *cxxflags = getenv("CXXFLAGS");
@@ -300,7 +300,7 @@ namespace dwarf { namespace tool {
 	}
 	
 	vector<string>
-	cxx_compiler::default_compiler_argv(bool use_cxxflags /* = true */) const
+	cxx_compiler::default_compiler_argv(bool use_cxxflags /* = true */)
 	{
 		auto argv = vector<string>(1, string("c++"));
 		if (use_cxxflags)

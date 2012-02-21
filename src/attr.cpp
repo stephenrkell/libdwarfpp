@@ -429,7 +429,7 @@ namespace dwarf
 			 * deallocated all its state. The backrefs object is still functional
 			 * though, even though its destructor has completed... so we can
 			 * hopefully test for presence of off. */
-			if (ds.backrefs().find(off) != ds.backrefs().end())
+			if (!ds.is_destructing() && ds.backrefs().find(off) != ds.backrefs().end())
 			{
  				dieset::backref_list::iterator found = std::find(
  					ds.backrefs()[off].begin(),

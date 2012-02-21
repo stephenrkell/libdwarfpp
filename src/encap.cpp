@@ -292,6 +292,9 @@ namespace dwarf
 		dieset& dieset::operator=(const dieset& arg)
 		{
 			cerr << "Copying from dieset at " << &arg << " to dieset at " << this << endl;
+			// pretend we're destructing, so that DIE destructors
+			// don't complain about loss of referential integrity during clear().
+			this->destructing = true;
 			this->map::clear();
 			this->destructing = arg.destructing;
 			this->p_spec = arg.p_spec;
@@ -500,7 +503,11 @@ namespace dwarf
 				// so parents might get destroyed before children
 				// (2) the toplevel node is special -- it gets constructed by default,
 				// and we can remove it from the map if we assign to the dieset.
-				assert(m_ds.destructing || m_offset == 0UL);
+				if (!(m_ds.destructing || m_offset == 0UL))
+				{
+					cerr << "WARNING: inexplicable destructing of " << *this
+						<< endl;
+				}
 			}
 		}
 		

@@ -18,6 +18,36 @@ using namespace boost;
 using namespace dwarf;
 using namespace dwarf::lib;
 
+class dwarfidl_cxx_target : public cxx_target
+{
+	const string m_untyped_argument_typename;
+	srk31::indenting_ostream& out;
+public:	
+	//static const vector<string> default_compiler_argv;
+	dwarfidl_cxx_target(
+		const string& untyped_argument_typename,
+		srk31::indenting_ostream& out,
+		const vector<string>& compiler_argv = default_compiler_argv(true)
+	)
+	 : cxx_target(compiler_argv), 
+	m_untyped_argument_typename(untyped_argument_typename), 
+	out(out)
+	{}
+	
+	string get_untyped_argument_typename() { return m_untyped_argument_typename; }
+	
+// 	void 
+// 	emit_typedef(
+// 		shared_ptr<spec::type_die> p_d,
+// 		const string& name
+// 	)
+// 	{ out << make_typedef(p_d, name); }
+
+	void emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d);
+	
+	void emit_forward_decls(const set<encap::basic_die *>& fds);
+};
+
 // we need a new edge iterator only
 struct cpp_dependency_order;
 template<typename Value = encap::attribute_value::weak_ref>

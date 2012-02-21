@@ -1074,7 +1074,7 @@ namespace tool {
 	template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_subroutine_type>       (indenting_ostream& out, abstract_dieset::iterator i_d)
 	{
 		std::cerr << "Warning: assuming subroutine type at 0x" << std::hex << (*i_d)->get_offset() 
-			<< std::dec << " is the target of some pointer type; skipping." << std::endl;
+			<< std::dec << " is the target of some pointer type or typedef; skipping." << std::endl;
 	}
 
 	template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_typedef>               (indenting_ostream& out, abstract_dieset::iterator i_d)

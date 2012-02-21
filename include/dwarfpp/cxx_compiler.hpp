@@ -60,12 +60,12 @@ namespace dwarf
 			//struct base_type dwarf_base_type(const dwarf::encap::Die_encap_base_type& d);
 			//static const string dummy_return;
 			void discover_base_types();
-			vector<string> parse_cxxflags() const;
+			static vector<string> parse_cxxflags();
 		public:
 			cxx_compiler(const vector<string>& argv);
 			
-			virtual vector<string>
-			default_compiler_argv(bool use_cxxflags = true) const;
+			static vector<string>
+			default_compiler_argv(bool use_cxxflags = true);
 			
 			typedef multimap<base_type, string>::iterator base_type_name_iterator;
 			
