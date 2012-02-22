@@ -571,19 +571,101 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 	} // end if do_topsort
 	else
 	{
-		/* Don't topsort; just forward-decl everything we reasonably can, then
+		/* Forward-decl everything we reasonably can, then
+		 * add to skipped_edges every edge from a struct that is a
+		 *   member->(type_chain->)*pointer_type
+		 *   and the pointer_type is forward-decl'able.
 		 * proceed in dieset order. */
+		
+		auto is_fwd_declable = [](shared_ptr<spec::basic_die> p_d) {
+			return p_d->get_name() && (
+				p_d->get_tag() == DW_TAG_structure_type
+			 || p_d->get_tag() == DW_TAG_union_type
+			 || p_d->get_tag() == DW_TAG_enumeration_type);
+			 // FIXME: more for C++ (but lots of other stuff needs fixing...)
+		};
+		
 		for (auto i_die = p_parent->children_begin(); i_die != p_parent->children_end(); ++i_die)
 		{
-			if ((*i_die)->get_name() && (
-				(*i_die)->get_tag() == DW_TAG_structure_type
-			 || (*i_die)->get_tag() == DW_TAG_union_type
-			 || (*i_die)->get_tag() == DW_TAG_enumeration_type))
+			if (is_fwd_declable(*i_die))
 			{
 				forward_decls.insert(dynamic_cast<encap::basic_die *>(i_die->get()));
 			}
-			topsorted_container.push_back(dynamic_cast<encap::basic_die *>(i_die->get()));
+			//topsorted_container.push_back(dynamic_cast<encap::basic_die *>(i_die->get()));
+			
 		}
+		vector<encap::attribute_value::weak_ref> new_skipped_edges;
+		auto my_vertices = vertices(*this);
+		for (auto i_vert = my_vertices.first; i_vert != my_vertices.second; ++i_vert)
+		{
+			auto my_edges = out_edges(*i_vert, *this);
+			for (auto i_edge = my_edges.first; i_edge != my_edges.second; ++i_edge)
+			{
+				auto e_source_ultimate = dynamic_pointer_cast<encap::basic_die>(
+					(*(*i_edge).p_ds)[(*i_edge).referencing_off]).get();
+				auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
+					(*(*i_edge).p_ds)[(*i_edge).off]).get();
+
+				if (e_source_ultimate->get_tag() == DW_TAG_member
+				 && (*i_edge).referencing_attr == DW_AT_type)
+				{
+					auto member = dynamic_cast<spec::member_die *>(e_source_ultimate);
+					assert(member);
+					shared_ptr<spec::type_die> member_type = member->get_type();
+					auto member_type_chain = dynamic_pointer_cast<spec::type_chain_die>(member_type);
+					//   ^ this one may be null
+					while (member_type
+					   && (
+					   	member_type->get_tag() == DW_TAG_array_type
+						|| (
+					       member_type_chain
+					   &&  member_type->get_tag() != DW_TAG_typedef)))
+					{
+						if (member_type->get_tag() == DW_TAG_array_type)
+						{
+							member_type = dynamic_pointer_cast<spec::array_type_die>(member_type)
+								->get_type();
+						}
+						else member_type = member_type_chain->get_type();
+						member_type_chain = dynamic_pointer_cast<spec::type_chain_die>(member_type);
+					}
+					// if we end at something forward-decl'able, 
+					// we can skip this edge.
+					if (member_type && 
+						is_fwd_declable(dynamic_pointer_cast<spec::basic_die>(member_type)))
+					{
+						new_skipped_edges.push_back(*i_edge);
+					}
+				}
+			}
+		}
+		for (auto i_skipped_edge = new_skipped_edges.begin(); 
+			i_skipped_edge != new_skipped_edges.end();
+			i_skipped_edge++) skipped_edges.push_back(*i_skipped_edge);
+		
+		// Now we hope we have something we hope is acyclic -- check that
+		map<
+			graph_traits<encap::basic_die>::vertex_descriptor, 
+			default_color_type
+		> underlying_dfs_node_color_map_again;
+		auto dfs_color_map_again = make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
+				underlying_dfs_node_color_map_again
+			);
+		set<dwarf::encap::basic_die *> new_forward_decls_again;
+		vector<dwarf::encap::attribute_value::weak_ref> new_skipped_edges_again;
+		noop_cycle_handler cycle_hnd_again(new_forward_decls_again, new_skipped_edges_again);
+		auto visitor_again = visitor(cycle_hnd_again).color_map(dfs_color_map_again);
+		depth_first_search(*this, visitor_again);
+
+		map<
+			graph_traits<cpp_dependency_order>::vertex_descriptor, 
+			default_color_type
+		> underlying_topsort_node_color_map;
+		 auto topsort_color_map = make_assoc_property_map( // ColorMap provides a mutable "Color" property per node
+			underlying_topsort_node_color_map
+		);
+		auto named_params = color_map(topsort_color_map);
+		topological_sort(*this, std::back_inserter(topsorted_container), named_params);
 	}
 }
 

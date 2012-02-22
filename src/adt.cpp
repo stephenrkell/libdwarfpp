@@ -873,6 +873,20 @@ namespace dwarf
             if (count && calculated_byte_size) return *count * *calculated_byte_size;
             else return opt<Dwarf_Unsigned>();
 		}
+		
+		shared_ptr<type_die> array_type_die::ultimate_element_type() const
+		{
+			auto nonconst_this = const_cast<array_type_die *>(this);
+			shared_ptr<type_die> cur
+			 = dynamic_pointer_cast<type_die>(nonconst_this->shared_from_this());
+			while (cur->get_concrete_type()
+				 && cur->get_concrete_type()->get_tag() == DW_TAG_array_type)
+			{
+				cur = dynamic_pointer_cast<array_type_die>(cur->get_concrete_type())->get_type();
+			}
+			return cur;
+		}
+		
 /* from spec::structure_type_die */
 		opt<Dwarf_Unsigned> structure_type_die::calculate_byte_size() const
 		{

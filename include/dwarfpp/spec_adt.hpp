@@ -1037,7 +1037,8 @@ end_class(with_data_members)
 #define extra_decls_array_type \
 		opt<Dwarf_Unsigned> element_count() const; \
         opt<Dwarf_Unsigned> calculate_byte_size() const; \
-        bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+        bool is_rep_compatible(boost::shared_ptr<type_die> arg) const; \
+		shared_ptr<type_die> ultimate_element_type() const; 
 #define extra_decls_pointer_type \
 		boost::shared_ptr<type_die> get_concrete_type() const; \
         opt<Dwarf_Unsigned> calculate_byte_size() const; \
