@@ -2,6 +2,9 @@
 #include "encap.hpp"
 #include "spec_adt.hpp" /* for basic_die methods */
 
+#include <utility>
+using std::make_pair;
+
 namespace dwarf
 {
 	namespace encap
@@ -488,7 +491,8 @@ namespace dwarf
             //Dwarf_Off current_cu_relative_base = 0UL; // FIXME: use this. 
             // FIXME: are the base addresses file-relative or CU-relative?
             
-            for (i = this->begin(); i != this->end(); i++)
+	    long int dist_moved = 0;
+            for (i = this->begin(); i != this->end(); ++dist_moved, ++i)
             {
             	switch(i->dwr_type)
                 {
@@ -524,7 +528,10 @@ namespace dwarf
                 //std::cerr << "No match." << std::endl;
 	            return 0;
             }
-            else return std::make_pair(offset, i - this->begin());
+            else return std::make_pair<dwarf::lib::Dwarf_Off, long int>(
+			(Dwarf_Off) offset, 
+			(long int) dist_moved
+		);
         }
 
 

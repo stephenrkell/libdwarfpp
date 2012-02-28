@@ -7,6 +7,8 @@ else
 CXXFLAGS += -O0 -g3 
 endif
 
+CXXFLAGS += -I../include
+
 HDRS := $(wildcard *.hpp)
 SRC := $(wildcard *.cpp)
 OBJS := $(patsubst %.cpp,%.o,$(SRC))

@@ -1,6 +1,6 @@
 CXX ?= g++
 
-CXXFLAGS += -std=gnu++0x -Wall -fPIC
+CXXFLAGS += -std=gnu++0x -Wall -fPIC 
 ifeq ($(DEBUG),)
 $(warning Optimised build)
 CXXFLAGS += -O4 
@@ -9,6 +9,7 @@ $(warning Debug build)
 CXXFLAGS += -O0 -g3 -fno-eliminate-unused-debug-types -pg
 endif
 CXXFLAGS += -I../include
+CXXFLAGS += -I../include/dwarfpp
 
 SRC := $(wildcard *.cpp)
 DEPS := $(patsubst %.cpp,.%.d,$(SRC))
@@ -61,7 +62,7 @@ libdwarfpp.a: $(OBJS)
 
 # use this version when developing (avoid recompiling whole of huge .so file)
 libdwarfpp.so: $(OBJS)
-	$(CXX) $(CXXFLAGS) -shared -o "$@" $^ -ldwarf -lelf
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o "$@" $^ -ldwarf -lelf
 
 .PHONY: clean
 clean:

@@ -27,7 +27,7 @@
 #include <string>
 #include <utility>
 
-#include <execinfo.h> // for backtrace(), for debugging
+// #include <execinfo.h> // for backtrace(), for debugging -- NOTE: not in BSD
 
 namespace dwarf {
 	namespace encap {
