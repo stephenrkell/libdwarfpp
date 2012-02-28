@@ -494,13 +494,13 @@ namespace dwarf
 			//abstract_dieset::bfs_policy bfs_state;
             abstract_dieset::iterator start_iterator
              = this->get_first_child()->iterator_here(bfs_state);
-            std::cerr << "Exploring stack-located children of " << *this << std::endl;
+            std::cerr << "Exploring stack-located children of " << this->summary() << std::endl;
             unsigned initial_depth = start_iterator.base().path_from_root.size();
             for (auto i_bfs = start_iterator;
             		i_bfs.base().path_from_root.size() >= initial_depth;
                     ++i_bfs)
             {
-            	std::cerr << "Considering whether DIE has stack location: " << **i_bfs << std::endl;
+            	std::cerr << "Considering whether DIE has stack location: " << (*i_bfs)->summary() << std::endl;
             	auto with_stack_loc = boost::dynamic_pointer_cast<spec::with_dynamic_location_die>(
                 	*i_bfs);
                 if (!with_stack_loc) continue;
@@ -570,7 +570,7 @@ namespace dwarf
 				frame_base_addr,
 				dieset_relative_ip,
 				p_regs);
-			std::cerr << "Calculated that an instance of DIE" << *this
+			std::cerr << "Calculated that an instance of DIE" << this->summary()
 				<< " has base addr 0x" << std::hex << base_addr << std::dec;
             assert(attrs.find(DW_AT_type) != attrs.end());
             auto size = *(attrs.find(DW_AT_type)->second.get_refdie_is_type()->calculate_byte_size());
