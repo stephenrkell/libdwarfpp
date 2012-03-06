@@ -134,7 +134,6 @@ namespace dwarf
 
 			virtual ~file();
 
-			/* Useful functions -- all trivial wrappers of libdwarf API functions */
 			int advance_cu_context(Dwarf_Unsigned *cu_header_length = 0,
 				Dwarf_Half *version_stamp = 0,
 				Dwarf_Unsigned *abbrev_offset = 0,
@@ -206,6 +205,12 @@ namespace dwarf
 
 		public:
 			virtual ~die();
+			die(file& f, int dummy) : f(f), p_last_error(&f.last_error)
+			{
+				/* This constructor is used for the dummy DIE representing the
+				 * top of the tree. We set my_die to 0 (it's a pointer). */
+				my_die = 0;
+			}
 			die(file& f) : f(f), p_last_error(&f.last_error)
 				{	/* ask the file to initialize us with the first DIE of the current CU */
 					int cu_retval = f.ensure_cu_context();

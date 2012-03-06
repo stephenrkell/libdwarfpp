@@ -108,6 +108,7 @@ void dwarfidl_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 			dispatch_to_model_emitter( 
 				out,
 				dynamic_pointer_cast<encap::basic_die>((*i)->shared_from_this())->iterator_here(),
+				// this is our predicate
 				[&toplevel_decls_emitted, this](shared_ptr<spec::basic_die> p_d)
 				{
 					/* We check whether we've been declared already */
@@ -132,6 +133,7 @@ void dwarfidl_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 								}
 							};
 							
+							/* In the case of types, we output a warning. */
 							if (current_is_type && previous_is_type)
 							{
 								if (!current_is_type->is_rep_compatible(previous_is_type)
@@ -153,6 +155,18 @@ void dwarfidl_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 							return false;
 						}
 						
+						/* At this point, we are going to give the all clear to emit.
+						 * But we want to remember this, so we can skip future redeclarations
+						 * that might conflict. */
+						
+						/* Some declarations are harmless to emit, because they never 
+						 * conflict (forward decls). We won't bother remembering these. */
+						auto is_program_element
+						 = dynamic_pointer_cast<spec::program_element_die>(p_d);
+						bool is_harmless_fwddecl = is_program_element
+							&& is_program_element->get_declaration()
+							&& *is_program_element->get_declaration();
+						
 						// if we got here, we will go ahead with emitting; 
 						// if it generates a name, remember this!
 						// NOTE that dwarf info has been observed to contain things like
@@ -161,13 +175,16 @@ void dwarfidl_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 						// We won't use the name on the const type, so we use the
 						// cxx_type_can_have_name helper to rule those cases out.
 						auto is_type = dynamic_pointer_cast<spec::type_die>(p_d);
-						if (!is_type || (is_type && this->cxx_type_can_have_name(is_type)))
+						if (
+							(!is_type || (is_type && this->cxx_type_can_have_name(is_type)))
+						&&  !is_harmless_fwddecl
+						)
 						{
 							toplevel_decls_emitted.insert(make_pair(*opt_ident_path, p_d));
 						}
-					}
+					} // end if already declared with this 
 					
-					// not a redeclaration, so go ahead
+					// not a conflict-creating redeclaration, so go ahead
 					return true;
 				}
 			); 

@@ -133,7 +133,7 @@ namespace dwarf
 				cu_callback_t cb, void *arg)
 		{
 			/* All the output parameters are optional. 
-			 * BUT we *always* call the callback with the full range! 
+			 * BUT we *always* call the callback with the full set! 
 			 * So we need to dummy the pointers. */
 			Dwarf_Unsigned dummy_cu_header_length,
 			 *real_cu_header_length = cu_header_length ? cu_header_length : &dummy_cu_header_length;
