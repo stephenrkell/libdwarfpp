@@ -1,6 +1,7 @@
 #include <deque>
 #include <utility>
 #include <sstream>
+#include <algorithm>
 #include <boost/make_shared.hpp>
 
 #include "spec_adt.hpp"
@@ -16,6 +17,9 @@ namespace dwarf
 	using boost::optional;
 	using std::string;
 	using std::ostringstream;
+	using std::pair;
+	using std::endl;
+	using std::vector;
 
 	namespace spec
     {
@@ -1004,7 +1008,13 @@ namespace dwarf
 //             else*/ m_parent_offset = 0UL;
 //         }
 
-		/* This private constructor is used by (friend) file_toplevel_die only */
+		/* This constructor is used by (friend) file_toplevel_die only.
+		 */
+		// super-special: "no Dwarf_Die"
+		basic_die::basic_die(dieset& ds, int dummy)
+		 : die((assert(ds.p_f), *ds.p_f), dummy), p_ds(&ds) {}
+
+		// "first DIE in current CU context"
 		basic_die::basic_die(dieset& ds)
 		 : die((assert(ds.p_f), *ds.p_f)), p_ds(&ds) {}
 
@@ -1870,7 +1880,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 		boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
 		{
 			// We have to explicitly loop through CU headers, 
-    		// to set the CU context when getting dies.
+			// to set the CU context when getting dies.
 			Dwarf_Unsigned cu_header_length;
 			Dwarf_Half version_stamp;
 			Dwarf_Unsigned abbrev_offset;
@@ -1885,23 +1895,22 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			if (retval != DW_DLV_OK)
 			{
 				std::cerr << "Warning: couldn't get first CU header! no debug information imported" << std::endl;
-        		throw No_entry();
+				throw No_entry();
 			}
 
-    		switch (version_stamp)
-    		{
-        		case 2: p_spec = &dwarf::spec::dwarf3; break;
-        		default: throw std::string("Unsupported DWARF version stamp!");
-    		}
-    		prev_version_stamp = version_stamp;
+			switch (version_stamp)
+			{
+				case 2: p_spec = &dwarf::spec::dwarf3; break;
+				default: throw std::string("Unsupported DWARF version stamp!");
+			}
+			prev_version_stamp = version_stamp;
 
-    		//return dieset::my_make_shared<compile_unit_die>(
-			//	 dwarf::lib::die(*p_ds->p_f), // this is the CU DIE (really! "first" is relative to CU context)lib::die(), 
-			//	*p_ds);
+			/* This lib::die constructor means "first CU of current CU context" 
+			 * -- and we've just set the CU context to be the one we want. */
 			return p_ds->get(lib::die(*p_ds->p_f));
 				
 			//	, 
-        	//	boost::make_shared<dwarf::lib::die>(*p_ds->p_f) /*,
+			//	boost::make_shared<dwarf::lib::die>(*p_ds->p_f) /*,
 			//	version_stamp, address_size*/);
 		}
 
@@ -1924,7 +1933,16 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			auto found = parent->cu_info.find(off);
 			// We can rely on already having cu_info populated, since 
 			// clear_cu_context runs through all the CU headers once.
-			assert(found != parent->cu_info.end());
+			if (found == parent->cu_info.end())
+			{
+				// print the CU info, for debugging
+				cerr << "Did not found CU at offset 0x" << std::hex << off << std::dec << endl;
+				cerr << "CU info contains only CUs at offsets: " << endl;
+				std::for_each(parent->cu_info.begin(), parent->cu_info.end(),
+					[](const pair<Dwarf_Off, file_toplevel_die::cu_info_t>& p) 
+					{ cerr << std::hex << p.first << std::dec << endl; });
+				assert(false);
+			}
 			
 			++found;
 			if (found == parent->cu_info.end()) throw No_entry();

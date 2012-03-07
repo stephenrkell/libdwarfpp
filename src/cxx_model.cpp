@@ -1063,12 +1063,22 @@ namespace tool {
 				p_d->get_name() 
 				?  *p_d->get_name() 
 				: create_ident_for_anonymous_die(p_d->shared_from_this())
-				)
-			<< " { " << std::endl;
+				);
+		if (!(p_d->get_declaration() && *p_d->get_declaration()))
+		{
+			out << " { " << std::endl;
 
-		recursively_emit_children(out, i_d);
+			recursively_emit_children(out, i_d);
 
-		out << "} __attribute__((packed));" << std::endl;
+			out << "} __attribute__((packed))";
+		}
+		else
+		{
+			/* struct declarations shouldn't have any member children */
+			assert(srk31::count(p_d->member_children_begin(), p_d->member_children_end())
+				== 0);
+		}
+		out << ";" << std::endl;
 	}
 	
 	template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_subroutine_type>       (indenting_ostream& out, abstract_dieset::iterator i_d)
@@ -1096,6 +1106,9 @@ namespace tool {
 	template<> void cxx_generator_from_dwarf::emit_model<DW_TAG_union_type>            (indenting_ostream& out, abstract_dieset::iterator i_d)
 	{
 		auto p_d = dynamic_pointer_cast<union_type_die>(*i_d);
+		
+		/* FIXME: this needs the same treatment of forward declarations
+		 * that structure_type gets. */
 		
 		out << "union " 
 			<< protect_ident(

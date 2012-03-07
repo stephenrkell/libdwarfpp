@@ -6,7 +6,7 @@ $(warning Optimised build)
 CXXFLAGS += -O4 
 else
 $(warning Debug build)
-CXXFLAGS += -O0 -g3 -fno-eliminate-unused-debug-types -pg
+CXXFLAGS += -O0 -g3 -fno-eliminate-unused-debug-types
 endif
 CXXFLAGS += -I../include
 CXXFLAGS += -I../include/dwarfpp

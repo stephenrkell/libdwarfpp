@@ -1,5 +1,7 @@
 DWARF_PREFIX ?= /usr
 
+CXXFLAGS += -std=gnu++0x -g
+
 .PHONY: default
 default: include libs examples lib #tests
 	
