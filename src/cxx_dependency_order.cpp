@@ -576,7 +576,27 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 		 *   member->(type_chain->)*pointer_type
 		 *   and the pointer_type is forward-decl'able.
 		 * proceed in dieset order. */
+		/* FIXME: we have also to remove the following classes of cycle:
 		
+		 1. structure member is a pointer to a subroutine type
+		      subroutine type has a parameter that is a pointer
+		         parameter points to the structure type
+		    Q. how to break this cycle? 
+		    A. We don't have to! 
+		    struct foo {
+				void (*memb)(struct foo *);
+			};
+			In other words, within a struct, cycles that go back to the same struct
+			even via anonymous external DIEs (here the pointer type)
+			are okay, 
+			
+		HMM. This code is horrible.
+		Consider directly coding up a "must declare before" relation for toplevel DIEs.
+		Why only toplevel? Hmm -- I think forward declarations only affect toplevel,
+		or namespace-level in the case of C++. CHECK this though.
+		
+		 */
+			
 		auto is_fwd_declable = [](shared_ptr<spec::basic_die> p_d) {
 			return p_d->get_name() && (
 				p_d->get_tag() == DW_TAG_structure_type
@@ -629,10 +649,48 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 						else member_type = member_type_chain->get_type();
 						member_type_chain = dynamic_pointer_cast<spec::type_chain_die>(member_type);
 					}
-					// if we end at something forward-decl'able, 
+					// Here we "end" at the named type mentioned by the member's type
+					// (e.g. "char" if it's a char *[]).
+					
+					// If we end at something forward-decl'able, 
+					// then we will be forward-declaring it, so
 					// we can skip this edge.
 					if (member_type && 
 						is_fwd_declable(dynamic_pointer_cast<spec::basic_die>(member_type)))
+					{
+						new_skipped_edges.push_back(*i_edge);
+					}
+				}
+				if (e_source_ultimate->get_tag() == DW_TAG_formal_parameter
+				 && (*i_edge).referencing_attr == DW_AT_type)
+				{
+					auto fp = dynamic_cast<spec::formal_parameter_die *>(e_source_ultimate);
+					assert(fp);
+					shared_ptr<spec::type_die> fp_type = fp->get_type();
+					auto fp_type_chain = dynamic_pointer_cast<spec::type_chain_die>(fp_type);
+					//   ^ this one may be null
+					while (fp_type
+					   && (
+					   	fp_type->get_tag() == DW_TAG_array_type
+						|| (
+					       fp_type_chain
+					   &&  fp_type->get_tag() != DW_TAG_typedef)))
+					{
+						if (fp_type->get_tag() == DW_TAG_array_type)
+						{
+							fp_type = dynamic_pointer_cast<spec::array_type_die>(fp_type)
+								->get_type();
+						}
+						else fp_type = fp_type_chain->get_type();
+						fp_type_chain = dynamic_pointer_cast<spec::type_chain_die>(fp_type);
+					}
+					// Here we "end" at the named type mentioned by the fp's type
+					// (e.g. "char" if it's a char *[]).
+					
+					// If we end at something forward-decl'able, 
+					// then we will be forward-declaring it, so
+					if (fp_type && 
+						is_fwd_declable(dynamic_pointer_cast<spec::basic_die>(fp_type)))
 					{
 						new_skipped_edges.push_back(*i_edge);
 					}
@@ -643,6 +701,7 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 			i_skipped_edge != new_skipped_edges.end();
 			i_skipped_edge++) skipped_edges.push_back(*i_skipped_edge);
 		
+	
 		// Now we hope we have something we hope is acyclic -- check that
 		map<
 			graph_traits<encap::basic_die>::vertex_descriptor, 
