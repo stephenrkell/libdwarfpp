@@ -106,8 +106,12 @@ namespace dwarf
 					encapsulate_die(first, /* parent = */0UL); // this *doesn't* explore siblings of CU header DIEs!
 
 					old_version_stamp = version_stamp;
-				}
+				} // end for each CU
 			}
+			
+			// record the last monotonic offset
+			m_ds.last_monotonic_offset = (--m_ds.map_end())->first;
+			
 			// check referential integrity of dieset
 			this->get_ds().all_compile_units()->integrity_check();
 			
@@ -296,6 +300,7 @@ namespace dwarf
 			// don't complain about loss of referential integrity during clear().
 			this->destructing = true;
 			this->map::clear();
+			this->last_monotonic_offset = arg.last_monotonic_offset;
 			this->destructing = arg.destructing;
 			this->p_spec = arg.p_spec;
 			for (auto i = arg.map_begin(); i != arg.map_end(); ++i)

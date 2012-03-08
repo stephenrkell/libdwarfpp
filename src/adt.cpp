@@ -15,11 +15,15 @@ namespace dwarf
 {
 	using boost::dynamic_pointer_cast;
 	using boost::optional;
+	using boost::shared_ptr;
 	using std::string;
 	using std::ostringstream;
 	using std::pair;
 	using std::endl;
+	using std::cerr;
+	using std::clog;
 	using std::vector;
+	using namespace dwarf::lib;
 
 	namespace spec
     {
@@ -748,46 +752,46 @@ namespace dwarf
 			}
 		}
 /* from spec::type_die */
-        opt<Dwarf_Unsigned> type_die::calculate_byte_size() const
-        {
-        	//return opt<Dwarf_Unsigned>();
-            if (this->get_byte_size()) return *this->get_byte_size();
-            else return opt<Dwarf_Unsigned>();
+		opt<Dwarf_Unsigned> type_die::calculate_byte_size() const
+		{
+			//return opt<Dwarf_Unsigned>();
+			if (this->get_byte_size()) return *this->get_byte_size();
+			else return opt<Dwarf_Unsigned>();
 		}
-        boost::shared_ptr<type_die> type_die::get_concrete_type() const
-        {
-        	// by default, our concrete self is our self
-        	return boost::dynamic_pointer_cast<type_die>(
-            	const_cast<type_die *>(this)->get_ds()[this->get_offset()]);
-        } 
-        boost::shared_ptr<type_die> type_die::get_concrete_type()
-        {
-        	return const_cast<const type_die *>(this)->get_concrete_type();
-        }
-        boost::shared_ptr<type_die> type_die::get_unqualified_type() const
-        {
-        	// by default, our unqualified self is our self
-        	return boost::dynamic_pointer_cast<type_die>(
-            	const_cast<type_die *>(this)->get_ds()[this->get_offset()]);
-        } 
+		boost::shared_ptr<type_die> type_die::get_concrete_type() const
+		{
+			// by default, our concrete self is our self
+			return boost::dynamic_pointer_cast<type_die>(
+				const_cast<type_die *>(this)->get_ds()[this->get_offset()]);
+		} 
+		boost::shared_ptr<type_die> type_die::get_concrete_type()
+		{
+			return const_cast<const type_die *>(this)->get_concrete_type();
+		}
+		boost::shared_ptr<type_die> type_die::get_unqualified_type() const
+		{
+			// by default, our unqualified self is our self
+			return boost::dynamic_pointer_cast<type_die>(
+				const_cast<type_die *>(this)->get_ds()[this->get_offset()]);
+		} 
 /* from spec::qualified_type_die */
-        boost::shared_ptr<type_die> qualified_type_die::get_unqualified_type() const
-        {
-        	// for qualified types, our unqualified self is our get_type, recursively unqualified
+		boost::shared_ptr<type_die> qualified_type_die::get_unqualified_type() const
+		{
+			// for qualified types, our unqualified self is our get_type, recursively unqualified
 			if (!this->get_type()) return shared_ptr<type_die>();
-        	return this->get_type()->get_unqualified_type();
-        } 
-        boost::shared_ptr<type_die> qualified_type_die::get_unqualified_type()
-        {
-        	return const_cast<const qualified_type_die *>(this)->get_unqualified_type();
-        }
+			return this->get_type()->get_unqualified_type();
+		} 
+		boost::shared_ptr<type_die> qualified_type_die::get_unqualified_type()
+		{
+			return const_cast<const qualified_type_die *>(this)->get_unqualified_type();
+		}
 /* from spec::type_chain_die */
-        opt<Dwarf_Unsigned> type_chain_die::calculate_byte_size() const
-        {
-        	// Size of a type_chain is always the size of its concrete type
-            // which is *not* to be confused with its pointed-to type!
-        	if (this->get_concrete_type()) return this->get_concrete_type()->calculate_byte_size();
-            else return opt<Dwarf_Unsigned>();
+		opt<Dwarf_Unsigned> type_chain_die::calculate_byte_size() const
+		{
+			// Size of a type_chain is always the size of its concrete type
+			// which is *not* to be confused with its pointed-to type!
+			if (this->get_concrete_type()) return this->get_concrete_type()->calculate_byte_size();
+			else return opt<Dwarf_Unsigned>();
 		}
         boost::shared_ptr<type_die> type_chain_die::get_concrete_type() const
         {
@@ -900,7 +904,54 @@ namespace dwarf
 			// language- and implementation-dependent.
 			return this->type_die::calculate_byte_size();
 		}
+/* from spec::with_data_members_die */
+		shared_ptr<type_die> with_data_members_die::find_my_own_definition() const
+		{
+			auto nonconst_this = const_cast<with_data_members_die *>(this);
+			if (!get_declaration() || !*get_declaration()) 
+			{
+				return dynamic_pointer_cast<type_die>(get_this());
+			}
+			cerr << "Looking for definition of declaration " << this->summary() << endl;
+			
+			// if we don't have a name, we have no way to proceed
+			if (!get_name()) goto return_no_result;
+			else
+			{
+				string my_name = *get_name();
 
+				/* Otherwise, we search forwards from our position, for siblings
+				 * that have the same name but no "declaration" attribute. */
+				auto iter = nonconst_this->iterator_here();
+				abstract_dieset::position_and_path pos_and_path = iter.base();
+
+				/* Are we a CU-toplevel DIE? We only handle this case at the moment. */
+				auto cu_pos_and_path
+				 = nonconst_this->enclosing_compile_unit()->iterator_here().base();
+				if (cu_pos_and_path.path_from_root.size() != pos_and_path.path_from_root.size() - 1)
+				{
+					goto return_no_result;
+				}
+
+				abstract_dieset::iterator i_sibling(pos_and_path, 
+					abstract_dieset::siblings_policy_sg);
+
+				for (++i_sibling /* i.e. don't check ourselves */; 
+					i_sibling != nonconst_this->get_ds().end(); ++i_sibling)
+				{
+					auto p_d = dynamic_pointer_cast<with_data_members_die>(*i_sibling);
+					if (p_d && p_d->get_name() && *p_d->get_name() == my_name
+						&& (!p_d->get_declaration() || !*p_d->get_declaration()))
+					{
+						cerr << "Found definition " << p_d->summary() << endl;
+						return dynamic_pointer_cast<type_die>(p_d);
+					}
+				}
+			}
+		return_no_result:
+			cerr << "Failed to find definition of declaration " << this->summary() << endl;
+			return shared_ptr<type_die>();
+		}
 /* from spec::variable_die */        
 		bool variable_die::has_static_storage() const
         {
@@ -1372,30 +1423,227 @@ namespace dwarf
 //                     } catch (std::bad_cast e) { return true; }
 //                 }
 
-        boost::shared_ptr<basic_die>
-        file_toplevel_die::visible_named_child(const std::string& name)
-        { 
-            is_visible visible;
-            for (auto i_cu = compile_unit_children_begin();
-                    i_cu != compile_unit_children_end(); ++i_cu)
-            {
-                //std::cerr << "Looking for child named " << name << std::endl;
-                for (auto i = (*i_cu)->children_begin();
-                        i != (*i_cu)->children_end();
-                        i++)
-                {
-                    if (!(*i)->get_name()) continue;
-                    //std::cerr << "Testing candidate die at offset " << (*i)->get_offset() << std::endl;
-                    if ((*i)->get_name() 
-                        && *((*i)->get_name()) == name
-                        && visible(*i))
-                    { 
-                        return *i;
-                    }
-                }
-            }
-            return boost::shared_ptr<basic_die>();
-        } 
+		shared_ptr<basic_die>
+		file_toplevel_die::visible_named_grandchild(
+			const std::string& name
+		)
+		{
+			auto returned = visible_named_grandchild_pos(name);
+			if (returned)
+			{
+				auto iter = abstract_dieset::iterator(returned->first);
+				if (iter != get_ds().end()) return *iter;
+			}
+			return shared_ptr<basic_die>();
+		}
+		
+		optional<file_toplevel_die::cache_rec_t>
+		file_toplevel_die::visible_named_grandchild_pos(
+			const std::string& name,
+			optional<cache_rec_t> opt_start_here, /* = no value */
+			shared_ptr<visible_grandchildren_sequence_t> opt_seq
+		)
+		{
+			/* NOTE: 
+			 * There are some tricky semantic requirements here.
+			 * 1. the vectors in the cache are kept in grandchild order (not offset order!);
+			 * 2. opt_start_here, if it is set, must point to an existing match.
+			      This is so that we can ensure we return the next match in grandchild
+			      order, which is not the same as offset order.
+			 */
+			
+			/* Cache invalidation: 
+			 * to avoid the fragile requirement that any modifications
+			 * invalidate the relevant portion of the cache directly, 
+			 * we simply keep a stamp of "max offset when last exhaustively searched cache"
+			 * and if the max offset has changed in the meantime, we invalidate.
+			 * BUT this doesn't handle the case where a DIE's name has changed!
+			 * AND we can't get a decent highest-DIE number for lib::dieset.
+			 * For now, assume that we don't delete DIE names. So, a positive result
+			 * is never wrong. BUT what if it misses an intervening entry recently added?
+			 * FIXME: whenever we set the name on a CU-toplevel DIE,
+			 * invalidate the cache for its name.
+			 * */
+			shared_ptr<visible_grandchildren_sequence_t> vg_seq
+			 = opt_seq ? opt_seq : visible_grandchildren_sequence();
+
+			// first cheque the cash
+			auto found_in_cache = visible_grandchildren_cache.find(name);
+			if (found_in_cache != visible_grandchildren_cache.end())
+			{
+				clog << "Hit cache..." << endl;
+				// two cases: we find a positive result in the cache...
+				if (found_in_cache->second)
+				{
+					clog << "Cache hit is positive" << endl;
+					auto& vec = *found_in_cache->second;
+					assert(vec.size() != 0);
+					if (opt_start_here)
+					{
+						// locate previous match, and return the next one (if any, else keep searching)
+						cache_rec_t previous_match = //(**opt_start_here)->get_offset();
+							//make_pair(
+							//	opt_start_here->base().base(), 
+							//	opt_start_here->base().m_currently_in
+							//);
+							*opt_start_here;
+						abstract_dieset::iterator startpos(previous_match.first);
+						clog << "Looking in cache, starting from " << (*startpos)->summary() << endl;
+						auto found_previous = std::find(vec.begin(), vec.end(), previous_match);
+						if (found_previous == vec.end())
+						{
+							// this means we didn't find the previous match in the cache
+							// -- our caller passed us a bogus opt_start_here
+							assert(false);
+						}
+						else if (found_previous + 1 != vec.end())
+						{
+							auto found_rec = *(found_previous + 1);
+							clog << "Returning cached match " 
+								<< (*abstract_dieset::iterator(found_rec.first))->summary() << endl;
+							return found_rec; //*abstract_dieset::iterator(found_rec.first); //(this->get_ds())[found_off];
+						}
+						else // found_previous + 1 == vec.end()
+						{
+							// this means that we haven't cached a later result
+							// there may or may not be one
+							// so we continue searching
+							clog << "Cache has nothing after startpos; searching onward" << endl;
+							goto search_onward;
+						}
+
+					}
+					else
+					{
+						// we are free just to return the first match
+						clog << "No starting pos, so returning first cached match" << endl;
+						auto found_rec = *vec.begin();
+						//return (this->get_ds())[found_off];
+						return found_rec; // *abstract_dieset::iterator(found_rec.first);
+					}
+				}
+				else /* negative result in cache */
+				{
+					clog << "Cache hit is negative" << endl;
+					// do we trust the negative result?
+					if (max_offset_on_last_complete_search 
+						== this->get_ds().highest_offset_upper_bound())
+					{
+						cerr << "Hit cached negative result for " << name << endl;
+						//return optional<cache_rec_t>(); // shared_ptr<basic_die>();
+						goto return_no_entry;
+					}
+					// else we will do the lookup afresh
+					else 
+					{
+						clog << "Disregarding stale negative cache hit" << endl;
+						goto search_onward;
+					}
+				}
+			}
+			/* We could short-circuit the search for nonexistent DIEs here, 
+			 * by using cache_is_exhaustive_before_offset. BUT 
+			 * if we're a lib::file_toplevel_die, we don't know
+			 * our own end offset! encap::file_toplevel_die can do better,
+			 * so we call through a virtual method to do the check. */
+// 			if (this->get_ds().highest_offset_upper_bound()
+// 				<= this->get_ds().get_last_monotonic_offset()
+// 				&&
+// 				cache_is_exhaustive_up_to_offset 
+// 				>= this->get_ds().highest_offset_upper_bound())
+
+
+// 			if (!opt_start_here
+// 				&& max_offset_on_last_complete_search 
+// 					>= this->get_ds().highest_offset_upper_bound())
+// 			{
+// 				cerr << "Don't bother searching for " << name << " because cache is exhaustive "
+// 					"up to offset 0x" << std::hex << cache_is_exhaustive_up_to_offset << std::dec
+// 					<< " and there are no nonmonotonic DIEs."
+// 					<< endl;
+// 					
+// 				return shared_ptr<basic_die>();
+// 			}
+
+			{
+			search_onward:
+				Dwarf_Off last_seen_offset = 0UL;
+				//if (opt_start_here) vg_seq = dynamic_pointer_cast<visible_grandchildren_sequence_t>(
+				//	opt_start_here->base().get_sequence());
+
+				/* NOTE: vg_seq does not necessarily go in
+				 * strictly ascending order by offset. */
+				visible_grandchildren_iterator start_iter
+				 = opt_start_here ? ++(vg_seq->at(opt_start_here->first, opt_start_here->second))
+			                	  : vg_seq->begin();
+				
+				clog << "Linear search startpos is "
+					<< ((start_iter == vg_seq->end()) ? "(end of dieset)" : (*start_iter)->summary())
+					<< endl;
+
+				for (auto i_vg = start_iter;
+					i_vg != vg_seq->end(); 
+					last_seen_offset = (*i_vg)->get_offset(), ++i_vg)
+				{
+					Dwarf_Off cur_off = (*i_vg)->get_offset();
+					assert(cur_off > last_seen_offset
+						|| cur_off > this->get_ds().get_last_monotonic_offset());
+					if ((*i_vg)->get_name())
+					{
+						string cur_name = *(*i_vg)->get_name();
+						// ensure we have a vector in the cache to write to
+						if (!visible_grandchildren_cache[cur_name]) 
+						{
+							visible_grandchildren_cache[cur_name] = vector<cache_rec_t>();
+						}
+						cache_rec_t cache_ent_added
+						 = make_pair(i_vg.base().base().base(), i_vg.base().get_currently_in());
+						clog << "Traversing cacheable entry " << (*i_vg)->summary() << endl;
+						 
+						// we should not be adding something we've added already
+						if (std::find(visible_grandchildren_cache[cur_name]->begin(),
+								visible_grandchildren_cache[cur_name]->end(), 
+								cache_ent_added) == visible_grandchildren_cache[cur_name]->end())
+						{
+							clog << "Cacheable entry is not already cached, so adding it." << endl;
+							visible_grandchildren_cache[cur_name]->push_back(
+								cache_ent_added
+							);
+						}
+						
+						if (cur_name == name)
+						{
+							assert(cache_is_exhaustive_up_to_offset < cur_off
+							||     cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
+							if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
+							{ cache_is_exhaustive_up_to_offset = cur_off; }
+							clog << "Search succeeded at " << (*i_vg)->summary() << endl;
+							return optional<cache_rec_t>(cache_ent_added);
+						}
+					}
+				}
+				if (!opt_start_here) 
+				{
+					// we use last_seen_offset and not the end() offset (max()) 
+					// because DIEs might get added later, at higher offsets
+					//  than the current max, but less than the sentinel.
+					cache_is_exhaustive_up_to_offset = last_seen_offset;
+
+					// we can also store a negative result if we searched all the way
+					cerr << "Installing negative cache result for " << name << endl;
+					visible_grandchildren_cache[name] = optional< vector<cache_rec_t> >();
+
+					// timestamp this search
+					// HACK: "upper bound" is not appropriate here, but it'll do for now
+					max_offset_on_last_complete_search = this->get_ds().highest_offset_upper_bound();
+				}
+				cerr << "Linear search for " << name << " went all the way to the end." << endl;
+			} // end convenience lexical block
+		return_no_entry:
+			return optional<cache_rec_t>(
+				make_pair(get_ds().end().base(), vg_seq->subsequences_count() - 1)
+			);
+		}
 		
 		boost::shared_ptr<file_toplevel_die::grandchildren_sequence_t>
 		file_toplevel_die::grandchildren_sequence()

@@ -191,7 +191,12 @@ namespace dwarf
 			iterator find(Dwarf_Off off);
 			iterator begin();
 			iterator end();
-
+			
+			// because we are an immutable lib::dieset, we can
+			// guarantee that we are always monotonic
+			Dwarf_Off get_last_monotonic_offset() 
+			{ return highest_offset_upper_bound(); }
+			
 			// FIXME: aranges interface was broken because I confused it with ranges
 			//encap::arangelist arangelist_at(Dwarf_Unsigned i) const;
 			//{ return encap::rangelist(p_f->get_ranges(), i); }

@@ -31,6 +31,7 @@ namespace dwarf
 		using std::make_pair;
 		using srk31::conjoining_sequence;
 		using srk31::conjoining_iterator;
+		using std::clog;
 		
 		class compile_unit_die;
 		class program_element_die;
@@ -336,6 +337,11 @@ namespace dwarf
 				}
 			}; // end basic_iterator_base
 
+			virtual Dwarf_Off highest_offset_upper_bound() 
+			{ return std::numeric_limits<Dwarf_Off>::max(); }
+			virtual Dwarf_Off get_last_monotonic_offset()
+			{ return 0UL; }
+			
             struct iterator;
         	virtual iterator find(Dwarf_Off off) = 0;
             virtual iterator begin() = 0;
@@ -899,23 +905,17 @@ struct with_iterator_partial_order : public Iter
 		boost::dynamic_pointer_cast<spec:: arg ## _die> \
 		)); }
 
-        struct file_toplevel_die : public virtual with_named_children_die
-        {
-            struct is_visible
-            {
-                bool operator()(boost::shared_ptr<spec::basic_die> p) const;
-            };
-
-            template <typename Iter>
-            boost::shared_ptr<basic_die>
-            visible_resolve(Iter path_pos, Iter path_end);
-            template <typename Iter>
-            vector< boost::shared_ptr<basic_die> >
-            visible_resolve_all(Iter path_pos, Iter path_end);
-            
-            virtual boost::shared_ptr<basic_die>
-            visible_named_child(const std::string& name); 
-			// FIXME: should be "visible_named_grandchild"
+		struct file_toplevel_die : public virtual with_named_children_die
+		{
+			file_toplevel_die()
+			 : cache_is_exhaustive_up_to_offset(0UL),
+			   max_offset_on_last_complete_search(0UL)
+			{}
+			
+			struct is_visible
+			{
+				bool operator()(boost::shared_ptr<spec::basic_die> p) const;
+			};
 			
 			child_tag(compile_unit)
 			
@@ -923,9 +923,42 @@ struct with_iterator_partial_order : public Iter
 			typedef conjoining_iterator<abstract_dieset::iterator> grandchildren_iterator;
 			shared_ptr<grandchildren_sequence_t> grandchildren_sequence();
 			
-			typedef filter_iterator<is_visible, grandchildren_iterator> visible_grandchildren_iterator;
+			typedef filter_iterator<is_visible, grandchildren_iterator> 
+			visible_grandchildren_iterator;
+			
 			struct visible_grandchildren_sequence_t;
 			shared_ptr<visible_grandchildren_sequence_t> visible_grandchildren_sequence();
+
+			template <typename Iter>
+			boost::shared_ptr<basic_die>
+			visible_resolve(Iter path_pos, Iter path_end/*,
+				optional<visible_grandchildren_iterator> start_here
+					= optional<visible_grandchildren_iterator>()*/
+			);
+			template <typename Iter>
+			vector< boost::shared_ptr<basic_die> >
+			visible_resolve_all(Iter path_pos, Iter path_end);
+
+			virtual boost::shared_ptr<basic_die>
+			visible_named_grandchild(const std::string& name);
+			
+		private:
+			// we cache all the found matching DIEs, 
+			// and also record not-founds as optional<...>()
+			typedef pair< abstract_dieset::position_and_path, unsigned > cache_rec_t;
+
+			// the function we use for visible_resolve
+			optional<cache_rec_t>
+			visible_named_grandchild_pos(const std::string& name,
+				optional<cache_rec_t> start_here
+					= optional<cache_rec_t>(),
+				shared_ptr<visible_grandchildren_sequence_t> p_seq 
+					= shared_ptr<visible_grandchildren_sequence_t>()); 
+					
+			std::map<string, optional< vector< cache_rec_t > > > visible_grandchildren_cache;
+			Dwarf_Off cache_is_exhaustive_up_to_offset;
+			Dwarf_Off max_offset_on_last_complete_search;
+		public:
 			struct visible_grandchildren_sequence_t
 			 : /* private */ public grandchildren_sequence_t 
 			 // should be private, but make_shared won't work if it is
@@ -941,8 +974,8 @@ struct with_iterator_partial_order : public Iter
 				{ 
 					return visible_grandchildren_iterator(
 						//this->grandchildren_sequence_t::begin(),
-						this->grandchildren_sequence_t::begin(),
-						this->grandchildren_sequence_t::end()
+						this->grandchildren_sequence_t::begin(), // i.e. conjoining_sequence begin
+						this->grandchildren_sequence_t::end()    // i.e. conjoining_sequence end
 						);
 				}
 				visible_grandchildren_iterator end() 
@@ -952,6 +985,24 @@ struct with_iterator_partial_order : public Iter
 						//this->grandchildren_sequence_t::begin(),
 						this->grandchildren_sequence_t::end()
 						);
+				}
+				
+				visible_grandchildren_iterator at(
+					const abstract_dieset::position_and_path& pos,
+					unsigned currently_in
+				)
+				{
+					abstract_dieset::iterator cu_child_iterator(
+						pos, 
+						abstract_dieset::siblings_policy_sg
+					);
+					return visible_grandchildren_iterator(
+							this->grandchildren_sequence_t::at(
+								cu_child_iterator, 
+								currently_in),
+							this->grandchildren_sequence_t::end()
+						);
+						
 				}
 			};
         };
@@ -987,6 +1038,7 @@ begin_class(qualified_type, base_initializations(initialize_base(type_chain)), d
 end_class(qualified_type)
 begin_class(with_data_members, base_initializations(initialize_base(type), initialize_base(with_named_children)), declare_base(type), declare_base(with_named_children))
         child_tag(member)
+		shared_ptr<type_die> find_my_own_definition() const; // for turning declarations into defns
 end_class(with_data_members)
 
 #define has_stack_based_location \
@@ -1051,11 +1103,11 @@ end_class(with_data_members)
 		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_structure_type \
 		opt<Dwarf_Unsigned> calculate_byte_size() const; \
-		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const; 
 #define extra_decls_union_type \
-		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const; 
 #define extra_decls_class_type \
-		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
+		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const; 
 #define extra_decls_enumeration_type \
 		bool is_rep_compatible(boost::shared_ptr<type_die> arg) const;
 #define extra_decls_subroutine_type \
@@ -1160,78 +1212,222 @@ end_class(with_data_members)
             }
 		}
 		
-        template <typename Iter>
-        boost::shared_ptr<basic_die>
-        file_toplevel_die::visible_resolve(Iter path_pos, Iter path_end)
-        {
-            is_visible visible;
-            boost::shared_ptr<basic_die> found;
-            for (auto i_cu = this->compile_unit_children_begin();
-                    i_cu != this->compile_unit_children_end(); i_cu++)
-            {
-                if (path_pos == path_end) { found = this->get_this(); break; }
-                auto found_under_cu = (*i_cu)->named_child(*path_pos);
-
-                Iter cur_plus_one = path_pos; ++cur_plus_one;
-                if (cur_plus_one == path_end && found_under_cu
-                        && visible(found_under_cu))
-                { found = found_under_cu; break; }
-                else
-                {
-                    if (!found_under_cu || 
-                            !visible(found_under_cu)) continue;
-                    auto p_next_hop =
-                        boost::dynamic_pointer_cast<with_named_children_die>(found_under_cu);
-                    if (!p_next_hop) continue; // try next compile unit
-                    else 
-                    { 
-                        auto found_recursive = p_next_hop->resolve(++path_pos, path_end);
-                        if (found_recursive) { found = found_recursive; break; }
-                        // else continue
-                    }
-                }
-            }
-            if (found) return found; else return boost::shared_ptr<basic_die>();
-        }
+		template <typename Iter>
+		boost::shared_ptr<basic_die>
+		file_toplevel_die::visible_resolve(Iter path_pos, Iter path_end/*,
+			optional<visible_grandchildren_iterator> opt_start_here*/)
+		{
+			if (path_pos == path_end) return get_this();
+			else 
+			{
+				auto p_next_hop = visible_named_grandchild(*path_pos/*, opt_start_here*/);
+				auto p_next_hop_with_children
+				 = dynamic_pointer_cast<with_named_children_die>(p_next_hop);
+				if (!p_next_hop) return p_next_hop;
+				else
+				{
+					/* NOTE: the wart with the recursion here is that 
+					 * we can't call resolve() on all DIEs that we might want
+					 * to terminate on, because the last hop needn't be a
+					 * with_named_children DIE. */
+					if (p_next_hop && !p_next_hop_with_children
+						&& path_pos + 1 == path_end) return p_next_hop;
+					assert(p_next_hop_with_children);
+					return p_next_hop_with_children->resolve(++path_pos, path_end);
+				}
+			}
+		}
+	
+// 			
+//             is_visible visible;
+//             boost::shared_ptr<basic_die> found;
+//             for (auto i_cu = this->compile_unit_children_begin();
+//                     i_cu != this->compile_unit_children_end(); i_cu++)
+//             {
+//                 if (path_pos == path_end) { found = this->get_this(); break; }
+//                 auto found_under_cu = (*i_cu)->named_child(*path_pos);
+// 
+//                 Iter cur_plus_one = path_pos; ++cur_plus_one;
+//                 if (cur_plus_one == path_end && found_under_cu
+//                         && visible(found_under_cu))
+//                 { found = found_under_cu; break; }
+//                 else
+//                 {
+//                     if (!found_under_cu || 
+//                             !visible(found_under_cu)) continue;
+//                     auto p_next_hop =
+//                         boost::dynamic_pointer_cast<with_named_children_die>(found_under_cu);
+//                     if (!p_next_hop) continue; // try next compile unit
+//                     else 
+//                     { 
+//                         auto found_recursive = p_next_hop->resolve(++path_pos, path_end);
+//                         if (found_recursive) { found = found_recursive; break; }
+//                         // else continue
+//                     }
+//                 }
+//             }
+//             if (found) return found; else return boost::shared_ptr<basic_die>();
+//         }
 		
         template <typename Iter>
         vector< boost::shared_ptr<basic_die> >
         file_toplevel_die::visible_resolve_all(Iter path_pos, Iter path_end)
         {
-            is_visible visible;
-            vector< boost::shared_ptr<basic_die> > found;
-            for (auto i_cu = this->compile_unit_children_begin();
-                    i_cu != this->compile_unit_children_end(); i_cu++)
-            {
-                if (path_pos == path_end) { found.push_back(this->get_this()); continue; }
-                auto found_under_cu = (*i_cu)->named_child(*path_pos);
-
-                Iter cur_plus_one = path_pos; ++cur_plus_one;
-                if (cur_plus_one == path_end && found_under_cu
-                        && visible(found_under_cu))
-                { found.push_back(found_under_cu); continue; }
-                else
-                {
-                    if (!found_under_cu || 
-                            !visible(found_under_cu)) continue;
-                    auto p_next_hop =
-                        boost::dynamic_pointer_cast<with_named_children_die>(found_under_cu);
-                    if (!p_next_hop) continue; // try next compile unit
-                    else 
-                    { 
-                        auto found_recursive = p_next_hop->resolve(++path_pos, path_end);
-                        if (found_recursive) 
-						{ 
-							//std::copy(found_recursive.begin(), found_recursive.end(),
-							//std::back_inserter(found)); 
-							found.push_back(found_recursive);
+			//if (path_pos == path_end) return vectorget_this();
+			
+			// since we don't recurse (we call down to plain old resolve() instead),
+			// this shouldn't happen
+			assert(path_pos != path_end);
+			
+			/* This is like visible_resolve but we push results into a vector
+			 * and keep going. */
+			optional<cache_rec_t> next_start_pos;
+			shared_ptr<basic_die> last_resolved;
+			vector< boost::shared_ptr<basic_die> > all_resolved;
+			auto vg_seq = visible_grandchildren_sequence();
+			
+			auto pos_is_end = [this](const cache_rec_t& arg) {
+				return abstract_dieset::iterator(arg.first) == this->get_ds().end();
+			};
+			
+			do
+			{
+				auto prev_start_pos = next_start_pos;
+				assert(!prev_start_pos || !pos_is_end(*prev_start_pos));
+				next_start_pos = visible_named_grandchild_pos(
+					*path_pos,
+					next_start_pos,
+					vg_seq);
+				assert(next_start_pos);
+				if (next_start_pos == prev_start_pos)
+				{
+					// fail! debug
+					abstract_dieset::iterator stuck_here(next_start_pos->first);
+					clog << "Resolving " << *path_pos << ", stuck here: " << (*stuck_here)->summary() << endl;
+					assert(false);
+				}
+				if (!pos_is_end(*next_start_pos))
+				{
+					// means we resolved the first name component... a potential match
+					
+					/* This means we have a position which matches the name, so 
+					 * launch the recursive case. */
+					auto i_next_hop = abstract_dieset::iterator(next_start_pos->first);
+					if (i_next_hop != get_ds().end())
+					{
+						auto p_next_hop = *i_next_hop;
+						auto p_next_hop_with_children
+						 = dynamic_pointer_cast<with_named_children_die>(p_next_hop);
+						/* NOTE: the wart with the recursion here is that 
+						 * we can't call resolve() on all DIEs that we might want
+						 * to terminate on, because the last hop needn't be a
+						 * with_named_children DIE. */
+						if (p_next_hop && !p_next_hop_with_children
+							&& (path_pos+1) == path_end) last_resolved = p_next_hop;
+						else
+						{
+							assert(p_next_hop_with_children);
+							last_resolved = p_next_hop_with_children->resolve(path_pos + 1, path_end);
 						}
-                        // else continue
-                    }
-                }
-            }
-            return found;
-        }		
+						// either way, we wrote to last_resolved
+						if (last_resolved) all_resolved.push_back(last_resolved);
+					}
+				}
+				
+				assert(next_start_pos);
+				
+			} while (!pos_is_end(*next_start_pos));
+			
+			return all_resolved;
+			
+// 			while (!start_here || last_resolved)
+// 			{
+// 				if (start_here)
+// 				{
+// 					/* This means we have a position which matches the name, so 
+// 					 * launch the recursive case. */
+// 					auto i_next_hop = abstract_dieset::iterator(start_here->first);
+// 					if (i_next_hop != get_ds().end())
+// 					{
+// 						auto p_next_hop = *i_next_hop;
+// 						auto p_next_hop_with_children
+// 						 = dynamic_pointer_cast<with_named_children_die>(p_next_hop);
+// 						/* NOTE: the wart with the recursion here is that 
+// 						 * we can't call resolve() on all DIEs that we might want
+// 						 * to terminate on, because the last hop needn't be a
+// 						 * with_named_children DIE. */
+// 						if (p_next_hop && !p_next_hop_with_children
+// 							&& (path_pos+1) == path_end) last_resolved = p_next_hop;
+// 						else
+// 						{
+// 							assert(p_next_hop_with_children);
+// 							last_resolved = p_next_hop_with_children->resolve(path_pos + 1, path_end);
+// 						}
+// 					}
+// 				}
+// 				if (last_resolved) all_resolved.push_back(last_resolved);
+// 				
+// 				// now move on to the next visible grandchild with matching name
+// 				start_here = visible_named_grandchild_pos(*path_pos,
+// 					start_here,
+// 					vg_seq);
+// 			}
+// 			return all_resolved;
+		}
+// 			if (path_pos == path_end) return get_this();
+// 			else 
+// 			{
+// 				auto p_next_hop = visible_named_grandchild(*path_pos);
+// 				auto p_next_hop_with_children
+// 				 = dynamic_pointer_cast<with_named_children_die>(p_next_hop);
+// 				if (!p_next_hop) return p_next_hop;
+// 				else
+// 				{
+// 					/* NOTE: the wart with the recursion here is that 
+// 					 * we can't call resolve() on all DIEs that we might want
+// 					 * to terminate on, because the last hop needn't be a
+// 					 * with_named_children DIE. */
+// 					if (p_next_hop && !p_next_hop_with_children
+// 						&& ++path_pos == path_end) return p_next_hop;
+// 					assert(p_next_hop_with_children);
+// 					return p_next_hop_with_children->resolve(++path_pos, path_end);
+// 				}
+// 			}
+			
+//             is_visible visible;
+//             vector< boost::shared_ptr<basic_die> > found;
+//             for (auto i_cu = this->compile_unit_children_begin();
+//                     i_cu != this->compile_unit_children_end(); i_cu++)
+//             {
+//                 if (path_pos == path_end) { found.push_back(this->get_this()); continue; }
+//                 auto found_under_cu = (*i_cu)->named_child(*path_pos);
+// 
+//                 Iter cur_plus_one = path_pos; ++cur_plus_one;
+//                 if (cur_plus_one == path_end && found_under_cu
+//                         && visible(found_under_cu))
+//                 { found.push_back(found_under_cu); continue; }
+//                 else
+//                 {
+//                     if (!found_under_cu || 
+//                             !visible(found_under_cu)) continue;
+//                     auto p_next_hop =
+//                         boost::dynamic_pointer_cast<with_named_children_die>(found_under_cu);
+//                     if (!p_next_hop) continue; // try next compile unit
+//                     else 
+//                     { 
+//                         auto found_recursive = p_next_hop->resolve(++path_pos, path_end);
+//                         if (found_recursive) 
+// 						{ 
+// 							//std::copy(found_recursive.begin(), found_recursive.end(),
+// 							//std::back_inserter(found)); 
+// 							found.push_back(found_recursive);
+// 						}
+//                         // else continue
+//                     }
+//                 }
+//             }
+//             return found;
+//         }		
 // 		class factory
 // 		{
 // 		public:

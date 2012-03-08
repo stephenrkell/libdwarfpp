@@ -66,13 +66,21 @@ namespace dwarf {
 			friend class file;
 			friend class die;
 			bool destructing;
+			/* We don't guarantee that DIEs' offsets are monotonic across any depthfirst
+			 * or siblingwise traversal of the tree. This is so that we can always insert 
+			 * new DIEs, even if there are no free offsets left in the range available
+			 * under a given parent. However, for optimisations, it's useful to know that
+			 * a particular range of DIEs is covered, so we remember where the nonmonotonic
+			 * DIEs begin at. */
+			Dwarf_Off last_monotonic_offset;
 		public:
 			bool is_destructing() const { return destructing; }
+			Dwarf_Off get_last_monotonic_offset() const { return last_monotonic_offset; }
 		private:
 			friend struct Print_Action;
 			const ::dwarf::spec::abstract_def *p_spec;
 			void create_toplevel_entry();
-			dieset() : destructing(false), p_spec(0)
+			dieset() : destructing(false), last_monotonic_offset(0UL), p_spec(0)
 			{
 				create_toplevel_entry();
 				//std::cerr << "Default-constructed a dieset!" << std::endl;
@@ -84,7 +92,7 @@ namespace dwarf {
 			typedef std::pair<Dwarf_Off, Dwarf_Half> backref_rec;
 			typedef std::vector<backref_rec> backref_list;
 			explicit dieset(const ::dwarf::spec::abstract_def& spec) 
-			: destructing(false), p_spec(&spec) 
+			: destructing(false), last_monotonic_offset(0UL), p_spec(&spec) 
 			{
 				create_toplevel_entry();
 				//std::cerr << "Non-default-constructed a dieset!" << std::endl;
@@ -169,6 +177,10 @@ namespace dwarf {
 			map_const_iterator map_find(Dwarf_Off off) const { return this->super::find(off); }
 			map_iterator map_find(Dwarf_Off off) { return this->super::find(off); }
 			super::size_type map_size() const { return this->super::size(); }
+			
+			// override of abstract_dieset
+			Dwarf_Off highest_offset_upper_bound() 
+			{ return (--map_end())->first; }
 			
 //			Encap_all_compile_units& all_compile_units()
 //			{ return dynamic_cast<Encap_all_compile_units&>(*(this->find(0UL)->second)); }

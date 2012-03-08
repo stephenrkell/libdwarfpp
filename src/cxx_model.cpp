@@ -404,11 +404,21 @@ namespace tool {
 	bool 
 	cxx_generator_from_dwarf::cxx_is_complete_type(shared_ptr<spec::type_die> t)
 	{
-		if (t->get_tag() == DW_TAG_typedef && 
-			!dynamic_pointer_cast<spec::typedef_die>(t)->get_type())
+		t = t->get_concrete_type();
+		if (!t) return false;
+		
+		// if we can't find a definition, we're not complete
+		if (t->get_declaration() && *t->get_declaration()) 
 		{
-			return false;
+			auto with_data_members = dynamic_pointer_cast<with_data_members_die>(t);
+			if (with_data_members)
+			{
+				auto defn = with_data_members->find_my_own_definition();
+				if (!defn) return false;
+			}
+			else assert(false); // FIXME: do we get decls for other kinds of DIE?
 		}
+		
 		if (t->get_tag() == DW_TAG_array_type)
 		{
 			if (!dynamic_pointer_cast<spec::array_type_die>(t)
@@ -420,7 +430,9 @@ namespace tool {
 			}
 			else return true;
 		}
-		// if we're structured, we're complete iff all members are complete
+		// if we're structured, we're complete iff 
+		// we don't have the "declaration" flag
+		// and all members are complete
 		if (dynamic_pointer_cast<spec::with_named_children_die>(t))
 		{
 			auto nc = dynamic_pointer_cast<spec::with_named_children_die>(t);
