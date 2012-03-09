@@ -958,7 +958,12 @@ struct with_iterator_partial_order : public Iter
 			std::map<string, optional< vector< cache_rec_t > > > visible_grandchildren_cache;
 			Dwarf_Off cache_is_exhaustive_up_to_offset;
 			Dwarf_Off max_offset_on_last_complete_search;
+			void cache_stamp_reset()
+			{ cache_is_exhaustive_up_to_offset = max_offset_on_last_complete_search = 0UL; }
 		public:
+			void clear_cache() { cache_stamp_reset(); visible_grandchildren_cache.clear(); }
+			int clear_cache(const string& key) { cache_stamp_reset(); return visible_grandchildren_cache.erase(key); }
+			
 			struct visible_grandchildren_sequence_t
 			 : /* private */ public grandchildren_sequence_t 
 			 // should be private, but make_shared won't work if it is

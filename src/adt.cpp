@@ -813,7 +813,8 @@ namespace dwarf
         }
         opt<Dwarf_Unsigned> pointer_type_die::calculate_byte_size() const 
         {
-        	assert(this->get_byte_size()); return this->get_byte_size();
+			if (this->get_byte_size()) return this->get_byte_size();
+			else return this->enclosing_compile_unit()->get_address_size();
         }
 /* from spec::reference_type_die */  
         boost::shared_ptr<type_die> reference_type_die::get_concrete_type() const 
@@ -822,7 +823,8 @@ namespace dwarf
         }
         opt<Dwarf_Unsigned> reference_type_die::calculate_byte_size() const 
         {
-        	assert(this->get_byte_size()); return this->get_byte_size();
+			if (this->get_byte_size()) return this->get_byte_size();
+			else return this->enclosing_compile_unit()->get_address_size();
         }
 /* from spec::array_type_die */
 		opt<Dwarf_Unsigned> array_type_die::element_count() const
@@ -1591,28 +1593,30 @@ namespace dwarf
 					if ((*i_vg)->get_name())
 					{
 						string cur_name = *(*i_vg)->get_name();
-						// ensure we have a vector in the cache to write to
-						if (!visible_grandchildren_cache[cur_name]) 
-						{
-							visible_grandchildren_cache[cur_name] = vector<cache_rec_t>();
-						}
-						cache_rec_t cache_ent_added
-						 = make_pair(i_vg.base().base().base(), i_vg.base().get_currently_in());
-						clog << "Traversing cacheable entry " << (*i_vg)->summary() << endl;
-						 
-						// we should not be adding something we've added already
-						if (std::find(visible_grandchildren_cache[cur_name]->begin(),
-								visible_grandchildren_cache[cur_name]->end(), 
-								cache_ent_added) == visible_grandchildren_cache[cur_name]->end())
-						{
-							clog << "Cacheable entry is not already cached, so adding it." << endl;
-							visible_grandchildren_cache[cur_name]->push_back(
-								cache_ent_added
-							);
-						}
-						
 						if (cur_name == name)
 						{
+							// ensure we have a vector in the cache to write to
+							if (!visible_grandchildren_cache[cur_name]) 
+							{
+								visible_grandchildren_cache[cur_name] = vector<cache_rec_t>();
+							}
+							cache_rec_t cache_ent_added
+							 = make_pair(i_vg.base().base().base(), i_vg.base().get_currently_in());
+							//clog << "Traversing cacheable entry " << (*i_vg)->summary() << endl;
+
+							// we should not be adding something we've added already
+							/*if*/ assert( (std::find(visible_grandchildren_cache[cur_name]->begin(),
+									visible_grandchildren_cache[cur_name]->end(), 
+									cache_ent_added) == visible_grandchildren_cache[cur_name]->end()));
+							//{
+							//	clog << "Cacheable entry is not already cached, so adding it." << endl;
+								visible_grandchildren_cache[cur_name]->push_back(
+									cache_ent_added
+								);
+							//}
+						//if (cur_name == name)
+						//{
+						
 							assert(cache_is_exhaustive_up_to_offset < cur_off
 							||     cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
 							if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
