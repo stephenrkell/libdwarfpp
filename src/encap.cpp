@@ -73,7 +73,7 @@ namespace dwarf
 			else
 			{
 				int old_version_stamp = -1;
-				m_ds.p_spec = 0;
+				//m_ds.p_spec = 0;
 				for (// already loaded the first CU header!
 						;
 						retval != DW_DLV_NO_ENTRY; // termination condition (negated)
@@ -90,10 +90,17 @@ namespace dwarf
 					 */
 
 					// FIXME: understand why DWARF 3 has version stamp 2, then clean this up
-					if (m_ds.p_spec == 0) switch (version_stamp)
-					{
-						case 2: m_ds.p_spec = &dwarf::spec::dwarf3; break;
-						default: throw std::string("Unsupported DWARF version stamp!");
+					assert(m_ds.p_spec); // we now always initialize this to DEFAULT_DWARF_SPEC
+					if (/*m_ds.p_spec == 0 ||*/ m_ds.p_spec == &spec::DEFAULT_DWARF_SPEC)
+					{	// HACK: now we only use DEFAULT_DWARF_SPEC, we can't distinguish
+						// "no spec seen yet" from "dwarf3 seen". Sort this out! 
+						// Probably it's easiest to have two copies of the dwarf3 spec....
+						switch (version_stamp)
+						{
+							// FIXME: more here
+							case 2: m_ds.p_spec = &dwarf::spec::dwarf3; break;
+							default: throw std::string("Unsupported DWARF version stamp!");
+						}
 					}
 					
 					if (old_version_stamp != -1 && 

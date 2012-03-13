@@ -500,7 +500,8 @@ namespace dwarf {
 				if (has_attr(DW_AT_name)) return get_attr(DW_AT_name).get_string();
 				else return 0; 
 			}
-			const spec::abstract_def& get_spec() const { return m_ds.get_spec(); }
+			const spec::abstract_def& get_spec() const 
+			{ return m_ds.get_spec(); }
 
 			//friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
 			void print(std::ostream& o) const
