@@ -80,7 +80,7 @@ namespace dwarf {
 			friend struct Print_Action;
 			const ::dwarf::spec::abstract_def *p_spec;
 			void create_toplevel_entry();
-			dieset() : destructing(false), last_monotonic_offset(0UL), p_spec(0)
+			dieset() : destructing(false), last_monotonic_offset(0UL), p_spec(&spec::DEFAULT_DWARF_SPEC)
 			{
 				create_toplevel_entry();
 				//std::cerr << "Default-constructed a dieset!" << std::endl;
@@ -98,8 +98,8 @@ namespace dwarf {
 				//std::cerr << "Non-default-constructed a dieset!" << std::endl;
 			}
 			virtual ~dieset() { destructing = true; }
-			const ::dwarf::spec::abstract_def& spec() const { return *p_spec; }
-			const ::dwarf::spec::abstract_def& get_spec() const { return *p_spec; }			
+			const ::dwarf::spec::abstract_def& spec() const { assert(p_spec); return *p_spec; }
+			const ::dwarf::spec::abstract_def& get_spec() const { assert(p_spec); return *p_spec; }			
 			boost::shared_ptr<file_toplevel_die> all_compile_units();
 			/* boost::shared_ptr<file_toplevel_die> toplevel() { return all_compile_units(); } */
 			struct pair_compare_by_key
@@ -211,7 +211,7 @@ namespace dwarf {
 			boost::shared_ptr<spec::file_toplevel_die> toplevel();
 			//std::deque< spec::abstract_dieset::position > path_from_root(Dwarf_Off off);
 
-			// FIXME: port these APIs to the spec::basic_die interface
+			// FIXME: delete this old cruft
 			opt<die&> resolve_die_path(const Dwarf_Off start, 
 				const pathname& path, pathname::const_iterator pos);
 			opt<die&> resolve_die_path(const Dwarf_Off start, 
@@ -238,8 +238,8 @@ namespace dwarf {
 			std::map<Dwarf_Off, Dwarf_Half> cu_version_stamps;
 			
 			void encapsulate_die(lib::die& d, Dwarf_Off parent_off);
-			const dwarf::spec::abstract_def *p_spec;
-			file() {} // private constructor
+			//const dwarf::spec::abstract_def *p_spec;
+			file() /*: p_spec(spec::DEFAULT_DWARF_SPEC)*/ {} // private constructor
 		public:
 			dieset& get_ds() { return m_ds; }
 			const dieset& get_ds() const { return m_ds; }
@@ -251,7 +251,7 @@ namespace dwarf {
 				if (pointer_to_default == 0) pointer_to_default = new file();
 				return *pointer_to_default;
 			}
-			const dwarf::spec::abstract_def& get_spec() { return *p_spec; }
+			//const dwarf::spec::abstract_def& get_spec() { return *p_spec; }
 			/* DWARF info often omits imported function prototypes, so we hackily
 			 * add these back in using libelf. */
 			void add_imported_function_descriptions();

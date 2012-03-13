@@ -73,7 +73,7 @@ namespace dwarf
 			else
 			{
 				int old_version_stamp = -1;
-				p_spec = 0;
+				m_ds.p_spec = 0;
 				for (// already loaded the first CU header!
 						;
 						retval != DW_DLV_NO_ENTRY; // termination condition (negated)
@@ -90,9 +90,9 @@ namespace dwarf
 					 */
 
 					// FIXME: understand why DWARF 3 has version stamp 2, then clean this up
-					if (p_spec == 0) switch (version_stamp)
+					if (m_ds.p_spec == 0) switch (version_stamp)
 					{
-						case 2: p_spec = &dwarf::spec::dwarf3; m_ds.p_spec = p_spec; break;
+						case 2: m_ds.p_spec = &dwarf::spec::dwarf3; break;
 						default: throw std::string("Unsupported DWARF version stamp!");
 					}
 					
@@ -123,6 +123,12 @@ namespace dwarf
 //				 	encap::arangelist(this->get_aranges(), arange_idx++)
 //					 );
 //			 } catch (No_entry) {}
+
+			// sanity check
+			/* FIXME: we shouldn't have *both* the dieset and the file with their 
+			 * own spec pointer. Get rid of the file one. */
+			//assert(p_spec);
+			assert(m_ds.p_spec);
 		}
 		
 		/* This is the super-factory. */
@@ -140,7 +146,7 @@ namespace dwarf
 			//m_ds.super::operator[](parent_off)->children().push_back(offset);
 
 			shared_ptr<die> p_encap_d;
-			p_encap_d = encap::factory::for_spec(get_spec()).encapsulate_die(
+			p_encap_d = encap::factory::for_spec(m_ds.get_spec()).encapsulate_die(
 				tag, m_ds, d, parent_off);
 			m_ds.insert(make_pair(offset, p_encap_d));
 
@@ -216,7 +222,7 @@ namespace dwarf
 					// insert a fake wordsized type
 					auto p_first_cu = *p_all_cus->compile_unit_children_begin();
 					shared_ptr<base_type_die> base_type = dynamic_pointer_cast<base_type_die>(
-						encap::factory::for_spec(get_spec()).create_die(DW_TAG_base_type,
+						encap::factory::for_spec(m_ds.get_spec()).create_die(DW_TAG_base_type,
 							dynamic_pointer_cast<encap::basic_die>(p_first_cu) /*,
 						std::string("__cake_wordsize_integer_type")*/));
 					base_type->set_byte_size((elf_class == ELFCLASS32) ? 4
@@ -241,7 +247,7 @@ namespace dwarf
 							assert(ds().size() > 0 && child_count > 0);
 							shared_ptr<subprogram_die> subprogram
 							 = dynamic_pointer_cast<subprogram_die>(
-								encap::factory::for_spec(get_spec()).create_die(
+								encap::factory::for_spec(m_ds.get_spec()).create_die(
 									DW_TAG_subprogram,
 									dynamic_pointer_cast<encap::basic_die>(p_first_cu),
 									std::string(symname)
@@ -254,7 +260,7 @@ namespace dwarf
 							subprogram->set_prototyped(true);							
 							subprogram->set_declaration(true);
 							// we don't know anything about the arguments, so create DW_TAG_unspecified_parameters
-							encap::factory::for_spec(get_spec()).create_die(
+							encap::factory::for_spec(m_ds.get_spec()).create_die(
 								DW_TAG_unspecified_parameters, 
 								subprogram
 							);
