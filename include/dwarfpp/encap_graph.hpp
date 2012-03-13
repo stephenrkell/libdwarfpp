@@ -101,6 +101,7 @@ namespace boost
         typedef dwarf::encap::die::attribute_map::size_type degree_size_type;
     };
 
+	inline
     graph_traits<dwarf::encap::dieset>::vertex_descriptor
     source(
         graph_traits<dwarf::encap::dieset>::edge_descriptor e,
@@ -109,6 +110,7 @@ namespace boost
         return *g.map_find(e.referencing_off);
     }
 
+	inline
     graph_traits<dwarf::encap::dieset>::vertex_descriptor
     target(
         graph_traits<dwarf::encap::dieset>::edge_descriptor e,

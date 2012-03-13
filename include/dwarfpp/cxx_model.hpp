@@ -175,6 +175,16 @@ public:
 	);
 
 protected:
+	virtual 
+	shared_ptr<spec::type_die>
+	transform_type(
+		shared_ptr<spec::type_die> t,
+		abstract_dieset::iterator context
+	)
+	{
+		return t;
+	}
+
 	template <typename Pred = srk31::True< shared_ptr<spec::basic_die> > >
 	void 
 	recursively_emit_children(
@@ -209,12 +219,6 @@ protected:
 // 
 // 		}
 // 	}
-	
-public:
-	string
-	make_model(
-		abstract_dieset::iterator i_d
-	);
 };
 
 /* specializations of the above */

@@ -140,6 +140,7 @@ namespace boost
 	/* FIXME: get rid of the casts in here by overloading the children_begin() and sim.
      * iterator functions with const and non-const versions. */
 
+	inline
     graph_traits<dwarf::encap::basic_die>::vertex_descriptor
     source(
         graph_traits<dwarf::encap::basic_die>::edge_descriptor e,
@@ -159,6 +160,7 @@ namespace boost
         );
     }
 
+	inline
     graph_traits<dwarf::encap::basic_die>::vertex_descriptor
     target(
         graph_traits<dwarf::encap::basic_die>::edge_descriptor e,

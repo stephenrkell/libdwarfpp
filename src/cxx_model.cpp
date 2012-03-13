@@ -107,8 +107,41 @@ namespace tool {
 	string 
 	cxx_generator_from_dwarf::cxx_name_from_die(shared_ptr<spec::basic_die> p_d)
 	{
-		if (p_d->get_name()) return cxx_name_from_string(*p_d->get_name(), "_dwarfhpp_");
-		else 
+		/* In C code, we can get a problem with tagged namespaces (struct, union, enum) 
+		 * overlapping with member names (and with each other). This causes an error like
+		 * error: declaration of `cake::link_p2k_::kfs::uio_rw cake::link_p2k_::kfs::uio::uio_rw'
+		 * librump.o.hpp:1341:6: error: changes meaning of `uio_rw' from `enum cake::link_p2k_::kfs::uio_rw'
+		 *
+		 * We work around it by using the anonymous DIE name if there is a CU-toplevel 
+		 * decl of this name (HACK: should really be visible file-toplevel).
+		 */
+		
+		// to make sure we don't get ourselves as "conflicting",
+		// we should check that we're a member_die or other non-CU-level thing
+		auto conflicting_toplevel_die = 
+			(p_d->get_parent()->get_tag() != DW_TAG_compile_unit) 
+				? p_d->get_ds().toplevel()->visible_named_grandchild(*p_d->get_name())
+				: shared_ptr<spec::basic_die>();
+		assert(!conflicting_toplevel_die
+		|| conflicting_toplevel_die->iterator_here() != p_d->iterator_here());
+		string name_to_use;
+		if (p_d->get_name() && !conflicting_toplevel_die)
+		{
+			name_to_use = cxx_name_from_string(*p_d->get_name(), "_dwarfhpp_");
+			return name_to_use;
+		}
+		else if (p_d->get_name())
+		{
+			assert(conflicting_toplevel_die);
+			// this is the conflicting case
+			cerr << "Warning: renaming element " << *p_d->get_name()
+				<< " child of " << p_d->get_parent()->summary()
+				<< " because it conflicts with toplevel " << conflicting_toplevel_die->summary()
+				<< endl;
+			name_to_use = create_ident_for_anonymous_die(p_d);
+			return name_to_use;
+		}
+		else // anonymous case
 		{
 			ostringstream s;
 			s << "_dwarfhpp_anon_" << hex << p_d->get_offset();
@@ -639,18 +672,7 @@ namespace tool {
 		out << "// FIXME: DIEs of tag " << Tag << endl;
 		return;
 	}
-	
-	string
-	cxx_generator_from_dwarf::make_model(
-		abstract_dieset::iterator i_d
-	)
-	{
-		std::ostringstream raw_out;
-		srk31::indenting_ostream out(raw_out);
-		assert(false);//emit_model_for_die(out, p_d);
-		return raw_out.str();
-	}
-	
+		
 	template <typename Pred>
 	void 
 	cxx_generator_from_dwarf::recursively_emit_children(
@@ -778,7 +800,7 @@ namespace tool {
 		if (argpos != 0) out << ", ";
 
 		out	<< (p_d->get_type() 
-				? protect_ident(name_for_type(p_d->get_type()).first)
+				? protect_ident(name_for_type(transform_type(p_d->get_type(), i_d)).first)
 				: get_untyped_argument_typename()
 				)
 			<< ' '
@@ -833,7 +855,7 @@ namespace tool {
 		/* To reproduce the member's alignment, we always issue an align attribute. 
 		 * We choose our alignment so as to ensure that the emitted field is located
 		 * at the offset specified in DWARF. */
-		shared_ptr<type_die> member_type = dynamic_pointer_cast<spec::type_die>(p_d->get_type());
+		shared_ptr<type_die> member_type = transform_type(p_d->get_type(), i_d);
 
 		// recover the previous formal parameter's offset and size
 		shared_ptr<spec::with_data_members_die> p_type = 
@@ -858,7 +880,7 @@ namespace tool {
 			if (prev_member->get_data_member_location())
 			{
 				auto prev_member_calculated_byte_size 
-				 = prev_member->get_type()->calculate_byte_size();
+				 = transform_type(prev_member->get_type(), i_d)->calculate_byte_size();
 				if (!prev_member_calculated_byte_size)
 				{
 					cerr << "couldn't calculate size of data member " << prev_member
@@ -887,29 +909,12 @@ namespace tool {
 			}
 		}
 
-		string name_to_use;
-		/* In C code, we can get a problem with tagged namespaces (struct, union, enum) 
-		 * overlapping with member names (and with each other). This causes an error like
-		 * error: declaration of `cake::link_p2k_::kfs::uio_rw cake::link_p2k_::kfs::uio::uio_rw'
-		 * librump.o.hpp:1341:6: error: changes meaning of `uio_rw' from `enum cake::link_p2k_::kfs::uio_rw'
-		 *
-		 * We work around it by using the anonymous DIE name if there is a CU-toplevel 
-		 * decl of this name (HACK: should really be visible file-toplevel).
+		/* This handles the difficulty where in C code, we can get a problem
+		 * with tagged namespaces (struct, union, enum) 
+		 * overlapping with member names (and with each other).
 		 */
-		auto conflicting_toplevel_die = p_d->enclosing_compile_unit()->named_child(*p_d->get_name());
-		if (p_d->get_name() && !conflicting_toplevel_die)
-		{
-			name_to_use = *p_d->get_name();
-		}
-		else
-		{
-			if (p_d->get_name()) cerr << "Warning: renaming field " << *p_d->get_name()
-				<< " in data type " << p_type->summary()
-				<< " because it conflicts with toplevel " << conflicting_toplevel_die->summary()
-				<< endl;
-			name_to_use = create_ident_for_anonymous_die(p_d);
-		}
-		
+		string name_to_use = cxx_name_from_die(p_d);
+
 		auto declarator = name_for_type(member_type, name_to_use);
 		// (p_d->get_name())
 		//	? name_for_type(member_type, *p_d->get_name())
@@ -1082,7 +1087,7 @@ namespace tool {
 
 			recursively_emit_children(out, i_d);
 
-			out << "} __attribute__((packed))";
+			out << "}"; // we used to do __attribute__((packed)) here....
 		}
 		else
 		{
@@ -1109,8 +1114,7 @@ namespace tool {
 			out << "typedef void " << protect_ident(*p_d->get_name()) << ";" << std::endl;
 			return;
 		}
-		out << make_typedef(
-			dynamic_pointer_cast<spec::type_die>(p_d->get_type()),
+		out << make_typedef(transform_type(p_d->get_type(), i_d),
 			*p_d->get_name() 
 		);
 	}

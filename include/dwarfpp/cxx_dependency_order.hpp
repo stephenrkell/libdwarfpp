@@ -1,3 +1,6 @@
+#ifndef DWARFIDL_CXX_DEPENDENCY_ORDER_HPP_
+#define DWARFIDL_CXX_DEPENDENCY_ORDER_HPP_
+
 #include <set>
 #include <boost/graph/graph_traits.hpp>
 #include <dwarfpp/encap_graph.hpp>
@@ -302,3 +305,5 @@ public:
 		return boost::num_vertices(*g.p_parent);
 	}
 } }
+
+#endif
