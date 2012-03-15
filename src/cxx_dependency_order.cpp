@@ -34,16 +34,8 @@ using boost::shared_ptr;
 using boost::dynamic_pointer_cast;
 using namespace dwarf::lib;
 
-/* FIXME: this file is a mess because it was written in a direct dwarf::encap::die& style 
- * and pieces of it have since migrated to use shared_ptr, whereas others haven't. 
- * I should fix it sometime. */
- 
 namespace dwarf { namespace tool {
 
-// const vector<string> dwarfidl_cxx_target::default_compiler_argv = { "g++",
-// 	"-fno-eliminate-unused-debug-types",
-// 	"-fno-eliminate-unused-debug-symbols"
-// };
 void dwarfidl_cxx_target::emit_forward_decls(const set<encap::basic_die *>& fds)
 {
 	out << "// begin a group of forward decls" << endl;
