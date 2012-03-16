@@ -20,7 +20,7 @@
 #include <iterator_with_lens.hpp>
 #include <downcasting_iterator.hpp>
 #include <selective_iterator.hpp>
-#include <conjoining_iterator.hpp>
+#include <concatenating_iterator.hpp>
 
 #include <vector>
 #include <map>
@@ -37,8 +37,8 @@ namespace dwarf {
 		using boost::shared_ptr;
 		using std::make_pair;
 		
-		using srk31::conjoining_sequence;
-		using srk31::conjoining_iterator;
+		using srk31::concatenating_sequence;
+		using srk31::concatenating_iterator;
 		
 		// forward declarations
 		class die;
@@ -367,9 +367,9 @@ namespace dwarf {
 			ref_attrs_iterator ref_attrs_end() 
 			{ return boost::make_filter_iterator(is_ref_attr, m_attrs.end(), m_attrs.end()); }
 			
-			/* This conjoining iterator joins all ref attributes in DIEs found on a depthfirst walk. */
-			typedef conjoining_sequence<ref_attrs_iterator> all_refs_dfs_sequence;
-			typedef conjoining_iterator<ref_attrs_iterator> all_refs_dfs_iterator;
+			/* This concatenating iterator joins all ref attributes in DIEs found on a depthfirst walk. */
+			typedef concatenating_sequence<ref_attrs_iterator> all_refs_dfs_sequence;
+			typedef concatenating_iterator<ref_attrs_iterator> all_refs_dfs_iterator;
 			/* Don't let clients _begin() and _end() separately, because
 			 * this will construct two underlying sequence objects without
 			 * any guarantee that they are comparable. The right thing to do

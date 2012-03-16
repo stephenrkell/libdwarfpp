@@ -11,7 +11,7 @@
 #include <boost/iterator/transform_iterator.hpp>
 #include <boost/make_shared.hpp>
 #include <boost/enable_shared_from_this.hpp>
-#include <srk31/conjoining_iterator.hpp>
+#include <srk31/concatenating_iterator.hpp>
 #include "lib.hpp"
 #include "expr.hpp"
 #include "attr.hpp"
@@ -29,8 +29,8 @@ namespace dwarf
 		using std::pair;
 		using std::ostream;
 		using std::make_pair;
-		using srk31::conjoining_sequence;
-		using srk31::conjoining_iterator;
+		using srk31::concatenating_sequence;
+		using srk31::concatenating_iterator;
 		using std::clog;
 		
 		class compile_unit_die;
@@ -919,8 +919,8 @@ struct with_iterator_partial_order : public Iter
 			
 			child_tag(compile_unit)
 			
-			typedef conjoining_sequence<abstract_dieset::iterator> grandchildren_sequence_t;
-			typedef conjoining_iterator<abstract_dieset::iterator> grandchildren_iterator;
+			typedef concatenating_sequence<abstract_dieset::iterator> grandchildren_sequence_t;
+			typedef concatenating_iterator<abstract_dieset::iterator> grandchildren_iterator;
 			shared_ptr<grandchildren_sequence_t> grandchildren_sequence();
 			
 			typedef filter_iterator<is_visible, grandchildren_iterator> 
@@ -979,8 +979,8 @@ struct with_iterator_partial_order : public Iter
 				{ 
 					return visible_grandchildren_iterator(
 						//this->grandchildren_sequence_t::begin(),
-						this->grandchildren_sequence_t::begin(), // i.e. conjoining_sequence begin
-						this->grandchildren_sequence_t::end()    // i.e. conjoining_sequence end
+						this->grandchildren_sequence_t::begin(), // i.e. concatenating_sequence begin
+						this->grandchildren_sequence_t::end()    // i.e. concatenating_sequence end
 						);
 				}
 				visible_grandchildren_iterator end() 
