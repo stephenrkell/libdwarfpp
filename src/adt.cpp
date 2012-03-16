@@ -266,20 +266,10 @@ namespace dwarf
            	auto found_location = attrs.find(DW_AT_location);
             auto found_mips_linkage_name = attrs.find(DW_AT_MIPS_linkage_name); // HACK: MIPS should...
             auto found_linkage_name = attrs.find(DW_AT_linkage_name); // ... be in a non-default spec
-            if (found_low_pc != attrs.end()
-            	&& found_high_pc != attrs.end())
-            {
-            	//std::cerr << "DIE at 0x" << std::hex << this->get_offset()
-                //	<< " has low/high PC " << found_low_pc->second.get_address() << ", "
-                //    << found_high_pc->second.get_address() << std::endl;
-            	if (file_relative_address >= found_low_pc->second.get_address()
-                	&& file_relative_address < found_high_pc->second.get_address())
-                {
-                	return file_relative_address - found_low_pc->second.get_address();
-                }
-                else return opt<Dwarf_Off>();
-			}
-            else if (found_ranges != attrs.end())
+			/* We like ranges best, as they're the most precise.
+			 * Also, my gcc-4.6.2-produced executables on NetBSD have 0 for hipc and lopc,
+			 * but has precise information in ranges. */
+            if (found_ranges != attrs.end())
             {
             	auto rangelist = found_ranges->second.get_rangelist();
                 //std::cerr << "DIE at 0x" << std::hex << this->get_offset()
@@ -296,6 +286,19 @@ namespace dwarf
                  	return range_found->first;
                  }
             }
+            else if (found_low_pc != attrs.end()
+            	&& found_high_pc != attrs.end())
+            {
+            	//std::cerr << "DIE at 0x" << std::hex << this->get_offset()
+                //	<< " has low/high PC " << found_low_pc->second.get_address() << ", "
+                //    << found_high_pc->second.get_address() << std::endl;
+            	if (file_relative_address >= found_low_pc->second.get_address()
+                	&& file_relative_address < found_high_pc->second.get_address())
+                {
+                	return file_relative_address - found_low_pc->second.get_address();
+                }
+                else return opt<Dwarf_Off>();
+			}
             else if (found_location != attrs.end())
             {
             	/* Location lists can be vaddr-dependent, where vaddr is the 
