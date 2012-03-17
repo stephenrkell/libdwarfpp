@@ -61,7 +61,7 @@ case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(dest_ds, \
     p_d->m_offset, \
     p_d->cu_offset, \
     p_d->m_attrs, \
-    /* p_d->m_children*/encap::die_off_list() /* children will be handled by attach_to_ds */ ); \
+    /* p_d->m_children*/std::set<Dwarf_Off>() /* children will be handled by attach_to_ds */ ); \
     attach_to_ds(p); return p; }
 #include "dwarf3-factory.h" // HACK: here ^ we avoid make_shared because of its private constructor problem
 #undef factory_case

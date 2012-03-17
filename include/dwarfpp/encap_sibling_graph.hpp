@@ -84,11 +84,11 @@ namespace dwarf { namespace encap {
 	};
     struct die_base_ptr_iterator
 	 : public boost::transform_iterator<getter,
-    	encap::die_off_list::const_iterator> 
+    	std::set<Dwarf_Off>::const_iterator> 
 	{
 		typedef boost::transform_iterator<getter,
-	    	encap::die_off_list::const_iterator> super;
-		die_base_ptr_iterator(const dieset& ds, die_off_list::const_iterator i) : super(i, getter(ds)) {}
+	    	std::set<Dwarf_Off>::const_iterator> super;
+		die_base_ptr_iterator(const dieset& ds, std::set<Dwarf_Off>::const_iterator i) : super(i, getter(ds)) {}
 		
 		die_base_ptr_iterator() : super() {}
 	};

@@ -19,6 +19,7 @@
 using std::cerr;
 using std::endl;
 using std::make_pair;
+using std::set;
 using boost::dynamic_pointer_cast;
 using boost::optional;
 using boost::shared_ptr;
@@ -534,7 +535,7 @@ namespace dwarf
 			assert(m_ds.find(p->get_offset()) == m_ds.end());
 			assert(p->parent_offset() == m_offset);
 			m_ds.super::operator[](p->get_offset()) = p;
-			m_children.push_back(p->get_offset());
+			m_children.insert(p->get_offset());
 		}
 							
 // 		// TODO: remove this now that we have operator<< on spec::basic_die
@@ -581,7 +582,7 @@ namespace dwarf
 				else if (spec().tag_has_named_children(CAST_TO_DIE((*this)[start])->get_tag()) || start == 0UL)
 				{
 					// this is a compilation unit or type or variable or subprogram with named children
-					for (die_off_list::iterator iter = CAST_TO_DIE((*this)[start])->children().begin();
+					for (set<Dwarf_Off>::iterator iter = CAST_TO_DIE((*this)[start])->children().begin();
 						iter != CAST_TO_DIE((*this)[start])->children().end();
 						iter++)
 					{

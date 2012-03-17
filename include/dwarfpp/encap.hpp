@@ -23,6 +23,7 @@
 #include <concatenating_iterator.hpp>
 
 #include <vector>
+#include <set>
 #include <map>
 #include <string>
 #include <utility>
@@ -36,6 +37,7 @@ namespace dwarf {
 		using boost::dynamic_pointer_cast;
 		using boost::shared_ptr;
 		using std::make_pair;
+		using std::set;
 		
 		using srk31::concatenating_sequence;
 		using srk31::concatenating_iterator;
@@ -54,7 +56,7 @@ namespace dwarf {
 
 		// convenience typedefs
 		typedef std::vector<std::string> pathname;
-		typedef std::vector<Dwarf_Off> die_off_list;
+		//typedef std::vector<Dwarf_Off> die_off_list;
 		typedef std::vector<die*> die_ptr_list;
 
 		// basic definitions for dealing with encap data
@@ -344,7 +346,7 @@ namespace dwarf {
 		public:
 			std::map<Dwarf_Half, attribute_value> m_attrs;
 		protected:
-			std::vector<Dwarf_Off> m_children;
+			std::set<Dwarf_Off> m_children;
 			void attach_child(boost::shared_ptr<encap::basic_die> p);
 			
 		public:
@@ -404,7 +406,7 @@ namespace dwarf {
 			// fully specifying constructor
 			die(dieset& ds, Dwarf_Off parent, Dwarf_Half tag, 
 				Dwarf_Off offset, Dwarf_Off cu_offset, 
-				const attribute_map& attrs, const die_off_list& children) :
+				const attribute_map& attrs, const set<Dwarf_Off>& children) :
 				m_ds(ds), m_parent(parent), m_tag(tag), m_offset(offset), 
 				cu_offset(cu_offset), m_attrs(attrs), m_children(children) {}
 				
@@ -458,7 +460,7 @@ namespace dwarf {
 			Dwarf_Off parent_offset() const { return m_parent; }
 			boost::shared_ptr<spec::basic_die> get_parent() { return m_ds[m_parent]; }
 			Dwarf_Off get_first_child_offset() const
-			{ if (m_children.size() > 0) return m_children.at(0);
+			{ if (m_children.size() > 0) return *m_children.begin();
 			  else throw lib::No_entry(); }
 			boost::shared_ptr<spec::basic_die> get_first_child() 
 			{ return m_ds[get_first_child_offset()]; }
@@ -466,7 +468,7 @@ namespace dwarf {
 			Dwarf_Off get_next_sibling_offset() const
 			{ 	if (m_offset == 0UL) throw No_entry();
 				auto parent_children = dynamic_cast<encap::die&>(*(m_ds[m_parent])).m_children;
-				auto found = std::find(parent_children.begin(), parent_children.end(), m_offset);
+				auto found = parent_children.find(m_offset);
 				assert(found != parent_children.end());
 				if (++found == parent_children.end()) throw lib::No_entry();
 				assert(*found != m_offset);
@@ -477,10 +479,10 @@ namespace dwarf {
 				return m_ds[get_next_sibling_offset()]; 
 			}
 			
-			die_off_list& children()  { return m_children; }
-			const die_off_list& children() const { return m_children; }
-			die_off_list& get_children() { return m_children; }
-			const die_off_list& const_children() const { return m_children; }
+			set<Dwarf_Off>& children()  { return m_children; }
+			const set<Dwarf_Off>& children() const { return m_children; }
+			set<Dwarf_Off>& get_children() { return m_children; }
+			const set<Dwarf_Off>& const_children() const { return m_children; }
 			
 			bool has_attr(Dwarf_Half at) const { return (m_attrs.find(at) != m_attrs.end()); }
 			const attribute_value& get_attr(Dwarf_Half at) const { return (*this)[at]; }
@@ -523,7 +525,7 @@ namespace dwarf {
 	fragment ## _die(dieset& ds, Dwarf_Off parent, \
 				Dwarf_Off offset, Dwarf_Off cu_offset, \
 				const encap::die::attribute_map& attrs, \
-				const encap::die_off_list& children) \
+				const set<Dwarf_Off>& children) \
 			 :	basic_die(ds, parent, DW_TAG_ ## fragment, offset, cu_offset, attrs, children) {} \
 			/* "encap" constructor */ \
 	protected: fragment ## _die(dieset& ds, lib::die& d, Dwarf_Off parent_off) \
@@ -535,7 +537,7 @@ namespace dwarf {
 				opt<std::string> name = opt<string>()) \
 			 :	basic_die(parent->get_ds(), parent->get_offset(), DW_TAG_ ## fragment, \
 			 	parent->get_ds().next_free_offset(),  \
-			 	0, encap::die::attribute_map(), encap::die_off_list()) \
+			 	0, encap::die::attribute_map(), set<Dwarf_Off>()) \
 				{ if (name) put_attr(DW_AT_name, dwarf::encap::attribute_value( \
 					parent->get_ds(), std::string(*name))); } 
 				
@@ -614,7 +616,7 @@ namespace dwarf {
 			basic_die(encap::dieset& ds, Dwarf_Off parent, Dwarf_Half tag, 
 				Dwarf_Off offset, Dwarf_Off cu_offset, 
 				const encap::die::attribute_map& attrs, 
-				const encap::die_off_list& children)
+				const set<Dwarf_Off>& children)
 			 :	encap::die(ds, parent, tag, offset, cu_offset, attrs, children) 
 			 { cu_offset = 0;}
 			// "encap" constructor
@@ -631,7 +633,7 @@ namespace dwarf {
 				self& parent, 
 				opt<const std::string&> name)
 			 :	encap::die(parent.m_ds, parent.m_offset, tag, parent.m_ds.next_free_offset(), 
-			 	0, encap::die::attribute_map(), encap::die_off_list())
+			 	0, encap::die::attribute_map(), set<Dwarf_Off>())
 				// FIXME: don't pass 0 as cu_offset
 			{
 				cu_offset = 0;
@@ -707,7 +709,7 @@ namespace dwarf {
 			/* special constructor */ 
 			file_toplevel_die(dieset& ds) 
 			 :	basic_die(ds, 0UL, 0, 0UL, 0UL, 
-			 	encap::die::attribute_map(), encap::die_off_list()) {} 
+			 	encap::die::attribute_map(), set<Dwarf_Off>()) {} 
 
 			child_tag(compile_unit)
 		};

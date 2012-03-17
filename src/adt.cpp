@@ -1442,10 +1442,10 @@ namespace dwarf
 			return shared_ptr<basic_die>();
 		}
 		
-		optional<file_toplevel_die::cache_rec_t>
+		optional<file_toplevel_die::vg_cache_rec_t>
 		file_toplevel_die::visible_named_grandchild_pos(
 			const std::string& name,
-			optional<cache_rec_t> opt_start_here, /* = no value */
+			optional<vg_cache_rec_t> opt_start_here, /* = no value */
 			shared_ptr<visible_grandchildren_sequence_t> opt_seq
 		)
 		{
@@ -1486,7 +1486,7 @@ namespace dwarf
 					if (opt_start_here)
 					{
 						// locate previous match, and return the next one (if any, else keep searching)
-						cache_rec_t previous_match = //(**opt_start_here)->get_offset();
+						vg_cache_rec_t previous_match = //(**opt_start_here)->get_offset();
 							//make_pair(
 							//	opt_start_here->base().base(), 
 							//	opt_start_here->base().m_currently_in
@@ -1531,11 +1531,11 @@ namespace dwarf
 				{
 					clog << "Cache hit is negative" << endl;
 					// do we trust the negative result?
-					if (max_offset_on_last_complete_search 
+					if (vg_max_offset_on_last_complete_search 
 						== this->get_ds().highest_offset_upper_bound())
 					{
 						cerr << "Hit cached negative result for " << name << endl;
-						//return optional<cache_rec_t>(); // shared_ptr<basic_die>();
+						//return optional<vg_cache_rec_t>(); // shared_ptr<basic_die>();
 						goto return_no_entry;
 					}
 					// else we will do the lookup afresh
@@ -1559,11 +1559,11 @@ namespace dwarf
 
 
 // 			if (!opt_start_here
-// 				&& max_offset_on_last_complete_search 
+// 				&& vg_max_offset_on_last_complete_search 
 // 					>= this->get_ds().highest_offset_upper_bound())
 // 			{
 // 				cerr << "Don't bother searching for " << name << " because cache is exhaustive "
-// 					"up to offset 0x" << std::hex << cache_is_exhaustive_up_to_offset << std::dec
+// 					"up to offset 0x" << std::hex << vg_cache_is_exhaustive_up_to_offset << std::dec
 // 					<< " and there are no nonmonotonic DIEs."
 // 					<< endl;
 // 					
@@ -1601,9 +1601,9 @@ namespace dwarf
 							// ensure we have a vector in the cache to write to
 							if (!visible_grandchildren_cache[cur_name]) 
 							{
-								visible_grandchildren_cache[cur_name] = vector<cache_rec_t>();
+								visible_grandchildren_cache[cur_name] = vector<vg_cache_rec_t>();
 							}
-							cache_rec_t cache_ent_added
+							vg_cache_rec_t cache_ent_added
 							 = make_pair(i_vg.base().base().base(), i_vg.base().get_currently_in());
 							//clog << "Traversing cacheable entry " << (*i_vg)->summary() << endl;
 
@@ -1620,12 +1620,12 @@ namespace dwarf
 						//if (cur_name == name)
 						//{
 						
-							assert(cache_is_exhaustive_up_to_offset < cur_off
-							||     cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
+							assert(vg_cache_is_exhaustive_up_to_offset < cur_off
+							||     vg_cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
 							if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
-							{ cache_is_exhaustive_up_to_offset = cur_off; }
+							{ vg_cache_is_exhaustive_up_to_offset = cur_off; }
 							clog << "Search succeeded at " << (*i_vg)->summary() << endl;
-							return optional<cache_rec_t>(cache_ent_added);
+							return optional<vg_cache_rec_t>(cache_ent_added);
 						}
 					}
 				}
@@ -1634,20 +1634,20 @@ namespace dwarf
 					// we use last_seen_offset and not the end() offset (max()) 
 					// because DIEs might get added later, at higher offsets
 					//  than the current max, but less than the sentinel.
-					cache_is_exhaustive_up_to_offset = last_seen_offset;
+					vg_cache_is_exhaustive_up_to_offset = last_seen_offset;
 
 					// we can also store a negative result if we searched all the way
 					cerr << "Installing negative cache result for " << name << endl;
-					visible_grandchildren_cache[name] = optional< vector<cache_rec_t> >();
+					visible_grandchildren_cache[name] = optional< vector<vg_cache_rec_t> >();
 
 					// timestamp this search
 					// HACK: "upper bound" is not appropriate here, but it'll do for now
-					max_offset_on_last_complete_search = this->get_ds().highest_offset_upper_bound();
+					vg_max_offset_on_last_complete_search = this->get_ds().highest_offset_upper_bound();
 				}
 				cerr << "Linear search for " << name << " went all the way to the end." << endl;
 			} // end convenience lexical block
 		return_no_entry:
-			return optional<cache_rec_t>(
+			return optional<vg_cache_rec_t>(
 				make_pair(get_ds().end().base(), vg_seq->subsequences_count() - 1)
 			);
 		}

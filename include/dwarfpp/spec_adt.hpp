@@ -908,8 +908,8 @@ struct with_iterator_partial_order : public Iter
 		struct file_toplevel_die : public virtual with_named_children_die
 		{
 			file_toplevel_die()
-			 : cache_is_exhaustive_up_to_offset(0UL),
-			   max_offset_on_last_complete_search(0UL)
+			 : vg_cache_is_exhaustive_up_to_offset(0UL),
+			   vg_max_offset_on_last_complete_search(0UL)
 			{}
 			
 			struct is_visible
@@ -931,13 +931,13 @@ struct with_iterator_partial_order : public Iter
 
 			template <typename Iter>
 			boost::shared_ptr<basic_die>
-			visible_resolve(Iter path_pos, Iter path_end/*,
+			resolve_visible(Iter path_pos, Iter path_end/*,
 				optional<visible_grandchildren_iterator> start_here
 					= optional<visible_grandchildren_iterator>()*/
 			);
 			template <typename Iter>
 			vector< boost::shared_ptr<basic_die> >
-			visible_resolve_all(Iter path_pos, Iter path_end);
+			resolve_all_visible(Iter path_pos, Iter path_end);
 
 			virtual boost::shared_ptr<basic_die>
 			visible_named_grandchild(const std::string& name);
@@ -945,24 +945,24 @@ struct with_iterator_partial_order : public Iter
 		private:
 			// we cache all the found matching DIEs, 
 			// and also record not-founds as optional<...>()
-			typedef pair< abstract_dieset::position_and_path, unsigned > cache_rec_t;
+			typedef pair< abstract_dieset::position_and_path, unsigned > vg_cache_rec_t;
 
-			// the function we use for visible_resolve
-			optional<cache_rec_t>
+			// the function we use for resolve_visible
+			optional<vg_cache_rec_t>
 			visible_named_grandchild_pos(const std::string& name,
-				optional<cache_rec_t> start_here
-					= optional<cache_rec_t>(),
+				optional<vg_cache_rec_t> start_here
+					= optional<vg_cache_rec_t>(),
 				shared_ptr<visible_grandchildren_sequence_t> p_seq 
 					= shared_ptr<visible_grandchildren_sequence_t>()); 
 					
-			std::map<string, optional< vector< cache_rec_t > > > visible_grandchildren_cache;
-			Dwarf_Off cache_is_exhaustive_up_to_offset;
-			Dwarf_Off max_offset_on_last_complete_search;
-			void cache_stamp_reset()
-			{ cache_is_exhaustive_up_to_offset = max_offset_on_last_complete_search = 0UL; }
+			std::map<string, optional< vector< vg_cache_rec_t > > > visible_grandchildren_cache;
+			Dwarf_Off vg_cache_is_exhaustive_up_to_offset;
+			Dwarf_Off vg_max_offset_on_last_complete_search;
+			void vg_cache_stamp_reset()
+			{ vg_cache_is_exhaustive_up_to_offset = vg_max_offset_on_last_complete_search = 0UL; }
 		public:
-			void clear_cache() { cache_stamp_reset(); visible_grandchildren_cache.clear(); }
-			int clear_cache(const string& key) { cache_stamp_reset(); return visible_grandchildren_cache.erase(key); }
+			void clear_vg_cache() { vg_cache_stamp_reset(); visible_grandchildren_cache.clear(); }
+			int clear_vg_cache(const string& key) { vg_cache_stamp_reset(); return visible_grandchildren_cache.erase(key); }
 			
 			struct visible_grandchildren_sequence_t
 			 : /* private */ public grandchildren_sequence_t 
@@ -1009,9 +1009,32 @@ struct with_iterator_partial_order : public Iter
 						);
 						
 				}
-			};
-        };
-                
+			}; /* end visible_grandchildren_sequence_t */
+			
+		/* Now some functions for nondecl */
+// 		private:
+// 			map<vector<string>, position_and_path> first_defn_cache; 
+// 		public:
+// 			template <typename Iter>
+// 			boost::shared_ptr<basic_die>
+// 			resolve_visible_definition(Iter path_pos, Iter path_end/*,
+// 				optional<visible_grandchildren_iterator> start_here
+// 					= optional<visible_grandchildren_iterator>()*/
+// 			);
+// 			
+		};
+// 		
+// 		template <typename Iter>
+// 		boost::shared_ptr<basic_die>
+// 		resolve_visible_definition(Iter path_pos, Iter path_end/*,
+// 			optional<visible_grandchildren_iterator> start_here
+// 				= optional<visible_grandchildren_iterator>()*/
+// 		)
+// 		{
+// 			/* Naive operation is to resolve_all_visible, and take
+// 			 * the first definition. */
+// 		}
+		
 // define additional virtual dies first -- note that
 // some virtual DIEs are defined manually (above)
 begin_class(program_element, base_initializations(initialize_base(basic)), declare_base(basic))
@@ -1219,7 +1242,7 @@ end_class(with_data_members)
 		
 		template <typename Iter>
 		boost::shared_ptr<basic_die>
-		file_toplevel_die::visible_resolve(Iter path_pos, Iter path_end/*,
+		file_toplevel_die::resolve_visible(Iter path_pos, Iter path_end/*,
 			optional<visible_grandchildren_iterator> opt_start_here*/)
 		{
 			if (path_pos == path_end) return get_this();
@@ -1276,7 +1299,7 @@ end_class(with_data_members)
 		
         template <typename Iter>
         vector< boost::shared_ptr<basic_die> >
-        file_toplevel_die::visible_resolve_all(Iter path_pos, Iter path_end)
+        file_toplevel_die::resolve_all_visible(Iter path_pos, Iter path_end)
         {
 			//if (path_pos == path_end) return vectorget_this();
 			
@@ -1284,14 +1307,14 @@ end_class(with_data_members)
 			// this shouldn't happen
 			assert(path_pos != path_end);
 			
-			/* This is like visible_resolve but we push results into a vector
+			/* This is like resolve_visible but we push results into a vector
 			 * and keep going. */
-			optional<cache_rec_t> next_start_pos;
+			optional<vg_cache_rec_t> next_start_pos;
 			shared_ptr<basic_die> last_resolved;
 			vector< boost::shared_ptr<basic_die> > all_resolved;
 			auto vg_seq = visible_grandchildren_sequence();
 			
-			auto pos_is_end = [this](const cache_rec_t& arg) {
+			auto pos_is_end = [this](const vg_cache_rec_t& arg) {
 				return abstract_dieset::iterator(arg.first) == this->get_ds().end();
 			};
 			
