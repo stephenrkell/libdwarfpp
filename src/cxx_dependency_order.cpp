@@ -264,6 +264,43 @@ cycle_handler::PathMap cycle_handler::get_bfs_paths(Vertex from, Graph& g)
 }
 
 template <class Edge, class Graph>
+void cycle_handler::print_edge(Edge e, Graph& g)
+{
+	assert(e.p_ds != 0);
+
+	shared_ptr<encap::die> from_die = 
+		boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off]);
+	shared_ptr<encap::die> from_projected_die = 
+		boost::dynamic_pointer_cast<encap::die>(source(e, g)->shared_from_this());
+	shared_ptr<encap::die> to_die = 
+		boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off]);
+	shared_ptr<encap::die> to_projected_die = 
+		boost::dynamic_pointer_cast<encap::die>(target(e, g)->shared_from_this());
+
+	std::cerr << "@0x" << std::hex << e.referencing_off 
+					<< " " << from_die->get_spec().tag_lookup(from_die->get_tag())
+					<< " " << (from_die->has_attr(DW_AT_name) ? 
+						   from_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
+			  << ", projection "
+				<< "@0x" << std::hex << from_projected_die->get_offset()
+					<< " " << from_projected_die->get_spec().tag_lookup(from_projected_die->get_tag())
+					<< " " << (from_projected_die->has_attr(DW_AT_name) ? 
+						   from_projected_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
+			<< endl
+			  << " ---> @0x" << std::hex << e.off 
+					<< " " << to_die->get_spec().tag_lookup(to_die->get_tag())
+					<< " " << (to_die->has_attr(DW_AT_name) ? 
+						   to_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
+			  << ", projection "
+				<< "@0x" << std::hex << to_projected_die->get_offset()
+					<< " " << to_projected_die->get_spec().tag_lookup(to_projected_die->get_tag())
+					<< " " << (to_projected_die->has_attr(DW_AT_name) ? 
+						   to_projected_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
+			<< std::endl;
+
+}
+
+template <class Edge, class Graph>
 void cycle_handler::print_back_edge_and_cycle(Edge e, Graph& g, PathMap& paths)
 {
 	encap::basic_die *my_source = source(e, g);
@@ -281,42 +318,6 @@ void cycle_handler::print_back_edge_and_cycle(Edge e, Graph& g, PathMap& paths)
 	// BFS from the target node, looking for the path *back* to the source.
 	PathMap::mapped_type::iterator i_e = paths.find(my_source)->second.begin();
 
-	// print out the whole cycle
-	auto print_edge = [g](Edge e)
-	{
-		assert(e.p_ds != 0);
-		
-		shared_ptr<encap::die> from_die = 
-			boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off]);
-		shared_ptr<encap::die> from_projected_die = 
-			boost::dynamic_pointer_cast<encap::die>(source(e, g)->shared_from_this());
-		shared_ptr<encap::die> to_die = 
-			boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off]);
-		shared_ptr<encap::die> to_projected_die = 
-			boost::dynamic_pointer_cast<encap::die>(target(e, g)->shared_from_this());
-		
-		std::cerr << "@0x" << std::hex << e.referencing_off 
-						<< " " << from_die->get_spec().tag_lookup(from_die->get_tag())
-						<< " " << (from_die->has_attr(DW_AT_name) ? 
-							   from_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-				  << ", projection "
-					<< "@0x" << std::hex << from_projected_die->get_offset()
-						<< " " << from_projected_die->get_spec().tag_lookup(from_projected_die->get_tag())
-						<< " " << (from_projected_die->has_attr(DW_AT_name) ? 
-							   from_projected_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-				<< endl
-				  << " ---> @0x" << std::hex << e.off 
-						<< " " << to_die->get_spec().tag_lookup(to_die->get_tag())
-						<< " " << (to_die->has_attr(DW_AT_name) ? 
-							   to_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-				  << ", projection "
-					<< "@0x" << std::hex << to_projected_die->get_offset()
-						<< " " << to_projected_die->get_spec().tag_lookup(to_projected_die->get_tag())
-						<< " " << (to_projected_die->has_attr(DW_AT_name) ? 
-							   to_projected_die->get_attr(DW_AT_name).get_string() : "(anonymous)") 
-				<< std::endl;
-	};
-	
 	cerr << "*** begin cycle" << endl;
 	Edge cur_edge = e;
 	Edge next_edge;
@@ -324,9 +325,9 @@ void cycle_handler::print_back_edge_and_cycle(Edge e, Graph& g, PathMap& paths)
 			i_e != paths.find(my_source)->second.end();
 			i_e++)
 	{
-		print_edge(*i_e);
+		print_edge(*i_e, g);
 	}
-	print_edge(e);
+	print_edge(e, g);
 	cerr << "*** end cycle" << endl;
 }
 template <class Edge, class Graph>
@@ -416,23 +417,18 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 		bool removed = false;
 		bool been_round_once_already = false;
 		encap::pointer_type_die *coming_from_pointer;
-		for (PathMap::mapped_type::iterator i_e = paths_found->second.begin();
-				i_e != paths_found->second.end(); // will go round TWICE
-				++i_e,
-				been_round_once_already = 
-					(!been_round_once_already && i_e == paths_found->second.end()) 
-						? (i_e = paths_found->second.begin(), true)
-						: been_round_once_already)
-		{
-			auto e_source_projected = source(*i_e, g);
+		
+		auto process_one_edge
+		 = [&coming_from_pointer, &removed, &g, this, &remove_edge_if_fwddeclable](Edge e) {
+			auto e_source_projected = source(e, g);
 			auto e_source_ultimate = dynamic_pointer_cast<encap::basic_die>(
-				(*(*i_e).p_ds)[(*i_e).referencing_off]).get();
-			auto e_target_projected = target(*i_e, g);
+				(*e.p_ds)[e.referencing_off]).get();
+			auto e_target_projected = target(e, g);
 			auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
-				(*(*i_e).p_ds)[(*i_e).off]).get();
+				(*e.p_ds)[e.off]).get();
 			
 			if (e_source_ultimate->get_tag() == DW_TAG_pointer_type
-			 && i_e->referencing_attr == DW_AT_type)
+			 && e.referencing_attr == DW_AT_type)
 			{
 				coming_from_pointer = dynamic_cast<encap::pointer_type_die *>(e_source_ultimate);
 				assert(coming_from_pointer);
@@ -448,14 +444,64 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 			// type attr of a pointer type.
 			// It doesn't have to be the one pointing to the struct --
 			// we might have a pointer to a const struct. etc.. 
-			if (coming_from_pointer && remove_edge_if_fwddeclable(*i_e))
-			{ removed = true; break; }
-		}
-		// if we didn't exit the loop early, we're not finished yet
-		if (!removed)
+			if (coming_from_pointer)
+			{
+				if (remove_edge_if_fwddeclable(e))
+				{
+					removed = true; 
+					return;
+				}
+				else
+				{
+					cerr << "Although coming from pointer, edge was not removable. ";
+					print_edge(e, g);
+				}
+			}
+			else
+			{
+				cerr << "Not coming from pointer, so didn't try to remove edge.";
+				print_edge(e, g);
+			}
+		};
+		
+		auto process_cycle = [&e, &coming_from_pointer, &removed, paths_found, &process_one_edge]() {
+			if (removed) return;
+			
+			/* We iterate over the cycle by iterating over the tree edges... */
+			for (PathMap::mapped_type::iterator i_e = paths_found->second.begin();
+					i_e != paths_found->second.end(); // will go round TWICE
+					++i_e)
+			{
+				process_one_edge(*i_e);
+				if (removed) return;
+			}
+			/* ... then doing the edge that completes the cycle. */
+			process_one_edge(e);
+		};
+		
+// 		for (PathMap::mapped_type::iterator i_e = paths_found->second.begin();
+// 				i_e != paths_found->second.end(); // will go round TWICE
+// 				++i_e,
+// 				been_round_once_already = 
+// 					(!been_round_once_already && i_e == paths_found->second.end()) 
+// 						? (i_e = paths_found->second.begin(), true)
+// 						: been_round_once_already)
+// 		{
+// 		}
+		for (int been_round_count = 0; been_round_count < 2; ++been_round_count)
 		{
-			removed = remove_edge_if_fwddeclable(e);
+			process_cycle();
 		}
+
+// 		// if we didn't exit the loop early, we're not finished yet
+// 		if (!removed)
+// 		{
+// 			cerr << "Last edge in cycle; attempting to remove.";
+// 			print_edge(e, g);
+// 			removed = remove_edge_if_fwddeclable(e);
+// 			if (removed) cerr << "Successfully removed." << endl;
+// 			else cerr << "Not removed." << endl;
+// 		}
 		if (!removed)
 		{
 			cerr << "Could not break cycle as follows." << endl;

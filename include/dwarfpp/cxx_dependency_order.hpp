@@ -102,6 +102,9 @@ struct cycle_handler : public boost::dfs_visitor<>
 	void print_back_edge_and_cycle(Edge e, Graph& g, PathMap& paths);
 	
 	template <class Edge, class Graph>
+	void print_edge(Edge e, Graph& g);
+	
+	template <class Edge, class Graph>
 	void back_edge(Edge e, Graph& g);
 };
 struct noop_cycle_handler : public cycle_handler
