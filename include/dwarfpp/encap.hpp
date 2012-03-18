@@ -339,7 +339,7 @@ namespace dwarf {
 			/* TODO: make this a handle/body implementation, to allow copying of DIEs
 			 * without unnecessarily copying those vectors and maps around. */
 			dieset& m_ds;
-			Dwarf_Off m_parent;
+			shared_ptr<die> p_parent;
 			Dwarf_Half m_tag;
 			Dwarf_Off m_offset;
 			Dwarf_Off cu_offset;
@@ -407,11 +407,16 @@ namespace dwarf {
 			die(dieset& ds, Dwarf_Off parent, Dwarf_Half tag, 
 				Dwarf_Off offset, Dwarf_Off cu_offset, 
 				const attribute_map& attrs, const set<Dwarf_Off>& children) :
-				m_ds(ds), m_parent(parent), m_tag(tag), m_offset(offset), 
-				cu_offset(cu_offset), m_attrs(attrs), m_children(children) {}
+				m_ds(ds), 
+				p_parent((offset == 0UL) 
+					? shared_ptr<encap::die>()
+					: dynamic_pointer_cast<encap::die>(m_ds[parent])), 
+				m_tag(tag), m_offset(offset), 
+				cu_offset(cu_offset), m_attrs(attrs), m_children(children) 
+				{ assert(offset == 0UL || p_parent); }
 				
 			die() : m_ds(file::default_file().get_ds()), 
-				m_parent(0UL), m_tag(0), m_offset(0), cu_offset(0),
+				p_parent(), m_tag(0), m_offset(0), cu_offset(0),
 				m_attrs(), m_children() 
 			{
 				std::cerr << "Warning: created dummy encap::die" << std::endl;
@@ -430,7 +435,7 @@ namespace dwarf {
 				assert(&(this->m_ds) == &(d.m_ds)); // can only assign DIEs of same dieset
 				
 				// for now, can only assign sibling DIES
-				assert(this->m_parent == d.m_parent);
+				assert(this->p_parent->get_offset() == d.p_parent->get_offset());
 				
 				// offset and cu_offset are *unchanged*!
 				
@@ -457,8 +462,8 @@ namespace dwarf {
 			Dwarf_Half get_tag() const { return m_tag; }
 			Dwarf_Half set_tag(Dwarf_Half v) { return m_tag = v; }
 			
-			Dwarf_Off parent_offset() const { return m_parent; }
-			boost::shared_ptr<spec::basic_die> get_parent() { return m_ds[m_parent]; }
+			Dwarf_Off parent_offset() const { return p_parent->get_offset(); }
+			boost::shared_ptr<spec::basic_die> get_parent() { return /*m_ds[m_parent];*/ p_parent; }
 			Dwarf_Off get_first_child_offset() const
 			{ if (m_children.size() > 0) return *m_children.begin();
 			  else throw lib::No_entry(); }
@@ -467,7 +472,7 @@ namespace dwarf {
 
 			Dwarf_Off get_next_sibling_offset() const
 			{ 	if (m_offset == 0UL) throw No_entry();
-				auto parent_children = dynamic_cast<encap::die&>(*(m_ds[m_parent])).m_children;
+				auto parent_children = p_parent->m_children;
 				auto found = parent_children.find(m_offset);
 				assert(found != parent_children.end());
 				if (++found == parent_children.end()) throw lib::No_entry();
@@ -665,9 +670,10 @@ namespace dwarf {
 			Dwarf_Off get_offset() const { return m_offset; }
 			boost::shared_ptr<self> get_parent() const 
 			{ 
-				auto found = m_ds.map_find(m_parent); 
-				assert(found != m_ds.map_end()); 
-				return dynamic_pointer_cast<basic_die>(found->second); 
+				//auto found = m_ds.map_find(m_parent); 
+				//assert(found != m_ds.map_end()); 
+				//return dynamic_pointer_cast<basic_die>(found->second); 
+				return dynamic_pointer_cast<encap::basic_die>(p_parent);
 			}
 			Dwarf_Half get_tag() const { return m_tag; }
 			

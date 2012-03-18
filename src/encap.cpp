@@ -378,7 +378,9 @@ namespace dwarf
 			do 
 			{
 				path.push_front((spec::abstract_dieset::position){this, current->second->get_offset()});
-				current = this->map_find(current->second->get_parent()->get_offset());
+				current = this->map_find(current->second->get_parent()
+					? current->second->get_parent()->get_offset()
+					: 0UL);
 			} while (current->second->get_offset() != 0UL);
 		}
 		std::deque<spec::abstract_dieset::position> 
@@ -435,17 +437,17 @@ namespace dwarf
 // 		}	   
 		
 		die::die(const die& d) 
-			: m_ds(d.m_ds), m_parent(d.m_parent), m_tag(d.m_tag), m_offset(d.m_offset), 
+			: m_ds(d.m_ds), p_parent(d.p_parent), m_tag(d.m_tag), m_offset(d.m_offset), 
 				cu_offset(d.cu_offset),
 				m_attrs(d.m_attrs), m_children(d.m_children)
-		{ /*cerr << "Copy constructing an encap::die" << endl;*/ }
+		{ /*cerr << "Copy constructing an encap::die" << endl;*/ assert(p_parent); }
 				
 		die::die(dieset& ds, lib::die& d, Dwarf_Off parent_off) 
-			: m_ds(ds), m_parent(parent_off)
-		{ initialize_from_lib_die(d); }
+			: m_ds(ds), p_parent(dynamic_pointer_cast<encap::die>(m_ds[parent_off]))
+		{ initialize_from_lib_die(d); assert(p_parent); }
 		die::die(dieset& ds, shared_ptr<lib::die> p_d, Dwarf_Off parent_off) 
-			: m_ds(ds), m_parent(parent_off)
-		{ initialize_from_lib_die(*p_d); }
+			: m_ds(ds), p_parent(dynamic_pointer_cast<encap::die>(m_ds[parent_off]))
+		{ initialize_from_lib_die(*p_d); assert(p_parent); }
 		
 		void die::initialize_from_lib_die(lib::die& d)
 		{
@@ -461,7 +463,7 @@ namespace dwarf
 			d.CU_offset(&cu_offset);
 
 			// store a backref denoting the parent--child relationship, using the magic DW_AT_ 0
-			m_ds.backrefs()[m_parent].push_back(make_pair(m_offset, 0));			
+			m_ds.backrefs()[p_parent->get_offset()].push_back(make_pair(m_offset, 0));			
 
 			// now for the awkward squad: name and other attributes
 			int retval;
@@ -502,17 +504,17 @@ namespace dwarf
 			 * backrefs (its memory may have been deallocated). */
 			
 			// if the backrefs list still contains data on our parent...
-			if (!m_ds.destructing && m_ds.backrefs().find(m_parent) != m_ds.backrefs().end())
+			if (!m_ds.destructing && m_ds.backrefs().find(p_parent->get_offset()) != m_ds.backrefs().end())
 			{
 				// .. and includes us in the list of backrefs...
  				dieset::backref_list::iterator found = std::find(
- 					m_ds.backrefs()[m_parent].begin(),
- 					m_ds.backrefs()[m_parent].end(),
+ 					m_ds.backrefs()[p_parent->get_offset()].begin(),
+ 					m_ds.backrefs()[p_parent->get_offset()].end(),
  					make_pair(m_offset, (Dwarf_Half) 0));
- 				if (found != m_ds.backrefs()[m_parent].end())
+ 				if (found != m_ds.backrefs()[p_parent->get_offset()].end())
  				{
 					// ... erase that record
- 					m_ds.backrefs()[m_parent].erase(found);
+ 					m_ds.backrefs()[p_parent->get_offset()].erase(found);
  				}
 			}
 			else

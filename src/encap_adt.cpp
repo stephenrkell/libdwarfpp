@@ -57,7 +57,7 @@ case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(parent, di
                     case 0: return my_make_shared<encap::file_toplevel_die>(dest_ds); // toplevel isn't instantiated from here
 #define factory_case(name, ...) /* use the "full" constructor*/ \
 case DW_TAG_ ## name: { auto p = my_make_shared<encap:: name ## _die>(dest_ds, \
-    p_d->m_parent, \
+    p_d->p_parent->get_offset(), \
     p_d->m_offset, \
     p_d->cu_offset, \
     p_d->m_attrs, \

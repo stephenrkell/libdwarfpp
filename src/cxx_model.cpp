@@ -440,16 +440,22 @@ namespace tool {
 		t = t->get_concrete_type();
 		if (!t) return false;
 		
-		// if we can't find a definition, we're not complete
+// 		// if we can't find a definition, we're not complete
+// 		if (t->get_declaration() && *t->get_declaration()) 
+// 		{
+// 			auto with_data_members = dynamic_pointer_cast<with_data_members_die>(t);
+// 			if (with_data_members)
+// 			{
+// 				auto defn = with_data_members->find_my_own_definition();
+// 				if (!defn) return false;
+// 			}
+// 			else assert(false); // FIXME: do we get decls for other kinds of DIE?
+// 		}
+		// HACK: For now, if we're *not* a definition, we're not complete.
+		// It's the caller's problem to find a definition if one exists.
 		if (t->get_declaration() && *t->get_declaration()) 
 		{
-			auto with_data_members = dynamic_pointer_cast<with_data_members_die>(t);
-			if (with_data_members)
-			{
-				auto defn = with_data_members->find_my_own_definition();
-				if (!defn) return false;
-			}
-			else assert(false); // FIXME: do we get decls for other kinds of DIE?
+			return false;
 		}
 		
 		if (t->get_tag() == DW_TAG_array_type)
