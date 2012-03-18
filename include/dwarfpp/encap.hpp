@@ -472,7 +472,7 @@ namespace dwarf {
 
 			Dwarf_Off get_next_sibling_offset() const
 			{ 	if (m_offset == 0UL) throw No_entry();
-				auto parent_children = p_parent->m_children;
+				auto& parent_children = p_parent->m_children;
 				auto found = parent_children.find(m_offset);
 				assert(found != parent_children.end());
 				if (++found == parent_children.end()) throw lib::No_entry();
