@@ -12,23 +12,27 @@
 namespace dwarf
 {
 	namespace lib
-    {
+	{
 		evaluator::evaluator(const encap::loclist& loclist,
-        	Dwarf_Addr vaddr,
-	        const ::dwarf::spec::abstract_def& spec,
-            //Dwarf_Off offset_into_object,
-            regs *p_regs,
-            boost::optional<Dwarf_Signed> frame_base,
-            const std::stack<Dwarf_Unsigned>& initial_stack)
-        : m_stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
+			Dwarf_Addr vaddr,
+			const ::dwarf::spec::abstract_def& spec,
+			regs *p_regs,
+			boost::optional<Dwarf_Signed> frame_base,
+			const std::stack<Dwarf_Unsigned>& initial_stack)
+		: m_stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
 		{
-        	i = expr.begin();
+			// sanity check while I suspect stack corruption
+			assert(vaddr < 0x00008000000000UL
+			|| 	vaddr == 0xffffffffU
+			||  vaddr == 0xffffffffffffffffUL);
+			
+			i = expr.begin();
 			Dwarf_Addr current_vaddr_base = 0; // relative to CU "applicable base" (Dwarf 3 sec 3.1)
-        	/* Search through loc expressions for the one that matches vaddr. */
-            for (auto i_loc_expr = loclist.begin();
-        		    i_loc_expr != loclist.end();
-                    ++i_loc_expr)
-            {
+			/* Search through loc expressions for the one that matches vaddr. */
+			for (auto i_loc_expr = loclist.begin();
+					i_loc_expr != loclist.end();
+					++i_loc_expr)
+			{
 				/* HACK: we should instead use address_size as reported by next_cu_header,
 				 * lifting it to a get_address_size() method in spec::compile_unit_die. */
 				// Dwarf_Addr magic_addr = 
@@ -40,30 +44,35 @@ namespace dwarf
 					current_vaddr_base = i_loc_expr->hipc;
 					continue;
 				}
-			
+				
 				/* According to the libdwarf manual, 
 				 * lopc == 0 and hipc == 0 means "for all vaddrs".
 				 * I seem to have been using 
 				 * 0..std::numeric_limits<Dwarf_Addr>::max() for this.
 				 * For now, allow both. */
-			
-        	    if ((i_loc_expr->lopc == 0 && // this kind of loc_expr covers all vaddrs
-                	i_loc_expr->hipc == std::numeric_limits<Dwarf_Addr>::max())
+				
+				if ((i_loc_expr->lopc == 0 && // this kind of loc_expr covers all vaddrs
+					i_loc_expr->hipc == std::numeric_limits<Dwarf_Addr>::max())
 				|| (i_loc_expr->lopc == 0 && i_loc_expr->hipc == 0)
-                || (vaddr >= i_loc_expr->lopc + current_vaddr_base
-            	    && vaddr < i_loc_expr->hipc + current_vaddr_base))
-                {
-            	    expr = *i_loc_expr/*->m_expr*/;
-         			i = expr.begin();
-                    eval();
-                    return;
-                }
-            }			
-        	throw No_entry();
-		} 
-    }
+				|| (vaddr >= i_loc_expr->lopc + current_vaddr_base
+					&& vaddr < i_loc_expr->hipc + current_vaddr_base))
+				{
+					expr = *i_loc_expr/*->m_expr*/;
+					i = expr.begin();
+					eval();
+					return;
+				}
+			}
+			
+			/* Dump something about the vaddr. */
+			cerr << "Vaddr 0x" << std::hex << vaddr << std::dec
+				<< " is not covered by any loc expr in " << loclist << endl;
+			assert(false);
+			//throw No_entry();
+		}
+	}
 	namespace encap
-    {
+	{
 		std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll)
 		{
 			s << "(loclist) {";

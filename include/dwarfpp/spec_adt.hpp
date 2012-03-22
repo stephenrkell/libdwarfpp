@@ -565,7 +565,7 @@ namespace dwarf
 			nearest_enclosing(Dwarf_Half tag) const __attribute__((deprecated));
 			boost::shared_ptr<spec::basic_die> 
 			nearest_enclosing(Dwarf_Half tag) __attribute__((deprecated)); /* non-const version */
-			boost::shared_ptr<compile_unit_die> 
+			virtual boost::shared_ptr<compile_unit_die> 
 			enclosing_compile_unit() __attribute__((deprecated));
 			boost::shared_ptr<const compile_unit_die> 
 			enclosing_compile_unit() const  __attribute__((deprecated))

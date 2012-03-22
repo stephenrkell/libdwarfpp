@@ -84,6 +84,11 @@ namespace dwarf
             const abstract_dieset& get_ds() const;
             virtual std::map<Dwarf_Half, encap::attribute_value> get_attrs(); 
             // ^^^ not a const function, because may create backrefs
+			
+			// override
+			boost::shared_ptr<spec::compile_unit_die> 
+			enclosing_compile_unit() __attribute__((deprecated));
+			
 		};
         
 //         

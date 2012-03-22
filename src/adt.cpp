@@ -19,6 +19,7 @@ namespace dwarf
 	using std::string;
 	using std::ostringstream;
 	using std::pair;
+	using std::make_pair;
 	using std::endl;
 	using std::cerr;
 	using std::clog;
@@ -134,43 +135,78 @@ namespace dwarf
 		{
 			return const_cast<basic_die *>(this)->nearest_enclosing(tag);
 		}
-        boost::shared_ptr<spec::basic_die> 
-        basic_die::nearest_enclosing(Dwarf_Half tag) 
-        {
-            /*if (get_tag() == 0 || get_offset() == 0UL) return NULL_SHARED_PTR(spec::basic_die);
-            else if (get_parent()->get_tag() == tag) 
-            {
-				return get_parent();
-            }
-            else return get_parent()->nearest_enclosing(tag);*/
-            
-            // instead use more efficient (and hopefully correct!) iterative approach
-            // -- this avoids recomputing the path for each recursive step
-            auto my_iter = this->get_ds().find(this->get_offset()); // computes path
-            assert(my_iter.base().path_from_root.size() >= 1);
-            for (auto path_iter = ++my_iter.base().path_from_root.rbegin(); 
-            	path_iter != my_iter.base().path_from_root.rend();
-                path_iter++)
-            {
-            	if (this->get_ds()[path_iter->off]->get_tag() == tag)
-                {
-                	return this->get_ds()[path_iter->off];
-                }
+		boost::shared_ptr<spec::basic_die> 
+		basic_die::nearest_enclosing(Dwarf_Half tag) 
+		{
+			// instead use more efficient (and hopefully correct!) iterative approach
+			// -- this avoids recomputing the path for each recursive step
+			auto my_iter = this->iterator_here(); // computes path
+			assert(my_iter.base().path_from_root.size() >= 1);
+			for (auto path_iter = ++my_iter.base().path_from_root.rbegin(); 
+				path_iter != my_iter.base().path_from_root.rend();
+				path_iter++)
+			{
+				if (this->get_ds()[path_iter->off]->get_tag() == tag)
+				{
+					return this->get_ds()[path_iter->off];
+				}
 			}
-            return boost::shared_ptr<spec::basic_die>();
-        }
-
-        boost::shared_ptr<compile_unit_die> 
-        basic_die::enclosing_compile_unit()
-        {
-        	// HACK: special case: compile units enclose themselves (others don't)
-            // -- see with_static_location_die::contains_addr for motivation
-            return boost::dynamic_pointer_cast<compile_unit_die>(
-            	this->get_tag() == DW_TAG_compile_unit ?
-                	this->get_this()
-            	:	nearest_enclosing(DW_TAG_compile_unit));
+			return boost::shared_ptr<spec::basic_die>();
 		}
-            
+
+		boost::shared_ptr<compile_unit_die> 
+		basic_die::enclosing_compile_unit()
+		{
+			// HACK: special case: compile units enclose themselves (others don't)
+			// -- see with_static_location_die::contains_addr for motivation
+			if (get_tag() == DW_TAG_compile_unit) 
+			{
+				return dynamic_pointer_cast<compile_unit_die>(shared_from_this());
+			}
+			
+			/* We use the cu_info maintained by file_toplevel_die to implement
+			 * this faster than the more general nearest_enclosing(tag). */
+			
+			
+			return boost::dynamic_pointer_cast<compile_unit_die>(
+				nearest_enclosing(DW_TAG_compile_unit)
+			);
+		}
+	}
+	namespace lib 
+	{
+		boost::shared_ptr<spec::compile_unit_die> 
+		basic_die::enclosing_compile_unit() 
+		{
+			Dwarf_Off my_offset = get_offset();
+			auto toplevel = dynamic_pointer_cast<file_toplevel_die>(get_ds().toplevel());
+
+			/* We use the cu_info maintained by file_toplevel_die to implement
+			 * this faster than the more general nearest_enclosing(tag). */
+			cerr << "Looking for record of CU beginning at or before 0x" 
+				<< std::hex << my_offset << std::dec << endl;
+			auto cu_entry = srk31::greatest_le(
+					toplevel->cu_info.begin(),
+					toplevel->cu_info.end(),
+					make_pair(my_offset, file_toplevel_die::cu_info_t()), /* we have to pass a pair */
+					toplevel->cu_info.value_comp()
+				);
+			cerr << "cu_info has " << toplevel->cu_info.size() << " entries." << endl;
+			cerr << "search for CU enclosing 0x" << std::hex << my_offset << std::dec
+				<< " yielded " << ((cu_entry == toplevel->cu_info.end()) ? " no " : " an ")
+				<< " entry." << std::endl;
+			assert(cu_entry != toplevel->cu_info.end());
+			auto p_d = dynamic_pointer_cast<spec::compile_unit_die>(
+				get_ds()[cu_entry->first]
+			);
+			assert(p_d);
+			cerr << "Successfully retrieved " << p_d->summary() << endl;
+			assert(p_d->get_offset() <= my_offset);
+			return p_d;
+		}
+	}
+	namespace spec
+	{
         boost::shared_ptr<spec::basic_die>
         basic_die::find_sibling_ancestor_of(boost::shared_ptr<spec::basic_die> p_d) 
         {
@@ -454,10 +490,18 @@ namespace dwarf
         {
         	/* auto nonconst_this = const_cast<subprogram_die *>(this); */
         	assert(this->get_frame_base());
-        	/* First we calculate our frame base address. */
+			
+			// Calculate the vaddr which selects a loclist element
+			auto frame_base_loclist = *get_frame_base();
+			auto enclosing_cu = enclosing_compile_unit();
+			cerr << "Enclosing CU is " << enclosing_cu->summary() << endl;
+			Dwarf_Addr low_pc = enclosing_cu->get_low_pc()->addr;
+			assert(low_pc <= dieset_relative_ip);
+			Dwarf_Addr vaddr = dieset_relative_ip - low_pc;
+			/* Now calculate our frame base address. */
             auto frame_base_addr = dwarf::lib::evaluator(
-                *this->get_frame_base(),
-                dieset_relative_ip - *this->enclosing_compile_unit()->get_low_pc(), // this is the vaddr which selects a loclist element
+                frame_base_loclist,
+                vaddr,
                 this->get_ds().get_spec(),
                 p_regs).tos();
             if (out_frame_base) *out_frame_base = frame_base_addr;
@@ -959,38 +1003,38 @@ namespace dwarf
 		}
 /* from spec::variable_die */        
 		bool variable_die::has_static_storage() const
-        {
+		{
 			auto nonconst_this = const_cast<variable_die *>(this);
-            if (nonconst_this->nearest_enclosing(DW_TAG_subprogram))
-            {
-            	// we're either a local or a static -- skip if local
-                auto attrs = nonconst_this->get_attrs();
-            	if (attrs.find(DW_AT_location) != attrs.end())
-                {
-                	// HACK: only way to work out whether it's static
-                    // is to test for frame-relative addressing in the location
-                    // --- *and* since we can't rely on the compiler to generate
-                    // DW_OP_fbreg for every frame-relative variable (since it
-                    // might just use %ebp or %esp directly), rule out any
-                    // register-relative location whatsoever. FIXME: this might
-                    // break some code on segmented architectures, where even
-                    // static storage is recorded in DWARF using 
-                    // register-relative addressing....
-                    auto loclist = attrs.find(DW_AT_location)->second.get_loclist();
-                    for (auto i_loc_expr = loclist.begin(); i_loc_expr != loclist.end(); ++i_loc_expr)
-                    {
-                    	for (auto i_instr = i_loc_expr->begin(); 
-                        	i_instr != i_loc_expr->end();
-                            ++i_instr)
-                        {
-                        	if (this->get_spec().op_reads_register(i_instr->lr_atom)) return false;
-                        }
-                    }
-                }
-            }
-            return true;
+			if (nonconst_this->nearest_enclosing(DW_TAG_subprogram))
+			{
+				// we're either a local or a static -- skip if local
+				auto attrs = nonconst_this->get_attrs();
+				if (attrs.find(DW_AT_location) != attrs.end())
+				{
+					// HACK: only way to work out whether it's static
+					// is to test for frame-relative addressing in the location
+					// --- *and* since we can't rely on the compiler to generate
+					// DW_OP_fbreg for every frame-relative variable (since it
+					// might just use %ebp or %esp directly), rule out any
+					// register-relative location whatsoever. FIXME: this might
+					// break some code on segmented architectures, where even
+					// static storage is recorded in DWARF using 
+					// register-relative addressing....
+					auto loclist = attrs.find(DW_AT_location)->second.get_loclist();
+					for (auto i_loc_expr = loclist.begin(); i_loc_expr != loclist.end(); ++i_loc_expr)
+					{
+						for (auto i_instr = i_loc_expr->begin(); 
+							i_instr != i_loc_expr->end();
+							++i_instr)
+						{
+							if (this->get_spec().op_reads_register(i_instr->lr_atom)) return false;
+						}
+					}
+				}
+			}
+			return true;
 		}
-/* from spec::member_die */        
+/* from spec::member_die */ 
 		opt<Dwarf_Unsigned> 
         member_die::byte_offset_in_enclosing_type() const
         {
