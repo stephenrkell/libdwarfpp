@@ -349,9 +349,18 @@ namespace dwarf
 					break;
 				case spec::interp::block_as_dwarf_expr: // dwarf_loclist_n works for both of these
 				case spec::interp::loclistptr:
-					this->f = LOCLIST;
-					this->v_loclist = new loclist(dwarf::lib::loclist(a));
-					break;
+					try
+					{
+						this->f = LOCLIST;
+						this->v_loclist = new loclist(dwarf::lib::loclist(a));
+						break;
+					}
+					catch (...)
+					{
+						/* This can happen if the loclist includes opcodes that our libdwarf
+						 * doesn't recognise. Treat it as a not-supported case.*/
+						goto fail;
+					}
 				case spec::interp::rangelistptr: {
                 	this->f = RANGELIST;
                     retval = a.formudata(&u); assert(retval == DW_DLV_OK);
@@ -368,7 +377,7 @@ namespace dwarf
 						<< "numbered 0x" << std::hex << attr << std::dec << " of form "
 						<< ds.toplevel()->get_spec().form_lookup(orig_form) 
 						<< ", skipping." << std::endl;
-					throw Not_supported("unrecognosed attribute");
+					throw Not_supported("unrecognised attribute");
 					/* NOTE: this Not_supportd doesn't happen in some cases, because often
 					 * we have successfully guessed an interp:: class for the attribute
 					 * anyway. FIXME: remember how this works, and see if we can do better. */

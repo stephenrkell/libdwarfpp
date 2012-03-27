@@ -140,11 +140,23 @@ namespace dwarf
 				Dwarf_Half *address_size = 0, 
 				Dwarf_Unsigned *next_cu_header = 0,
 				cu_callback_t cb = 0, void *arg = 0);
+			
+			/* map a function over all CUs */
+			int iterate_cu(cu_callback_t cb, void *arg = 0)
+			{
+				clear_cu_context(); 
+				while (advance_cu_context(0, 0, 0, 0, 0, cb, arg) == DW_DLV_OK);
+			}
+			
 			int ensure_cu_context()
-			{ if (have_cu_context) return DW_DLV_OK;
-			  else { int retval = advance_cu_context();
-			         assert(retval != DW_DLV_OK || have_cu_context);
-			         return retval; }
+			{
+				if (have_cu_context) return DW_DLV_OK;
+				else 
+				{
+					int retval = advance_cu_context();
+					assert(retval != DW_DLV_OK || have_cu_context);
+					return retval; 
+				}
 			}
 			
 		protected:

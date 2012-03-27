@@ -44,6 +44,7 @@ namespace dwarf {
 		
 		// forward declarations
 		class die;
+		class basic_die;
 		class factory;
 		class file_toplevel_die;
 		template <typename Iter> 
@@ -188,9 +189,11 @@ namespace dwarf {
 //			{ return dynamic_cast<Encap_all_compile_units&>(*(this->find(0UL)->second)); }
 			
 			// helper for find()
+			// FIXME: delete this
 			void build_path_from_root(abstract_dieset::path_type& path, map_iterator current);
 			// "official" spec-defined API to the above
-			abstract_dieset::path_type path_from_root(Dwarf_Off);
+			//abstract_dieset::path_type path_from_root(Dwarf_Off);
+			
 			// override find() to be more efficient than the ADT version
 			abstract_dieset::iterator find(dwarf::lib::Dwarf_Off off)
 			{ auto found_iter = this->map_find(off);
@@ -203,7 +206,7 @@ namespace dwarf {
 			  else return this->end(); }
 			abstract_dieset::iterator begin()
 			{ return abstract_dieset::iterator(*this, 0UL,
-				path_type(1, (position){this, 0UL})); }
+				path_type(1, 0UL)); }
 			abstract_dieset::iterator end()
 			{ return abstract_dieset::iterator(*this, 
 				std::numeric_limits<Dwarf_Off>::max(),
@@ -213,15 +216,19 @@ namespace dwarf {
 			boost::shared_ptr<spec::file_toplevel_die> toplevel();
 			//std::deque< spec::abstract_dieset::position > path_from_root(Dwarf_Off off);
 
-			// FIXME: delete this old cruft
-			opt<die&> resolve_die_path(const Dwarf_Off start, 
-				const pathname& path, pathname::const_iterator pos);
-			opt<die&> resolve_die_path(const Dwarf_Off start, 
-				const pathname& path) { return resolve_die_path(start, path, path.begin()); }
-			opt<die&> resolve_die_path(const pathname& path) 
-			{ return resolve_die_path(0UL, path); }
-			opt<die&> resolve_die_path(const std::string& singleton_path) 
-			{ return resolve_die_path(pathname(1, singleton_path)); }
+			bool move_to_first_child(spec::abstract_dieset::iterator_base& arg);
+			bool move_to_parent(spec::abstract_dieset::iterator_base& arg);
+			bool move_to_next_sibling(spec::abstract_dieset::iterator_base& arg);
+
+// 			// FIXME: delete this old cruft
+// 			opt<die&> resolve_die_path(const Dwarf_Off start, 
+// 				const pathname& path, pathname::const_iterator pos);
+// 			opt<die&> resolve_die_path(const Dwarf_Off start, 
+// 				const pathname& path) { return resolve_die_path(start, path, path.begin()); }
+// 			opt<die&> resolve_die_path(const pathname& path) 
+// 			{ return resolve_die_path(0UL, path); }
+// 			opt<die&> resolve_die_path(const std::string& singleton_path) 
+// 			{ return resolve_die_path(pathname(1, singleton_path)); }
 			//friend std::ostream& operator<<(std::ostream& o, const dieset& ds);
 			friend std::ostream& print_artificial(std::ostream& o, const dieset& ds);
 		}; // end class dieset

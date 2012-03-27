@@ -146,9 +146,9 @@ namespace dwarf
 				path_iter != my_iter.base().path_from_root.rend();
 				path_iter++)
 			{
-				if (this->get_ds()[path_iter->off]->get_tag() == tag)
+				if (this->get_ds()[*path_iter]->get_tag() == tag)
 				{
-					return this->get_ds()[path_iter->off];
+					return this->get_ds()[*path_iter];
 				}
 			}
 			return boost::shared_ptr<spec::basic_die>();
@@ -172,6 +172,31 @@ namespace dwarf
 				nearest_enclosing(DW_TAG_compile_unit)
 			);
 		}
+		
+		abstract_dieset::iterator 
+		basic_die::iterator_here(
+			abstract_dieset::policy& pol /* = abstract_dieset::default_policy_sg */)
+		{
+			dieset& ds = dynamic_cast<dieset&>(get_ds());
+			abstract_dieset::path_type path;
+			Dwarf_Off off = get_offset();
+			Dwarf_Off cur = off;
+			do
+			{
+				path.push_front(cur);
+				cur = ds.find_parent_offset_of(cur);
+			} while (cur != 0UL);
+			path.push_front(0UL);
+			
+			return abstract_dieset::iterator(
+				ds,
+				off,
+				path,
+				shared_from_this(),
+				pol
+			); 
+		}
+		
 	}
 	namespace lib 
 	{
@@ -212,8 +237,8 @@ namespace dwarf
         {
             // search upward from the argument die to find a sibling of us
             if (p_d.get() == dynamic_cast<spec::basic_die*>(this)) return p_d;
-            else if (p_d->get_offset() == 0UL) return NULL_SHARED_PTR(spec::basic_die); // reached the top without finding anything
-            else if (this->get_offset() == 0UL) return NULL_SHARED_PTR(spec::basic_die); // we have no siblings
+            else if (p_d->get_offset() == 0UL) return shared_ptr<basic_die>(); // reached the top without finding anything
+            else if (this->get_offset() == 0UL) return shared_ptr<basic_die>(); // we have no siblings
             else if (p_d->get_parent() == this->get_parent()) // we are siblings
             {
                 return p_d;
@@ -516,8 +541,7 @@ namespace dwarf
 			struct stack_location_subtree_policy :  public spec::abstract_dieset::bfs_policy
 			{
 				typedef spec::abstract_dieset::bfs_policy super;
-				int increment(spec::abstract_dieset::position& pos,
-					spec::abstract_dieset::path_type& path)
+				int increment(abstract_dieset::iterator_base& base)
 				{
 					/* If our current DIE is 
 					 * a with_dynamic_location_die
@@ -527,20 +551,20 @@ namespace dwarf
 					 * we increment *with* enqueueing children.
 					 * Otherwise we increment without enqueueing children.
 					 */
-					auto p_die = (*pos.p_ds)[pos.off];
+					auto p_die = (*base.p_ds)[base.off];
 					if (dynamic_pointer_cast<spec::with_dynamic_location_die>(p_die))
 					{
-						return super::increment(pos, path);
+						return super::increment(base);
 					}
 					else
 					{
 						switch (p_die->get_tag())
 						{
 							case DW_TAG_lexical_block:
-								return super::increment(pos, path);
+								return super::increment(base);
 								break;
 							default:
-								return super::increment_skipping_subtree(pos, path);
+								return super::increment_skipping_subtree(base);
 								break;
 						}
 					}
@@ -739,7 +763,7 @@ namespace dwarf
                     	&& *current->get_name() == name) return current;
                 }
             }
-            catch (No_entry) { return NULL_SHARED_PTR(spec::basic_die); }
+            catch (No_entry) { return shared_ptr<spec::basic_die>(); }
         }
 
         boost::shared_ptr<spec::basic_die> 
@@ -1157,7 +1181,7 @@ namespace dwarf
 			{
 				if (m_parent_offset == 0UL)
 				{
-					// not cached, so fill
+					// this will search the shared parent_cache...
 					m_parent_offset = p_ds->find_parent_offset_of(this->get_offset());
 					assert(m_parent_offset != 0UL);
 				}
@@ -1246,7 +1270,8 @@ namespace dwarf
 					try
 					{
 				    	ret.insert(std::make_pair(attr, encap::attribute_value(this->get_ds(), a)));
-					} catch (dwarf::lib::Not_supported)
+					} 
+					catch (dwarf::lib::Not_supported)
 					{
 						/* This means we didn't recognise the attribute_value. Skip over it silently. */
 						// we could print a warning....
@@ -1291,152 +1316,34 @@ namespace dwarf
 			return nonconst_toplevel->source_file_count_for_cu(
 					dynamic_pointer_cast<compile_unit_die>(nonconst_this->shared_from_this()));
 		}
-
-		
-/*		Dwarf_Unsigned 
-        compile_unit_die::get_language() const
-        {
-        	Dwarf_Bool ret;
-            assert((p_d->hasattr(DW_AT_language, &ret), ret));
-            return DW_LANG_C; // FIXME
-        }*/
-
-/* from lib::subprogram_die */
-/*       	opt<boost::shared_ptr<spec::basic_die> > 
-        subprogram_die::get_type() const
-        {
-        	Dwarf_Off type_off;
-            lib::attribute_array arr(*p_d);
-            lib::attribute attr = arr[DW_AT_type];
-            encap::attribute_value val(*p_ds, attr);
-            type_off = val.get_ref().off;
-        	return (*p_ds)[type_off];
-        }*/
-
-/* from lib::dieset */
-//         std::deque< abstract_dieset::position >
-//         dieset::path_from_root(Dwarf_Off off)
-//         {
-//         	/* This is an iterative, depth-first walk of a tree with no
-//              * up-links. 
-//              * We keep a list of our current path from the root. */
-//         	std::deque< position > current_path;
-//             
-//             /* We can't use the factory in this function because factory-constructed
-//              * classes try to recover their parent in the constructur, which calls
-//              * this method and sets up an infinite loop. */
-//             boost::shared_ptr<lib::die> first_child = boost::make_shared<die>(*p_f);
-//             Dwarf_Off first_child_offset; first_child->offset(&first_child_offset);
-// 	            //toplevel()->get_first_child();
-//             //boost::make_shared<die>(*p_f);
-//             abstract_dieset::position tmp = {this, first_child_offset};
-//             current_path.push_back(tmp);
-//             
-// 			boost::shared_ptr<lib::die> current = first_child;
-//             while (true)
-//             {
-//                 /* Keep on trying to move down */
-//                 while (true)
-//                 {
-//                     boost::shared_ptr<lib::die> lower;
-//                     boost::shared_ptr<lib::die> next;
-//                     try
-//                     {
-//                 	    //lower = boost::make_shared<die>(*current);
-//                         //lower = current->get_first_child();
-//                         // *** test begins here
-//                         //Dwarf_Off lower_offset;
-//                         //lower->offset(&lower_offset);
-//                         Dwarf_Off lower_offset = current->get_first_child_offset();
-//                        	abstract_dieset::position tmp = {this, lower_offset};
-// 						current_path.push_back(tmp);
-//                         
-//                         if (lower_offset == off) 
-//                         {
-// 	                    	return current_path;
-//                         }
-//                         // *** test ends here
-//                         current = current->get_first_child();
-//                     }
-//                     catch (lib::No_entry)
-//                     {
-//                 	    /* If that doesn't work, try moving to the next sibling 
-//                          * If *that* doesn't work, retreat up a level and try again.
-//                          * We terminate if we've retreated up to the top.
-//                          * Retreating up to the top
-//                          */
-//                         do
-//                         {
-//                             try
-//                             {
-// 	                            //boost::make_shared<die>(*p_f, *current);
-//                                 //next = current->get_next_sibling();
-//                                 Dwarf_Off next_offset = current->get_next_sibling_offset();
-// 			                    abstract_dieset::position tmp = {this, next_offset};
-//                                 current_path.push_back(tmp);
-//                                 if (next_offset == off)
-//                                 {
-//                                     return current_path;
-//                                 }
-//                                 break;
-//                             }
-//                             catch (lib::No_entry) 
-//                             {
-//                             	if (current_path.size() == 0)
-//                                 {
-//                                 	assert(false); // didn't find the parent!
-//                                 }
-//                             	//current = current_path.at(current_path.size() - 1);
-//                                 //current = boost::make_shared<die>(*p_f, 
-//                                 //	current_path.at(current_path.size() - 1).off);
-//                                 current = current->get_next_sibling();
-//                                 current_path.pop_back();
-//                             } // continue
-// 	                    } while (true);
-//                     }
-//                 }
-//             }
-//         }
-        abstract_dieset::path_type dieset::path_from_root(Dwarf_Off off)
-        {
-//             std::deque< spec::abstract_dieset::position > /*reverse_*/path;
-//             auto cur = (*this)[off];
-//             spec::abstract_dieset::position tmp = {this, cur->get_offset()};
-// 			/*reverse_*/path.push_back(tmp);
-//             while (cur->get_offset() != 0UL)
-//             {
-//                 cur = cur->get_parent();
-//    		        spec::abstract_dieset::position tmp = {this, cur->get_offset()};
-//                 /*reverse_*/path./*push_back*/push_front(tmp);
-//             }
-//             //std::reverse(reverse_path.begin(), reverse_path.end());
-//             return /*reverse_*/path;
-			return this->find(off).base().path_from_root;
-        }
+        //abstract_dieset::path_type dieset::path_from_root(Dwarf_Off off)
+        //{
+		//	return this->find(off).base().path_from_root;
+        //}
 
 	}
-    namespace spec
-    {
-        abstract_dieset::iterator abstract_dieset::begin(policy& pol)
+	namespace spec
+	{
+		abstract_dieset::iterator abstract_dieset::begin(policy& pol)
 		{ auto i_begin = begin(); return iterator(i_begin, pol); }
-        abstract_dieset::iterator abstract_dieset::end(policy& pol)
+		abstract_dieset::iterator abstract_dieset::end(policy& pol)
 		{ auto i_end = end(); return iterator(i_end, pol); }
 	
-        abstract_dieset::basic_iterator_base::basic_iterator_base(
-        	abstract_dieset& ds, Dwarf_Off off,
-            const path_type& path_from_root,
-            policy& pol)
-        : position_and_path((position){&ds, off}, path_from_root), 
-          //path_from_root(path_from_root),
-          p_policy(&pol) 
-        { 
-        	/* We've been given an offset but no path. So search for the 
-             * offset, which will give us the path. */
-        	if (off != 0UL && 
-            	off != std::numeric_limits<Dwarf_Off>::max() &&
-                path_from_root.size() == 0) this->path_from_root = ds.find(off).path();
-            canonicalize_position(); 
-        }
+		abstract_dieset::iterator_base::iterator_base(
+			abstract_dieset& ds, Dwarf_Off off,
+			const path_type& path_from_root,
+			shared_ptr<basic_die> p_d /* = shared_ptr<basic_die>() */)
+		: position_and_path((position){&ds, off}, path_from_root), 
+		  p_d(p_d ? p_d : die_from_offset(ds, off))
+		{ 
+			/* We've been given an offset but no path. So search for the 
+			 * offset, which will give us the path. */
+			if (off != 0UL && 
+				off != std::numeric_limits<Dwarf_Off>::max() &&
+				path_from_root.size() == 0) this->path_from_root = ds.find(off).path();
+			
+			assert(!p_d || p_d->get_offset() == off);
+		}
 		
 		/* Partial order on iterators -- these are comparable when they share a parent. */
 		bool
@@ -1739,7 +1646,7 @@ namespace dwarf
 			/* We can do better than linear search, using the properties of
 			 * DWARF offsets.  */
 			boost::shared_ptr<spec::basic_die> current = this->toplevel();
-			spec::abstract_dieset::path_type path_from_root(1, (position){this, 0UL}); // start with root node only
+			spec::abstract_dieset::path_type path_from_root(1, 0UL); // start with root node only
 			/* We do this because iterators can point at the root, and all iterators should 
 			 * have the property that the last element in the path is their current node. */
 			 
@@ -1777,28 +1684,31 @@ namespace dwarf
 				// ... either way, remember its position
 				// (sanity check: make sure we're not doubling up a path entry)
 				assert(path_from_root.size() != 0 &&
-					(path_from_root.back() != (position){this, prev_child->get_offset()}));
-				path_from_root.push_back((position){this, prev_child->get_offset()});
+					(path_from_root.back() != prev_child->get_offset()));
+				path_from_root.push_back(prev_child->get_offset());
 			}
 			
 			return abstract_dieset::iterator((position){this, off}, path_from_root);
 		}
-        
-        abstract_dieset::iterator 
-        dieset::begin() 
-        {
-    		return abstract_dieset::iterator(*this, 0UL, 
-            	path_type(1, (position){this, 0UL}));
-        }
-        
-        abstract_dieset::iterator 
-        dieset::end() 
-        {
-	        return abstract_dieset::iterator(*this, 
-            	std::numeric_limits<Dwarf_Off>::max(),
-                path_type());
-		} 
-        
+		
+		abstract_dieset::iterator 
+		dieset::begin() 
+		{
+			return abstract_dieset::iterator(*this, 0UL, 
+				path_type(1, 0UL));
+		}
+		
+		abstract_dieset::iterator 
+		dieset::end() 
+		{
+			return abstract_dieset::iterator(*this, 
+				std::numeric_limits<Dwarf_Off>::max(),
+				path_type());
+		}
+		
+		/* FIXME: can't we just get rid of these find_parent functions?
+		 * HMM. Actually they are faster than find() because we can start
+		 * with an offset that we know exists. */
 		Dwarf_Off 
 		dieset::find_parent_offset_of(Dwarf_Off off)
 		{
@@ -1811,58 +1721,34 @@ namespace dwarf
 			
 			// NOTE: we use find() so that we get the path not just die ptr
 			auto path = this->find(off).path();
-			assert(path.back().off == off);
+			assert(path.back() == off);
 			if (path.size() > 1) 
 			{ 
-				position parent_pos = *(path.end() - 2);
+				position parent_pos = (position){this, *(path.end() - 2)};
 				this->parent_cache[off] = parent_pos.off; // our answer is the *new* last element
 				return parent_pos.off;
 			}
 			else throw lib::No_entry();
-		} 
+		}
 
-        boost::shared_ptr<basic_die> 
-        dieset::find_parent_of(Dwarf_Off off)
-        {
-        	return get(find_parent_offset_of(off));
-        }
+		boost::shared_ptr<basic_die> 
+		dieset::find_parent_of(Dwarf_Off off)
+		{
+			return get(find_parent_offset_of(off));
+		}
 
-        boost::shared_ptr<lib::basic_die> 
-        dieset::get(Dwarf_Off off)
-        {
-        	if (off == 0UL) return boost::dynamic_pointer_cast<lib::basic_die>(toplevel());
+		boost::shared_ptr<lib::basic_die> 
+		dieset::get(Dwarf_Off off)
+		{
+			if (off == 0UL) return boost::dynamic_pointer_cast<lib::basic_die>(toplevel());
 			return get(lib::die(*p_f, off)); // "offdie" constructor
 		}
 			
-// //             else
-// //             {
-// //             	boost::shared_ptr<die> p_tmp = boost::make_shared<die>(*p_f, off);
-// // 	            return get(p_tmp);
-// //             }
-// 			/* This code originally made an ADT-style die out of an lib::die. 
-// 			 * We just want to use inheritance for this. 
-// 			 * FIXME: why did I take this make-shared-make-shared approach? Any good reason?
-// 			 * HACK: for now, just do the old thing! */
-//             Dwarf_Half tag;
-//             //Dwarf_Off off;
-// 			boost::shared_ptr<die> p_d = boost::make_shared<die>(*p_f, off);
-//             //int ret = p_d->offset(&off); assert(ret == DW_DLV_OK);
-//             switch(p_d->tag(&tag), tag)
-//             {
-// #define factory_case(name, ...) \
-// case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d);
-// #include "dwarf3-factory.h"
-// #undef factory_case
-//                 default: return boost::make_shared<lib::basic_die>(*this, p_d);
-//             }
-// 
-//         }
-		
 		/* factory method -- this is private */
 		boost::shared_ptr<lib::basic_die>
 		dieset::get(const lib::die& d)
 		{
-            Dwarf_Half tag;
+			Dwarf_Half tag;
 			Dwarf_Off offset;
 			int ret;
 			ret = d.offset(&offset); assert(ret == DW_DLV_OK);
@@ -1870,240 +1756,236 @@ namespace dwarf
 			// to catch weird bug where d.f was null
 			assert(&d.f);
 			
-            switch(ret = d.tag(&tag), assert(ret == DW_DLV_OK), tag)
-            {
+			switch(ret = d.tag(&tag), assert(ret == DW_DLV_OK), tag)
+			{
 #define factory_case(name, ...) \
 case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:: name ## _die >(*this, offset));
 #include "dwarf3-factory.h"
 #undef factory_case
-                default: return my_make_shared<lib::basic_die>(*this, offset);
-            }
-		 
-		}
-        
-//         boost::shared_ptr<lib::basic_die>
-//         dieset::get(boost::shared_ptr<die> p_d)
-//         {
-//         	/* Given a raw die, we make, and return, a basic_die
-//              * (offering our ADT interface)
-//              * or one of its children. */
-//             Dwarf_Half tag;
-//             Dwarf_Off off;
-//             int ret = p_d->offset(&off); assert(ret == DW_DLV_OK);
-//             switch(p_d->tag(&tag), tag)
-//             {
-// #define factory_case(name, ...) \
-// case DW_TAG_ ## name: return boost::make_shared<lib:: name ## _die >(*this, p_d);
-// #include "dwarf3-factory.h"
-// #undef factory_case
-//                 default: return boost::make_shared<lib::basic_die>(*this, p_d);
-//             }
-//         }
-        
-        boost::shared_ptr<spec::basic_die> dieset::operator[](Dwarf_Off off) const
-        {
-        	if (off == 0UL) return boost::shared_ptr<spec::basic_die>(m_toplevel);
-            return const_cast<dieset *>(this)->get(off);
-        }
+				default: return my_make_shared<lib::basic_die>(*this, offset);
+			}
 		
-        boost::shared_ptr<spec::file_toplevel_die> dieset::toplevel()
-        {
-        	return boost::dynamic_pointer_cast<spec::file_toplevel_die>(m_toplevel);
-        }
-        
-//         encap::rangelist dieset::rangelist_at(Dwarf_Unsigned i) const
-//         {
-//         	return encap::rangelist(this->p_f->get_ranges(), i);
-//         }
-    }
-    namespace spec
-    {
-        //abstract_dieset::children_policy::children_policy(
-        
-        abstract_dieset::default_policy abstract_dieset::default_policy_sg;
+		}
+	
+		boost::shared_ptr<spec::basic_die> dieset::operator[](Dwarf_Off off) const
+		{
+			if (off == 0UL) return boost::shared_ptr<spec::basic_die>(m_toplevel);
+			return const_cast<dieset *>(this)->get(off);
+		}
+		
+		boost::shared_ptr<spec::file_toplevel_die> dieset::toplevel()
+		{
+			return boost::dynamic_pointer_cast<spec::file_toplevel_die>(m_toplevel);
+		}
+		
+	}
+	namespace spec
+	{
+		
+		abstract_dieset::default_policy abstract_dieset::default_policy_sg;
 		abstract_dieset::dummy_policy abstract_dieset::dummy_policy_sg;
-        // depth-first traversal
-        int abstract_dieset::default_policy::increment(position& pos,
-        	path_type& path)
-        {
-#define print_path std::cerr << "Path is now: "; for (unsigned i = 0; i < path.size(); i++) std::cerr << ((i > 0) ? ", " : "") << path.at(i).off; std::cerr << std::endl
-            assert(path.size() == 0 || path.back().off == pos.off);
-            // if we have children, descend there...
-            try
-            {
-            	pos.off = (*pos.p_ds)[pos.off]->get_first_child_offset();//->get_offset();
-                	//boost::make_shared<lib::die>(*(*pos.p_ds)[pos.off]->p_d)->offset(&pos.off);
-                //std::cerr << "Descending from offset " << ((path.size() > 0) ? path.back().off : 0UL) << " to child " << pos.off << std::endl;
-                path.push_back((position){pos.p_ds, pos.off});
-                //print_path;
-               return 0;
-            }
-            catch (No_entry) {}
 
-            //print_path; std::cerr << "Offset " << ((path.size() > 0) ? path.back().off : 0UL) << " has no children, trying siblings." << std::endl;
-            
-            // else look for later siblings right here
-            int number_of_pops = 1;
-            //if (path.size() == 0) mutable_path = pos.p_ds->path_from_root(pos.off);
-            while (path.size() > 0)
-            {
-            	assert(path.size() == 0 || path.back().off == pos.off);
-                try
-                {
-                	//Dwarf_Off tmp = (*pos.p_ds)[pos.off]->get_next_sibling_offset();
-                    //print_path; std::cerr << "Found next sibling of " << pos.off << " is " << tmp << ", following" << std::endl;
-            	    pos.off = (*pos.p_ds)[pos.off]->get_next_sibling_offset();//->get_offset();
-                    	//boost::make_shared<lib::die>(pos.p_ds->p_f, *(*pos.p_ds)[pos.off]->p_d)->offset(&pos.off);
-            		path.pop_back(); // our siblings have a different last hop
-                    path.push_back(pos);
-                    //print_path;
-                    return number_of_pops;
-                }
-                catch (No_entry) 
-                {
-                    // else retreat higher up
-                    //std::cerr << "Offset " << pos.off << " has no subsequent siblings, retreating." << std::endl;;
-                    path.pop_back();
-                    //print_path;
-                    if (path.size() > 0)
-                    {
-	                    //std::cerr << " Will next try siblings of " << path.back().off << std::endl;
-                    	pos.off = path.back().off;
-                    }
-                    //else  std::cerr << " Will terminate." << std::endl;
-			    }
-            }
-            // if we got here, there is nothing left in the tree...
-            assert(path.size() == 0);
-            // ... so set us to the end sentinel
-            pos.off = std::numeric_limits<Dwarf_Off>::max();
-            path = path_type();
-            return path.size();
-        }
-        int abstract_dieset::default_policy::decrement(position& pos,
-        	path_type& path)
-        {
-        	assert(false);
-        }
+		/* */
+
+		/* Default a.k.a. depth-first traversal. */
+//		int abstract_dieset::default_policy::increment(iterator_base& base)
+//		{
+		int abstract_dieset::default_policy::increment(iterator_base& base)
+		{
+			auto print_path = [base]() {
+				cerr << "Path is now: ";
+				for (unsigned i = 0; i < base.path_from_root.size(); i++) 
+				{
+					cerr << ((i > 0) ? ", " : "") << base.path_from_root.at(i); 
+				}
+				cerr << endl;
+			};
+			
+			assert(base.path_from_root.size() == 0 || base.path_from_root.back() == base.off);
+			// if we have children, descend there...
+			
+// 			try
+// 			{
+// 				base.off = (*base.p_ds)[base.off]->get_first_child_offset();//->get_offset();
+// 				base.path_from_root.push_back(base.off);
+// 				
+// 				return 0;
+// 			}
+// 			catch (No_entry) {}
+			if (base.p_ds->move_to_first_child(base)) return 0;
+			
+// 			// what I want it to look like:
+// 			auto first_child = p_ds->first_child(base);
+// 			if (first_child != p_ds->end()) base = first_child;
+// 			
+// 			auto sibling_base = base;
+// 			do
+// 			{
+// 				auto next_sibling = p_ds->next_sibling(sibling_base);
+// 				if (next_sibling != p_ds->end()) { base = next_sibling; return; }
+// 				else sibling_base = p_ds->parent(sibling_base);
+// 			} while (sibling_base != p_ds->end());
+// 			
+// 			base = p_ds->end(); // failed
+			
+			
+
+			// else look for later siblings right here
+			int number_of_pops = 1;
+
+			// while (base.path_from_root.size() > 0)
+			do
+			{
+				assert(base.path_from_root.size() == 0 || base.path_from_root.back() == base.off);
+// 				try
+// 				{
+// 					base.off = (*base.p_ds)[base.off]->get_next_sibling_offset();//->get_offset();
+// 					base.path_from_root.pop_back(); // our siblings have a different last hop
+// 					base.path_from_root.push_back(base.off);
+// 					//print_path;
+// 					return number_of_pops;
+// 				}
+// 				catch (No_entry) 
+// 				{
+				if (base.p_ds->move_to_next_sibling(base)) return number_of_pops;
+// 				{
+// 					base.path_from_root.pop_back();
+// 					//print_path;
+// 					if (base.path_from_root.size() > 0)
+// 					{
+// 						base.off = base.path_from_root.back();
+// 					}
+// 				}
+			} while (base.p_ds->move_to_parent(base) && ++number_of_pops);
+			
+			// if we got here, there is nothing left in the tree...
+			//assert(base.path_from_root.size() == 0);
+			assert(base.path_from_root.size() == 1 && base.path_from_root.front() == 0UL);
+			// ... so set us to the end sentinel
+			//base.off = std::numeric_limits<Dwarf_Off>::max();
+			//base.path_from_root = path_type();
+			base = base.p_ds->end().base();
+			//return base.path_from_root.size(); // popped everything 
+			return number_of_pops + 1;
+		}
+		int abstract_dieset::default_policy::decrement(iterator_base& base)
+		{
+			assert(false);
+		}
 
 		// breadth-first traversal
-		int abstract_dieset::bfs_policy::increment(position& pos,
-			path_type& path)
+		int abstract_dieset::bfs_policy::increment(iterator_base& base)
 		{
 			/* Try to explore siblings, remembering children. */
-			enqueue_children(pos, path);
+			enqueue_children(base);
 			try
 			{
-				advance_to_next_sibling(pos, path);
+				advance_to_next_sibling(base);
 				return 0;
 			}
 			catch (No_entry)
 			{
-				return take_from_queue_or_terminate(pos, path);
+				return take_from_queue_or_terminate(base);
 			}
 		}
-		int abstract_dieset::bfs_policy::increment_skipping_subtree(position& pos,
-			path_type& path)
+		int abstract_dieset::bfs_policy::increment_skipping_subtree(iterator_base& base)
 		{
 			/* This is like normal traversal, but don't enqueue children */
 			try
 			{
-				advance_to_next_sibling(pos, path);
+				advance_to_next_sibling(base);
 				return 0;
 			}
 			catch (No_entry)
 			{
-				return take_from_queue_or_terminate(pos, path);
+				return take_from_queue_or_terminate(base);
 			}
 		}
 		
-		void abstract_dieset::bfs_policy::enqueue_children(position& pos,
-			path_type& path)
+		void abstract_dieset::bfs_policy::enqueue_children(iterator_base& base)
 		{
 			try
 			{
-				Dwarf_Off first_child_off = (*pos.p_ds)[pos.off]->get_first_child_offset();
-				auto queued_path = path; 
-				queued_path.push_back((position){pos.p_ds, first_child_off});
+				Dwarf_Off first_child_off = (*base.p_ds)[base.off]->get_first_child_offset();
+				auto queued_path = base.path_from_root; 
+				queued_path.push_back(first_child_off);
 				this->m_queue.push_back(queued_path);
-			} 
+			}
 			catch (No_entry)
 			{
 				/* No children -- that's okay, just carry on and don't enqueue anything. */
 			}
 		}
 		
-		void abstract_dieset::bfs_policy::advance_to_next_sibling(position& pos,
-			path_type& path)
+		void abstract_dieset::bfs_policy::advance_to_next_sibling(iterator_base& base)
 		{
-			/* Now find that sibling. */
-			pos.off = (*pos.p_ds)[pos.off]->get_next_sibling_offset();
-			// if that succeeded, we have a next node -- calculate our new path
-			path.pop_back();
-			path.push_back((position){pos.p_ds, pos.off});
+// 			/* Now find that sibling. */
+// 			base.off = (*base.p_ds)[base.off]->get_next_sibling_offset();
+// 			// if that succeeded, we have a next node -- calculate our new path
+// 			base.path_from_root.pop_back();
+// 			base.path_from_root.push_back(base.off);
+			if (!base.p_ds->move_to_next_sibling(base)) throw No_entry();
 		}
 		
-		int abstract_dieset::bfs_policy::take_from_queue_or_terminate(position& pos,
-			path_type& path)
+		int abstract_dieset::bfs_policy::take_from_queue_or_terminate(iterator_base& base)
 		{
 			int retval;
 			/* No more siblings, so take from the queue. */
 			if (this->m_queue.size() > 0)
 			{
-				pos = this->m_queue.front().back(); 
+				base = iterator_base(base.p_ds, this->m_queue.front()); // .off = this->m_queue.front().back(); 
 				// retval is the number of levels up the tree we're moving
-				retval = path.size() - this->m_queue.front().size();
+				retval = base.path_from_root.size() - this->m_queue.front().size();
 				// finished processing head queue element
 				this->m_queue.pop_front();
 			}
 			else
 			{
 				/* That's it! Use end sentinel. */
-				pos.off = std::numeric_limits<Dwarf_Off>::max();
-				path = path_type();
+// 				base.off = std::numeric_limits<Dwarf_Off>::max();
+// 				base.path_from_root = path_type();
+// 				retval = 0;
+				base = base.p_ds->end().base();
 				retval = 0;
 			}
 			return retval;
 		}
 		
-        int abstract_dieset::bfs_policy::decrement(position& pos,
-        	path_type& path) 
-        {
-        	assert(false);
-        }
-        int abstract_dieset::bfs_policy::decrement_skipping_subtree(position& pos,
-        	path_type& path) 
-        {
-        	assert(false);
-        }
-        
-        // siblings-only traversal
-        abstract_dieset::siblings_policy abstract_dieset::siblings_policy_sg;
-        int abstract_dieset::siblings_policy::increment(position& pos,
-        	path_type& path)
-        {
-        	auto maybe_next_off = (*pos.p_ds)[pos.off]->next_sibling_offset();
-        	if (maybe_next_off)
-            {
-                pos.off = *maybe_next_off;
-                path.pop_back(); path.push_back((position){pos.p_ds, *maybe_next_off});
-            }
-            else 
-            {
-                /* That's it! Use end sentinel. */
-                pos.off = std::numeric_limits<Dwarf_Off>::max();
-                path = path_type();
-            }
-        	return 0;
-        }
-        int abstract_dieset::siblings_policy::decrement(position& pos,
-        	std::deque<abstract_dieset::position>& path) 
-        {
-        	assert(false);
-        }
-    }
-    namespace lib
-    {
+		int abstract_dieset::bfs_policy::decrement(iterator_base& base) 
+		{
+			assert(false);
+		}
+		int abstract_dieset::bfs_policy::decrement_skipping_subtree(iterator_base& base) 
+		{
+			assert(false);
+		}
+		
+		// siblings-only traversal
+		abstract_dieset::siblings_policy abstract_dieset::siblings_policy_sg;
+		int abstract_dieset::siblings_policy::increment(iterator_base& base)
+		{
+// 			auto maybe_next_off = (*base.p_ds)[base.off]->next_sibling_offset();
+// 			if (maybe_next_off)
+// 			{
+// 				base.off = *maybe_next_off;
+// 				base.path_from_root.pop_back(); base.path_from_root.push_back(*maybe_next_off);
+// 			}
+// 			else 
+// 			{
+// 				/* That's it! Use end sentinel. */
+// 				base.off = std::numeric_limits<Dwarf_Off>::max();
+// 				base.path_from_root = path_type();
+// 			}
+			if (!base.p_ds->move_to_next_sibling(base)) base = base.p_ds->end().base();
+			return 0;
+		}
+		int abstract_dieset::siblings_policy::decrement(iterator_base& base) 
+		{
+			assert(false);
+		}
+	}
+	namespace lib
+	{
 		Dwarf_Half file_toplevel_die::get_address_size_for_cu(shared_ptr<compile_unit_die> cu) const
 		{ 
 			auto found = cu_info.find(cu->get_offset());
@@ -2138,7 +2020,22 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			
 			cu_info[off].version_stamp = version_stamp;
 			cu_info[off].address_size = address_size;
-			// leave srcfiles as-is!
+			// leave srcfiles as-is! FIXME: WHY? something about being done by other code...
+			cu_info[off].p_cu = dynamic_pointer_cast<compile_unit_die>(
+				get_ds().get(lib::die(*get_ds().p_f))
+			);
+			
+			// also update (if null) or check (if nonnull) p_spec
+			switch (version_stamp)
+			{
+				case 2: 
+					if (!p_spec) p_spec = &dwarf::spec::dwarf3; 
+					else if (p_spec != &dwarf::spec::dwarf3) throw std::string(
+						"Different DWARF versions in the same file not currently supported");
+					break;
+				default: throw std::string("Unsupported DWARF version stamp!");
+			}
+			prev_version_stamp = version_stamp;
 		}
 			
 		std::string 
@@ -2175,7 +2072,45 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			return cu_info[off].source_files->count();
 		
 		}
+		
+		void file_toplevel_die::add_all_cu_info()
+		{
+			ds.p_f->iterate_cu(&dwarf::lib::add_cu_info, this);
+		}
 
+		bool dieset::move_to_first_cu(spec::abstract_dieset::iterator_base& base)
+		{
+			/* Use the cu_info in toplevel. */
+			auto p_toplevel = dynamic_pointer_cast<lib::file_toplevel_die>(m_toplevel);
+			if (p_toplevel->cu_info.size() == 0) return false;
+			else
+			{
+				base.p_d = dynamic_pointer_cast<basic_die>(p_toplevel->cu_info.begin()->second.p_cu);
+				base.off = base.p_d->get_offset();
+				base.path_from_root = (abstract_dieset::path_type){ 0UL, base.off };
+				parent_cache[base.off] = 0UL;
+				return true;
+			}
+		}
+		
+		bool dieset::move_to_next_cu(spec::abstract_dieset::iterator_base& base)
+		{
+			auto p_toplevel = dynamic_pointer_cast<lib::file_toplevel_die>(m_toplevel);
+			auto found = p_toplevel->cu_info.find(base.off);
+			assert(found != p_toplevel->cu_info.end());
+			++found;
+			if (found == p_toplevel->cu_info.end()) return false;
+			else
+			{
+				base.p_d = found->second.p_cu;
+				base.off = base.p_d->get_offset();
+				base.path_from_root = (abstract_dieset::path_type){ 0UL, base.off };
+				parent_cache[base.off] = 0UL;
+				return true;
+			}
+		}
+
+		// deprecated
 		boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
 		{
 			// We have to explicitly loop through CU headers, 
@@ -2213,15 +2148,18 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			//	version_stamp, address_size*/);
 		}
 
+		// deprecated
 		Dwarf_Off file_toplevel_die::get_first_child_offset() const
 		{
 			return const_cast<file_toplevel_die*>(this)->get_first_child()->get_offset();
 		}
+		// deprecated
 		Dwarf_Off file_toplevel_die::get_next_sibling_offset() const
 		{
 			throw No_entry();
 		}
 		
+		// deprecated
 		Dwarf_Off compile_unit_die::get_next_sibling_offset() const
 		{
 			auto nonconst_this = const_cast<compile_unit_die *>(this); // HACK
@@ -2247,6 +2185,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			if (found == parent->cu_info.end()) throw No_entry();
 			else return found->first;
 		}
+		// deprecated
 		boost::shared_ptr<spec::basic_die> compile_unit_die::get_next_sibling()
 		{
 			int retval;

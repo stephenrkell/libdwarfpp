@@ -44,8 +44,54 @@ namespace dwarf
 				)
 			);
 		}
-		
-	   	file::file(int fd, Dwarf_Unsigned access /*= DW_DLC_READ*/) 
+		bool dieset::move_to_first_child(spec::abstract_dieset::iterator_base& arg)
+		{
+			if (!arg.p_d) return false;
+			auto p_encap = dynamic_pointer_cast<encap::basic_die>(arg.p_d);
+			assert(p_encap);
+			if (p_encap->m_children.size() == 0) return false;
+			Dwarf_Off child_off = *p_encap->m_children.begin();
+
+			arg.p_d = dynamic_pointer_cast<spec::basic_die>((*this)[child_off]);
+			arg.off = child_off;
+			arg.path_from_root.push_back(child_off);
+
+			return true;
+		}
+		bool dieset::move_to_parent(spec::abstract_dieset::iterator_base& arg)
+		{
+			if (!arg.p_d) return false;
+			auto p_encap = dynamic_pointer_cast<encap::basic_die>(arg.p_d);
+			assert(p_encap);
+			if (p_encap->get_offset() == 0UL) return false;
+
+			arg.p_d = dynamic_pointer_cast<spec::basic_die>(p_encap->p_parent);
+			arg.off = arg.p_d->get_offset();
+			arg.path_from_root.pop_back();
+
+			return true;
+		}
+		bool dieset::move_to_next_sibling(spec::abstract_dieset::iterator_base& arg)
+		{
+			if (!arg.p_d) return false;
+			auto p_encap = dynamic_pointer_cast<encap::basic_die>(arg.p_d);
+			assert(p_encap);
+
+			auto& parent_children = p_encap->p_parent->m_children;
+			auto found = parent_children.find(p_encap->m_offset);
+			assert(found != parent_children.end());				
+			if (++found == parent_children.end()) return false;
+			Dwarf_Off sibling_off = *found;
+			assert(sibling_off != p_encap->m_offset);
+
+			arg.p_d = dynamic_pointer_cast<spec::basic_die>((*this)[sibling_off]);
+			arg.off = sibling_off;
+			arg.path_from_root.back() = sibling_off;
+
+			return true;
+		}
+
+		file::file(int fd, Dwarf_Unsigned access /*= DW_DLC_READ*/) 
 				: dwarf::lib::file(fd, access, 
 				/*errarg = */0, /*errhand = */dwarf::lib::default_error_handler, 
 				/*error =*/ 0)
@@ -243,9 +289,10 @@ namespace dwarf
 						GElf_Sym sym;
 						gelf_getsym(data, ii, &sym);
 						char *symname = elf_strptr(e, shdr.sh_link, sym.st_name);
+						vector<string> symname_path(1, symname);
 						if (sym.st_shndx == SHN_UNDEF
 							&& strlen(symname) > 0
-							&& !ds().resolve_die_path(symname))
+							&& !ds().toplevel()->resolve_visible(symname_path.begin(), symname_path.end()))
 						{
 							auto child_count = srk31::count(
 								p_all_cus->children_begin(), p_all_cus->children_end());
@@ -368,28 +415,28 @@ namespace dwarf
 			return *this;
 		}
 		
+		// FIXME: delete this
 		void 
 		dieset::build_path_from_root
-			(std::deque<spec::abstract_dieset::position>& path, 
+			(spec::abstract_dieset::path_type& path, 
 			map_iterator current)
 		{
 			assert(current != this->map_end());
-			//if (current == this->map_end()) return;
 			do 
 			{
-				path.push_front((spec::abstract_dieset::position){this, current->second->get_offset()});
+				path.push_front(current->second->get_offset());
 				current = this->map_find(current->second->get_parent()
 					? current->second->get_parent()->get_offset()
 					: 0UL);
 			} while (current->second->get_offset() != 0UL);
 		}
-		std::deque<spec::abstract_dieset::position> 
-		dieset::path_from_root(Dwarf_Off off)
-		{
-			std::deque<position> path;
-			build_path_from_root(path, this->map_find(off));
-			return path;
-		}
+// 		std::deque<spec::abstract_dieset::position> 
+// 		dieset::path_from_root(Dwarf_Off off)
+// 		{
+// 			std::deque<position> path;
+// 			build_path_from_root(path, this->map_find(off));
+// 			return path;
+// 		}
 
 // 		struct Print_Action
 // 		{
@@ -561,49 +608,49 @@ namespace dwarf
 // 			return o;
 // 		}
 		
-		opt<die&> dieset::resolve_die_path(const Dwarf_Off start, 
-			const pathname& path, pathname::const_iterator pos)
-		{
-			opt<die&> none;
-#define CAST_TO_DIE(arg) \
-	dynamic_pointer_cast<die, spec::basic_die>((arg))
-			if (pos == path.end()) { return opt<die&>(*(CAST_TO_DIE((*this)[start]))); }
-			else
-			{
-				//cerr << "Looking for a DWARF element named " << *pos 
-				//	<< " starting from offset 0x" << std::hex << start << std::dec
-				//	<< ", " << dies[start] << endl;
-				if (spec().tag_is_type(CAST_TO_DIE((*this)[start])->get_tag()) && 
-					!spec().tag_has_named_children(CAST_TO_DIE((*this)[start])->get_tag()))
-				{
-					// this is a chained type qualifier -- recurse
-					assert((CAST_TO_DIE((*this)[start])->has_attr(DW_AT_type)));
-					return resolve_die_path(CAST_TO_DIE((*this)[start])->get_attr(DW_AT_type).get_ref().off,
-						path, pos);
-				}
-				else if (spec().tag_has_named_children(CAST_TO_DIE((*this)[start])->get_tag()) || start == 0UL)
-				{
-					// this is a compilation unit or type or variable or subprogram with named children
-					for (set<Dwarf_Off>::iterator iter = CAST_TO_DIE((*this)[start])->children().begin();
-						iter != CAST_TO_DIE((*this)[start])->children().end();
-						iter++)
-					{
-						if (CAST_TO_DIE((*this)[*iter])->has_attr(DW_AT_name) && 
-							CAST_TO_DIE((*this)[*iter])->get_attr(DW_AT_name).get_string() == *pos)
-						{
-							return resolve_die_path(*iter, path, pos + 1);
-						}
-						// else found an anonymous child -- continue
-					} // end for
-					// failed
-					return none; 
-				}
-				else 
-				{	
-					return none;
-				} // end if tag_is_type
-			} // end if pos
-		} // end resolve_pathname
+// 		opt<die&> dieset::resolve_die_path(const Dwarf_Off start, 
+// 			const pathname& path, pathname::const_iterator pos)
+// 		{
+// 			opt<die&> none;
+// #define CAST_TO_DIE(arg) \
+// 	dynamic_pointer_cast<die, spec::basic_die>((arg))
+// 			if (pos == path.end()) { return opt<die&>(*(CAST_TO_DIE((*this)[start]))); }
+// 			else
+// 			{
+// 				//cerr << "Looking for a DWARF element named " << *pos 
+// 				//	<< " starting from offset 0x" << std::hex << start << std::dec
+// 				//	<< ", " << dies[start] << endl;
+// 				if (spec().tag_is_type(CAST_TO_DIE((*this)[start])->get_tag()) && 
+// 					!spec().tag_has_named_children(CAST_TO_DIE((*this)[start])->get_tag()))
+// 				{
+// 					// this is a chained type qualifier -- recurse
+// 					assert((CAST_TO_DIE((*this)[start])->has_attr(DW_AT_type)));
+// 					return resolve_die_path(CAST_TO_DIE((*this)[start])->get_attr(DW_AT_type).get_ref().off,
+// 						path, pos);
+// 				}
+// 				else if (spec().tag_has_named_children(CAST_TO_DIE((*this)[start])->get_tag()) || start == 0UL)
+// 				{
+// 					// this is a compilation unit or type or variable or subprogram with named children
+// 					for (set<Dwarf_Off>::iterator iter = CAST_TO_DIE((*this)[start])->children().begin();
+// 						iter != CAST_TO_DIE((*this)[start])->children().end();
+// 						iter++)
+// 					{
+// 						if (CAST_TO_DIE((*this)[*iter])->has_attr(DW_AT_name) && 
+// 							CAST_TO_DIE((*this)[*iter])->get_attr(DW_AT_name).get_string() == *pos)
+// 						{
+// 							return resolve_die_path(*iter, path, pos + 1);
+// 						}
+// 						// else found an anonymous child -- continue
+// 					} // end for
+// 					// failed
+// 					return none; 
+// 				}
+// 				else 
+// 				{	
+// 					return none;
+// 				} // end if tag_is_type
+// 			} // end if pos
+// 		} // end resolve_pathname
 		
 		/* This is our main interface for setting/mutating attributes. 
 		 * Usually it's trivial. But in the case of references, we convert

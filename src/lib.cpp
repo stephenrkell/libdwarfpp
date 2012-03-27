@@ -99,31 +99,33 @@ namespace dwarf
 			return retval;
     	}
 
-        int file::clear_cu_context(cu_callback_t cb, void *arg)
-        {
-        	int retval;
+		int file::clear_cu_context(cu_callback_t cb, void *arg)
+		{
+			if (!have_cu_context) return DW_DLV_OK;
+		
+			int retval;
 			Dwarf_Unsigned cu_header_length;
 			Dwarf_Half version_stamp;
 			Dwarf_Unsigned abbrev_offset;
 			Dwarf_Half address_size;
-		    Dwarf_Unsigned next_cu_header;
-            //std::cerr << "Resetting CU state..." << std::endl;
-            while(DW_DLV_OK == (retval = advance_cu_context(
+			Dwarf_Unsigned next_cu_header;
+			//std::cerr << "Resetting CU state..." << std::endl;
+			while(DW_DLV_OK == (retval = advance_cu_context(
 				&cu_header_length, &version_stamp, 
 				&abbrev_offset, &address_size, 
 				&next_cu_header,
 				cb, arg)));
 
 			have_cu_context = false;
-            //std::cerr << "next_cu_header returned " << retval << std::endl;
-            if (retval == DW_DLV_NO_ENTRY)
-            {
-            	/* This is okay -- means we iterated to the end of the CUs
-                 * and are now back in the beginning state, which is what we want. */
-                return DW_DLV_OK;
-            }
-            else return retval;
-        }
+			//std::cerr << "next_cu_header returned " << retval << std::endl;
+			if (retval == DW_DLV_NO_ENTRY)
+			{
+				/* This is okay -- means we iterated to the end of the CUs
+				 * and are now back in the beginning state, which is what we want. */
+				return DW_DLV_OK;
+			}
+			else return retval;
+		}
 		
 		int file::advance_cu_context(Dwarf_Unsigned *cu_header_length,
 				Dwarf_Half *version_stamp,

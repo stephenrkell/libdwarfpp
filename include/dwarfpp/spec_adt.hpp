@@ -17,11 +17,8 @@
 #include "attr.hpp"
 #include "opt.hpp"
 
-#define NULL_SHARED_PTR(type) boost::shared_ptr<type>()
-
 namespace dwarf
 {
-	// -- FIXME bring abstract_dieset into spec?
 	namespace spec 
 	{
 		using namespace lib;
@@ -41,65 +38,32 @@ namespace dwarf
 		ostream& operator<<(ostream& s, const basic_die& d);
 		ostream& operator<<(ostream& s, const abstract_dieset& ds);
 
-		class abstract_dieset //: public boost::enable_shared_from_this<abstract_dieset>
-        {
-        public:
-            /* This is all you need to denote a member of a dieset. */
-            struct position
-            {
-            	abstract_dieset *p_ds;
-                Dwarf_Off off;
-/*				bool operator==(const position& arg) const 
-				{ return this->p_ds == arg.p_ds && this->off == arg.off; }
-				bool operator!=(const position& arg) const
-				{ return !(*this == arg); }
-				bool operator<=(const position& arg) const
-				{ return this->p_ds < arg.p_ds
-				|| (this->p_ds == arg.p_ds
-				    && this->off <= arg.off); }
-				bool operator<(const position& arg) const 
-				{ return *this < arg && *this != arg; }
-				bool operator>(const position& arg) const
-				{ return !(*this <= arg); }
-				bool operator>=(const position& arg) const
-				{ return *this == arg || *this > arg; }*/
-				
-                void canonicalize_position()
-                { 
-/*                	try // test whether we're pointing at a real DIE
-                    {
-                    	if (!p_ds || off == std::numeric_limits<Dwarf_Off>::max())
-                        {
-                        	throw No_entry();
-                        }
-                        // FIXME: this will NOT throw No_entry! UNdefined behaviour! 
-                    	//p_ds->operator[](off);
-                        assert(p_ds->find(off) != p_ds->end());
-                    } 
-                    catch (No_entry) // if not, set us to be the end sentinel
-                    {
-                    	this->off = std::numeric_limits<Dwarf_Off>::max();
-                    }*/ // FIXME: why is this function necessary?
-                }
-            }; // end class position
-			typedef std::deque<position> path_type; 
-            
-            struct order_policy
-            {
-            	virtual int increment(position& pos, 
-                	path_type& path) = 0;
-                virtual int decrement(position& pos,
-                	path_type& path) = 0;
+		class abstract_dieset
+		{
+		public:
+			/* This is all you need to denote a member of a dieset. */
+			struct position
+			{
+				abstract_dieset *p_ds;
+				Dwarf_Off off;
+			}; // end class position
+			typedef std::deque<Dwarf_Off> path_type; 
+			struct iterator_base;
+			
+			struct order_policy
+			{
+				virtual int increment(iterator_base& pos) = 0;
+				virtual int decrement(iterator_base& pos) = 0;
 			protected:
 				const int behaviour; // used for equality comparison
 				
 				enum
 				{
-					 NO_BEHAVIOUR,
-					 PREDICATED_BEHAVIOUR,
-					 DEPTHFIRST_BEHAVIOUR, // FIXME: do I actually use the predicates in these?
-					 BREADTHFIRST_BEHAVIOUR,
-					 SIBLINGS_BEHAVIOUR
+					NO_BEHAVIOUR,
+					PREDICATED_BEHAVIOUR,
+					DEPTHFIRST_BEHAVIOUR, // FIXME: do I actually use the predicates in these?
+					BREADTHFIRST_BEHAVIOUR,
+					SIBLINGS_BEHAVIOUR
 				};
 				
 				order_policy(int behaviour) : behaviour(behaviour) {}
@@ -132,14 +96,8 @@ namespace dwarf
 					return this->half_equal(arg) && arg.half_equal(*this);
 				}
 			}; // end class order_policy
-            
-            // FIXME: remember what this is for....
-            struct die_pred : public std::unary_function<spec::basic_die, bool>
-            {
-				virtual bool operator()(const spec::basic_die& d) const = 0;
-			};
-            
-            struct policy : order_policy, die_pred 
+			
+			struct policy : order_policy//, die_pred 
 			{
 			protected:
 				policy(int behaviour) : order_policy(behaviour) {}
@@ -150,10 +108,8 @@ namespace dwarf
 			struct dummy_policy : policy
 			{
 				// depth-first iteration
-				int increment(position& pos,
-					path_type& path) { assert(false); }
-				int decrement(position& pos,
-					path_type& path) { assert(false); }
+				int increment(iterator_base& pos) { assert(false); }
+				int decrement(iterator_base& pos) { assert(false); }
 			public:
 				dummy_policy() : policy(NO_BEHAVIOUR) {}
 
@@ -162,50 +118,42 @@ namespace dwarf
 			};
 			static dummy_policy dummy_policy_sg;
 			
-            /* Default policy: depth-first order, all match. */
-            struct default_policy : policy
-            {
-            	// depth-first iteration
-            	int increment(position& pos,
-                	path_type& path);
-                int decrement(position& pos,
-                	path_type& path);
+			/* Default policy: depth-first order, all match. */
+			struct default_policy : policy
+			{
+				// depth-first iteration
+				int increment(iterator_base& pos);
+				int decrement(iterator_base& pos);
 			protected:
 				default_policy(int behaviour) : policy(behaviour) {}
 			public:
 				default_policy() : policy(DEPTHFIRST_BEHAVIOUR) {}
 				
-                // always true
-                bool operator()(const spec::basic_die& d) const { return true; }
+				// always true
+				bool operator()(const spec::basic_die& d) const { return true; }
 			};
 			static default_policy default_policy_sg;
+			
 			/* Breadth-first policy: breadth-first order, all match. */
 			struct bfs_policy : policy
 			{
 				// helper functions
 			protected:
-				void enqueue_children(position& pos,
-					path_type& path);
-				void advance_to_next_sibling(position& pos,
-					path_type& path);
-				int take_from_queue_or_terminate(position& pos,
-					path_type& path);
+				void enqueue_children(iterator_base& base);
+				void advance_to_next_sibling(iterator_base& base);
+				int take_from_queue_or_terminate(iterator_base& base);
 			
 			public:
 				// a queue of paths
 				std::deque<path_type> m_queue;
 
 				// breadth-first iteration
-				int increment(position& pos,
-					path_type& path);
-				int decrement(position& pos,
-					path_type& path);
+				int increment(iterator_base& pos);
+				int decrement(iterator_base& pos);
 
 				// special functions for tweaking the breadth-first exploration
-				int increment_skipping_subtree(position& pos,
-					path_type& path);
-				int decrement_skipping_subtree(position& pos,
-					path_type& path);
+				int increment_skipping_subtree(iterator_base& pos);
+				int decrement_skipping_subtree(iterator_base& pos);
 					
 			protected:
 				bfs_policy(int behaviour) : policy(behaviour), m_queue() {}
@@ -221,104 +169,80 @@ namespace dwarf
 				// always true
 				bool operator()(const spec::basic_die& d) const { return true; }
 			};
-            //static bfs_policy bfs_policy_sg;
-            // we *don't* create a bfs policy singleton because each BFS traversal
-            // has to keep its own state (queue of nodes)
-            /* Sibling policy: for children iterators */
-            struct siblings_policy : policy 
-            {
-            	int increment(position& pos,
-                	path_type& path);
-                int decrement(position& pos,
-                	path_type& path);
+			// we *don't* create a bfs policy singleton because each BFS traversal
+			// has to keep its own state (queue of nodes)
+
+			/* Sibling policy: for children iterators */
+			struct siblings_policy : policy 
+			{
+				int increment(iterator_base& pos);
+				int decrement(iterator_base& pos);
 			protected:
 				siblings_policy(int behaviour) : policy(behaviour) {}
 			public:
 				siblings_policy() : policy(SIBLINGS_BEHAVIOUR) {}
-                
-                // always true
-                bool operator()(const spec::basic_die& d) const { return true; }
-            };
-            static siblings_policy siblings_policy_sg;
-            
+				
+				// always true
+				bool operator()(const spec::basic_die& d) const { return true; }
+			};
+			static siblings_policy siblings_policy_sg;
+			
 			struct position_and_path : position
 			{
 				path_type path_from_root;
-				position_and_path(const position& pos): position(pos) {}
+				//position_and_path(const position& pos): position(pos) {}
+				position_and_path(abstract_dieset *p_ds, const path_type& path)
+				 : position((position){p_ds, path.back()}), path_from_root(path) {}
 				position_and_path(const position& pos, const path_type& path)
 				: position(pos), path_from_root(path) {}
 			};
 			
-            struct basic_iterator_base 
-            : public position_and_path
-            {
-				/* IDEA: if we extend this to include a shared_ptr to a DIE,
-				 * with the invariant that this DIE is always at "position",
-				 * or null if we're at the end,
-				 * then we can perhaps save a lot of inefficient creation of DIEs.
-				 * The traversal policies can update the pointer at the same time.
-				 * This allows them to use the next-sibling, next-child and offset-
-				 * based constructors, which are efficient on libdwarf .
-				 * Currently, we use get_next_child, get_next_sibling, get_parent etc.,
-				 * which are slow, and sometimes resort to dieset::find(), which is very bad.
-				 * 
-				 * Q. How does this interact with the factory?
-				 * A. We shouldn't use the next-sibling, next-child and offset-based
-				 *    constructors directly to make_shared a basic_die, because
-				 *    we generally want to instantiate the class appropriate to the DIE's tag.
-				 *    At the moment, the dieset invokes the factory, within
-				 *    find() or operator[],
-				 *    to encapsulate in a lib::die or encap::die in its ADT class.
-				 *    There is no getting around some indirection here:
-				 *    to identify the appropriate ADT class, we need a lib::die,
-				 *    so we have to either allocate a second lib::die within the ADT class
-				 *    or use a pointer. We go with the first, because on-stack lib::die creation
-				 *    should be fast.
-				 *    Now we need the iterator policy methods
-				 *    (and the cursor-style navigation methods)
-				 *    to be able to invoke the factory directly, asking for
-				 *    next-child, next-sibling, offset, etc.. This means an API change,
-				 *    or excessive friending. Certainly, the iterator implementation now takes
-				 *    on activities that were previously localised in the dieset.
-				 *    Maybe ask the dieset? 
-				 *    "Please update me to the next child, next sibling, DIE at this offset..."?
-				 *    Actually it's just the first two that are new; it already does offdie.
-				 *    AND we want to AVOID offdie, because it doesn't preserve path information!
-				 *    YES. This is key. Although offdie is efficient, it breaks our ability
-				 *    to navigate. This is another reason to remove navigation from basic_die,
-				 *    because providing it is inherently expensive.
-				 * Q. Does this mean we want accessors (of children, reference attributes, ...)
-				 *    to return iterators where they currently return pointers?
-				 * A. This depends on the use-case. In general, children are okay because
-				 *    we already do those through iterators. Reference attributes are a problem
-				 *    because they inherently lose context. So maybe iterator_here is sadly
-				 *    necessary, and parent_cache is still a good idea!
-				 */
+			struct iterator_base 
+			: public position_and_path
+			{
+				/* This pointer points to the target DIE, or null if we are end(). */
+				shared_ptr<basic_die> p_d;
 				
-				typedef std::pair<Dwarf_Off, boost::shared_ptr<spec::basic_die> > pair_type;
-				//policy& m_policy;
-				policy *p_policy;
-				/* We have to use a pointer because some clients 
-				 * (like boost graph algorithms, where we are playing the edge_iterator)
-				 * want to default-construct an iterator, then assign to it. Although
-				 * we don't want to assign different policies, we do want to be able
-				 * to construct with a dummy policy, then overwrite with a real policy. */
+				//typedef std::pair<Dwarf_Off, boost::shared_ptr<spec::basic_die> > pair_type;
 
-				bool operator==(const basic_iterator_base& arg) const
+				bool operator==(const iterator_base& arg) const
 				{ return this->off == arg.off && this->p_ds == arg.p_ds
-					&& (off == std::numeric_limits<Dwarf_Off>::max () || // HACK: == end() works
-						*this->p_policy == *arg.p_policy);			   // for any policy
+					/*&& (off == std::numeric_limits<Dwarf_Off>::max() || // HACK: == end() works
+						*this->p_policy == *arg.p_policy)*/;			   // for any policy
 				}
-				bool operator!=(const basic_iterator_base& arg) const { return !(*this == arg); }
+				bool operator!=(const iterator_base& arg) const 
+				{ return !(*this == arg); }
+				
+				
 
-				basic_iterator_base(abstract_dieset& ds, Dwarf_Off off,
-					 const path_type& path_from_root,
-					 policy& pol = default_policy_sg);
-				basic_iterator_base() // path_from_root is empty
-				: position_and_path((position){0, 0UL}), 
-				  p_policy(&dummy_policy_sg) { canonicalize_position(); } 
-				basic_iterator_base(const position_and_path& arg)
-				: position_and_path(arg), p_policy(&dummy_policy_sg) { canonicalize_position(); } 
+				// helper for constructing p_d
+				static shared_ptr<basic_die> 
+				die_from_offset(
+					abstract_dieset& ds, Dwarf_Off off
+				)
+				{
+					if (off == std::numeric_limits<Dwarf_Off>::max()) return shared_ptr<basic_die>();
+					else return ds[off];
+				}
+
+				iterator_base(abstract_dieset& ds, Dwarf_Off off,
+					const path_type& path_from_root,
+					shared_ptr<basic_die> p_d = shared_ptr<basic_die>());
+
+				iterator_base() // no dieset, never mind a die! path_from_root is empty
+				: position_and_path((position){0, 0UL}, path_type()), 
+				  p_d() {} 
+
+				iterator_base(abstract_dieset *p_ds, const path_type& arg)
+				: position_and_path(p_ds, arg) {}
+
+				iterator_base(const position_and_path& arg)
+				: position_and_path(arg), 
+				  p_d(die_from_offset(*arg.p_ds, arg.off)) {}
+				
+				iterator_base(const iterator_base& arg)
+				: position_and_path(arg),
+				  p_d(die_from_offset(*arg.p_ds, arg.off)) {}
 
 				typedef std::bidirectional_iterator_tag iterator_category;
 				typedef spec::basic_die value_type;
@@ -326,81 +250,105 @@ namespace dwarf
 				typedef spec::basic_die *pointer;
 				typedef spec::basic_die& reference;
 				
-				basic_iterator_base& operator=(const basic_iterator_base& arg)
+				iterator_base& operator=(const iterator_base& arg)
 				{
-					assert(p_policy->is_undefined() || *p_policy == *arg.p_policy);
-					// HMM: do we want to deep-copy the policy? Not for now
-					if (p_policy->is_undefined()) p_policy = arg.p_policy;
+	//				assert(p_policy->is_undefined() || *p_policy == *arg.p_policy);
+	//				// HMM: do we want to deep-copy the policy? Not for now
+	//				if (p_policy->is_undefined()) p_policy = arg.p_policy;
 					this->path_from_root = arg.path_from_root;
 					*static_cast<position*>(this) = arg;
 					return *this;
 				}
-			}; // end basic_iterator_base
+			}; // end iterator_base
 
 			virtual Dwarf_Off highest_offset_upper_bound() 
 			{ return std::numeric_limits<Dwarf_Off>::max(); }
 			virtual Dwarf_Off get_last_monotonic_offset()
 			{ return 0UL; }
 			
-            struct iterator;
-        	virtual iterator find(Dwarf_Off off) = 0;
-            virtual iterator begin() = 0;
-            virtual iterator end() = 0;
-            virtual iterator begin(policy& pol);
-            virtual iterator end(policy& pol) ;
-            
-            virtual path_type
-            path_from_root(Dwarf_Off off) = 0;
-            
-            virtual boost::shared_ptr<spec::basic_die> operator[](Dwarf_Off off) const = 0;
-            boost::shared_ptr<spec::basic_die> operator[](Dwarf_Off off)
-            { return const_cast<const abstract_dieset *>(this)->operator[](off); }
-           
-            struct iterator
-            : public boost::iterator_adaptor<iterator, // Derived
-                    basic_iterator_base,        // Base
-                    boost::shared_ptr<spec::basic_die>, // Value
-                    boost::bidirectional_traversal_tag, // Traversal
-                    boost::shared_ptr<spec::basic_die> // Reference
-                > 
-            {
-                typedef boost::shared_ptr<spec::basic_die> Value;
-            	typedef basic_iterator_base Base;
-            	
-                iterator() : iterator::iterator_adaptor_() {}
-            	
-                iterator(Base p) : iterator::iterator_adaptor_(p) {}
-            	
-                iterator(abstract_dieset& ds, Dwarf_Off off, 
-                	const path_type& path_from_root, 
-                    policy& pol = default_policy_sg)  
-                : iterator::iterator_adaptor_(
-                	basic_iterator_base(ds, off, path_from_root, pol)) {}
+			struct iterator;
+			virtual iterator find(Dwarf_Off off) = 0;
+			virtual iterator begin() = 0;
+			virtual iterator end() = 0;
+			virtual iterator begin(policy& pol);
+			virtual iterator end(policy& pol);
+			
+			virtual bool move_to_first_child(iterator_base& arg) = 0;
+			virtual bool move_to_parent(iterator_base& arg) = 0;
+			virtual bool move_to_next_sibling(iterator_base& arg) = 0;
+			
+			//virtual path_type
+			//path_from_root(Dwarf_Off off) = 0;
+			
+			virtual shared_ptr<basic_die> operator[](Dwarf_Off off) const = 0;
 
-                iterator(const position& pos, 
-                	const path_type& path_from_root,
-                    policy& pol = default_policy_sg)  
-                : iterator::iterator_adaptor_(basic_iterator_base(
-                	*pos.p_ds, pos.off, path_from_root, pol)) {}
+			shared_ptr<basic_die> operator[](Dwarf_Off off)
+			{ return const_cast<const abstract_dieset&>(*this)[off]; }
+		   
+			struct iterator
+			: public boost::iterator_adaptor<iterator, // Derived
+					iterator_base,		// Base
+					shared_ptr<basic_die>, // Value
+					boost::bidirectional_traversal_tag, // Traversal
+					shared_ptr<basic_die> // Reference
+				>
+			{
+				friend class abstract_dieset; // for mutating navigation functions
+				typedef boost::shared_ptr<spec::basic_die> Value;
+				typedef iterator_base Base;
+				
+				// an iterator is an iterator_base + a policy
+				/* We have to use a pointer because some clients 
+				 * (like boost graph algorithms, where we are playing the edge_iterator)
+				 * want to default-construct an iterator, then assign to it. Although
+				 * we don't want to assign different policies, we do want to be able
+				 * to construct with a dummy policy, then overwrite with a real policy. */
+				policy *p_policy;
+				
+				iterator() : iterator::iterator_adaptor_(), p_policy(&default_policy_sg) {}
+				
+				iterator(Base p) : iterator::iterator_adaptor_(p), p_policy(&default_policy_sg) {}
+				
+				iterator(abstract_dieset& ds, Dwarf_Off off, 
+					const path_type& path_from_root, 
+					shared_ptr<basic_die> p_d = shared_ptr<basic_die>(),
+					policy& pol = default_policy_sg)  
+				: iterator::iterator_adaptor_(
+					iterator_base(ds, off, path_from_root, p_d)), p_policy(&pol) {}
 
-                 iterator(const position_and_path& pos, 
-                    policy& pol = default_policy_sg)  
-                : iterator::iterator_adaptor_(basic_iterator_base(
-                	*pos.p_ds, pos.off, pos.path_from_root, pol)) {}
-               
-                // copy-like constructor that changes policy
-                iterator(const iterator& arg, policy& pol) : 
-                	iterator::iterator_adaptor_(basic_iterator_base(
-                    	*arg.base().p_ds, arg.base().off, arg.base().path_from_root, pol)) {}
-                            	
-                void increment()        
-                { this->base().p_policy->increment(this->base_reference(), this->base_reference().path_from_root); }
-            	void decrement()        
-                { this->base().p_policy->decrement(this->base_reference(), this->base_reference().path_from_root); }
-                Value dereference() { return this->base().p_ds->operator[](this->base().off); }
-                Value dereference() const { return this->base().p_ds->operator[](this->base().off); }
-                position& pos() { return this->base_reference(); }
-                const path_type& path() { return this->base_reference().path_from_root; }
+				iterator(const position& pos, 
+					const path_type& path_from_root,
+					shared_ptr<basic_die> p_d = shared_ptr<basic_die>(),
+					policy& pol = default_policy_sg)  
+				: iterator::iterator_adaptor_(iterator_base(
+					*pos.p_ds, pos.off, path_from_root, p_d)), p_policy(&pol) {}
+
+				 iterator(const position_and_path& pos, 
+				 	shared_ptr<basic_die> p_d = shared_ptr<basic_die>(),
+					policy& pol = default_policy_sg)  
+				: iterator::iterator_adaptor_(iterator_base(
+					*pos.p_ds, pos.off, pos.path_from_root, p_d)), p_policy(&pol) {}
+			
+				// copy-like constructor that changes policy
+				iterator(const iterator& arg, policy& pol) : 
+					iterator::iterator_adaptor_(iterator_base(
+						*arg.base().p_ds, 
+						arg.base().off, 
+						arg.base().path_from_root, 
+						arg.base().p_d)), p_policy(&pol) {}
+								
+				void increment()		
+				{ p_policy->increment(base_reference()); }
+				void decrement()		
+				{ p_policy->decrement(base_reference()); }
+
+// 				Value dereference() { return base().p_ds->operator[](base().off); }
+// 				Value dereference() const { return base().p_ds->operator[](base().off); }
+				Value dereference() { return base().p_d; }
+				Value dereference() const { return base().p_d; }
+
+				position& pos() { return base_reference(); }
+				const path_type& path() { return base_reference().path_from_root; }
 				
 				/* iterator_adaptor implements <, <=, >, >= using distance_to.
 				 * However, that's more precise than we need: we can't cheaply
@@ -424,29 +372,58 @@ namespace dwarf
 				{ return this->shares_parent_pos(i) && !(*this < i); }
 				
 					
-            }; // end iterator
-            virtual boost::shared_ptr<spec::file_toplevel_die> toplevel() = 0; /* NOT const */
-            virtual const spec::abstract_def& get_spec() const = 0;
+			}; // end iterator
+
+			/* Navigation conveniences */
+			bool move_to_first_child(iterator& arg)
+			{ return move_to_first_child(arg.base_reference()); }
+			bool move_to_parent(iterator& arg)
+			{ return move_to_parent(arg.base_reference()); }
+			bool move_to_next_sibling(iterator& arg)
+			{ return move_to_next_sibling(arg.base_reference()); }
+			
+			virtual shared_ptr<file_toplevel_die> toplevel() = 0; /* NOT const */
+			virtual const spec::abstract_def& get_spec() const = 0;
 			
 			// we return the host address size by default
 			virtual Dwarf_Half get_address_size() const { return sizeof (void*); }
-        };        
+		};		
 		// overloads moved outside struct definition above....
-		inline bool operator==(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2) 
+		inline bool operator==(
+			const abstract_dieset::position& arg1, 
+			const abstract_dieset::position& arg2
+		) 
 		{ return arg1.p_ds == arg2.p_ds && arg1.off == arg2.off; }
-		inline bool operator!=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
-		{ return !(arg1 == arg2); }
-		inline bool operator<=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
-		{ return arg1.p_ds < arg2.p_ds
-		|| (arg1.p_ds == arg2.p_ds
-			&& arg1.off <= arg2.off); }
-		inline bool operator<(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
-		{ return arg1 <= arg2 && arg1 != arg2; }
-		inline bool operator>(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
-		{ return !(arg1 <= arg2); }
-		inline bool operator>=(const abstract_dieset::position& arg1, const abstract_dieset::position& arg2)
-		{ return arg1 == arg2 || arg1 > arg2; }
 		
+		inline bool operator!=(
+			const abstract_dieset::position& arg1, 
+			const abstract_dieset::position& arg2
+		)
+		{ return !(arg1 == arg2); }
+		
+		inline bool operator<=(
+			const abstract_dieset::position& arg1, 
+			const abstract_dieset::position& arg2
+		)
+		{ return arg1.p_ds < arg2.p_ds || (arg1.p_ds == arg2.p_ds && arg1.off <= arg2.off); }
+		
+		inline bool operator<(
+			const abstract_dieset::position& arg1, 
+			const abstract_dieset::position& arg2
+		)
+		{ return arg1 <= arg2 && arg1 != arg2; }
+		
+		inline bool operator>(
+			const abstract_dieset::position& arg1, 
+			const abstract_dieset::position& arg2
+		)
+		{ return !(arg1 <= arg2); }
+		
+		inline bool operator>=(
+			const abstract_dieset::position& arg1, 
+			const abstract_dieset::position& arg2
+		)
+		{ return arg1 == arg2 || arg1 > arg2; }
 		struct basic_die : public boost::enable_shared_from_this<basic_die>
 		{
 			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
@@ -468,7 +445,18 @@ namespace dwarf
 			// children
 			// FIXME: iterator pair //virtual std::pair< > get_children() = 0;
 			abstract_dieset::iterator children_begin() 
-			{ 
+			{
+				/* FIXME: how to remove iterator_here()? 
+				 * 1. We could thread through an optional position_and_path
+				 * from the caller. Will the caller be able to supply it? 
+				 * 2. We could put equivalent children_ methods on
+				 * basic_iterator_base. This is a big change for clients,
+				 * but is arguably a better design.
+				 * 3. We could retreat and just put a position in each
+				 * DIE. This doesn't separate concerns so well, but doesn't
+				 * require changes to clients, and only precludes the
+				 * stacking_dieset design.
+				 */
 				if (first_child_offset()) 
 				{
 					return this->get_first_child()->iterator_here(
@@ -533,12 +521,7 @@ namespace dwarf
 			/* this is deprecated too! it's inherently slow. */
 			abstract_dieset::iterator 
 			iterator_here(abstract_dieset::policy& pol = abstract_dieset::default_policy_sg)
-			 __attribute__((deprecated)){ return abstract_dieset::iterator(
-				this->get_ds(),
-				this->get_offset(),
-				this->get_ds().find(this->get_offset()).base().path_from_root, 
-				pol); }
-			// not a const function because may create backrefs -----------^^^
+			 __attribute__((deprecated));
 
 			// these also belong in navigation
 			opt<std::vector<std::string> >
@@ -577,101 +560,6 @@ namespace dwarf
 			find_sibling_ancestor_of(boost::shared_ptr<basic_die> d) __attribute__((deprecated));
 		};
 		
-		// FIXME: this class is work in progress, and maybe a bad idea!
-		// HMM: maybe the least invasive way is just to always keep a pointer 
-		// within the iterator. Since iterators need to create DIEs to get around,
-		// this makes sense anyway.
-		// BUT then we have to make iterator a template class!
-		template <typename Die>
-		struct cursor
-		: shared_ptr<Die>,
-		  abstract_dieset::iterator
-		{
-			typedef shared_ptr<Die> ptr_super;
-			typedef abstract_dieset::iterator iterator_super;
-			
-			/* This class aims to provide "navigation done right"! */ 
-			
-			// constructors
-			cursor(shared_ptr<Die> p_d, abstract_dieset::iterator i)
-			: ptr_super(p_d), iterator_super(i) {}
-			
-			// accessors
-			
-			operator bool() 
-			{ return *static_cast<iterator_super*>(*this) != get_ds().end(); }
-			
-			shared_ptr<Die>& operator*()
-			{ return this->ptr_super; }
-			
-			template <typename OtherDie>
-			cursor<OtherDie> as()
-			{
-				auto newp = dynamic_pointer_cast<OtherDie>(*static_cast<ptr_super*>(this));
-				assert(newp);
-				return cursor<OtherDie>(newp, *static_cast<iterator_super*>(this));
-			}
-			
-			
-			/* There is no need for const versions -- we don't use const die ptrs.
-			 *
-			 * There is the possibility of "move to" versions. These are 
-			 * independent of policy, unlike the iterator's ++ and -- methods.
-			 * However, there's not much value in supporting "move to"
-			 *    e.g. my_cursor.move_to_parent();
-			 * as opposed to just 
-			 *         my_cursor = my_cursor.get_parent();
-			 *     or  my_cursor = my_cursor.parent();
-			 *           where "parent()" is the nothrow version, and will
-			 *           move the cursor to the end sentinel if there is no parent.
-			 * Note that assigning might require type conversion. We provide the "as"
-			 * template method for this.
-			 */
-			
-			// The "throw" versions are the most primitive, because the underlying
-			// library will throw an exception which we just pass through.
-			
-			virtual cursor<basic_die> get_parent() = 0;
-			virtual cursor<basic_die> get_first_child() = 0;
-			virtual cursor<basic_die> get_next_sibling() = 0;
-			
-			// "offset"
-			virtual Dwarf_Off get_parent_offset() = 0;
-			virtual Dwarf_Off get_first_child_offset() = 0;
-			virtual Dwarf_Off get_next_sibling_offset() = 0;
-			
-			// nothrow of the above
-			// FIXME
-			// -- offsets only for now
-			opt<Dwarf_Off> parent_offset() 
-			{ 	try { return this->get_parent_offset(); } 
-				catch (No_entry) { return opt<Dwarf_Off>(); } }
-			opt<Dwarf_Off> first_child_offset() 
-			{ 	try { return this->get_first_child_offset(); } 
-				catch (No_entry) { return opt<Dwarf_Off>(); } }
-			opt<Dwarf_Off> next_sibling_offset() 
-			{ 	try { return this->get_next_sibling_offset(); } 
-				catch (No_entry) { return opt<Dwarf_Off>(); } }
-			
-			// get the dieset
-			virtual abstract_dieset& get_ds() { assert(this->p_ds); return *this->p_ds; }
-
-			// "ident path" methods assuming there should be an unbroken path;
-			opt<std::vector<std::string> > ident_path_from_root();
-			opt<std::vector<std::string> > ident_path_from_cu();
-			
-			// "ident path" methods returning a vector that may have blanks.
-			std::vector< opt<std::string> > opt_ident_path_from_root();
-			std::vector < opt<std::string> > opt_ident_path_from_cu();
-
-			// "enclosing" methods
-			cursor<basic_die> nearest_enclosing(Dwarf_Half tag);
-			cursor<compile_unit_die> enclosing_compile_unit();
-
-			// identify this DIE or a sibling of it, which is an ancestor of d
-			cursor<basic_die> find_sibling_ancestor_of(boost::shared_ptr<basic_die> d);
-		};
-
 		struct with_static_location_die : public virtual basic_die
 		{
 			struct sym_binding_t 
@@ -993,12 +881,12 @@ struct with_iterator_partial_order : public Iter
 				}
 				
 				visible_grandchildren_iterator at(
-					const abstract_dieset::position_and_path& pos,
+					const abstract_dieset::position_and_path& pos_and_path,
 					unsigned currently_in
 				)
 				{
 					abstract_dieset::iterator cu_child_iterator(
-						pos, 
+						pos_and_path, 
 						abstract_dieset::siblings_policy_sg
 					);
 					return visible_grandchildren_iterator(
@@ -1212,10 +1100,10 @@ end_class(with_data_members)
             else
             {
                 auto found = named_child(*path_pos);
-                if (!found) return NULL_SHARED_PTR(basic_die);
+                if (!found) return shared_ptr<basic_die>();
                 auto p_next_hop =
                     boost::dynamic_pointer_cast<with_named_children_die>(found);
-                if (!p_next_hop) return NULL_SHARED_PTR(basic_die);
+                if (!p_next_hop) return shared_ptr<basic_die>();
                 else return p_next_hop->resolve(++path_pos, path_end);
             }
         }
@@ -1225,13 +1113,13 @@ end_class(with_data_members)
         with_named_children_die::scoped_resolve(Iter path_pos, Iter path_end)
         {
             if (resolve(path_pos, path_end)) return this->get_ds().operator[](this->get_offset());
-            if (this->get_tag() == 0) return NULL_SHARED_PTR(basic_die);
+            if (this->get_tag() == 0) return shared_ptr<basic_die>();
             else // find our nearest encloser that has named children
             {
                 boost::shared_ptr<spec::basic_die> p_encl = this->get_parent();
                 while (boost::dynamic_pointer_cast<with_named_children_die>(p_encl) == 0)
                 {
-                    if (p_encl->get_tag() == 0) return NULL_SHARED_PTR(basic_die);
+                    if (p_encl->get_tag() == 0) return shared_ptr<basic_die>();
                     p_encl = p_encl->get_parent();
                 }
                 // we've found an encl that has named children
