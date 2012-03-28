@@ -181,11 +181,11 @@ namespace dwarf
 			abstract_dieset::path_type path;
 			Dwarf_Off off = get_offset();
 			Dwarf_Off cur = off;
-			do
+			while (cur != 0UL)
 			{
 				path.push_front(cur);
 				cur = ds.find_parent_offset_of(cur);
-			} while (cur != 0UL);
+			}
 			path.push_front(0UL);
 			
 			return abstract_dieset::iterator(
@@ -551,14 +551,13 @@ namespace dwarf
 					 * we increment *with* enqueueing children.
 					 * Otherwise we increment without enqueueing children.
 					 */
-					auto p_die = (*base.p_ds)[base.off];
-					if (dynamic_pointer_cast<spec::with_dynamic_location_die>(p_die))
+					if (dynamic_pointer_cast<spec::with_dynamic_location_die>(base.p_d))
 					{
 						return super::increment(base);
 					}
 					else
 					{
-						switch (p_die->get_tag())
+						switch (base.p_d->get_tag())
 						{
 							case DW_TAG_lexical_block:
 								return super::increment(base);
@@ -1329,21 +1328,21 @@ namespace dwarf
 		abstract_dieset::iterator abstract_dieset::end(policy& pol)
 		{ auto i_end = end(); return iterator(i_end, pol); }
 	
-		abstract_dieset::iterator_base::iterator_base(
-			abstract_dieset& ds, Dwarf_Off off,
-			const path_type& path_from_root,
-			shared_ptr<basic_die> p_d /* = shared_ptr<basic_die>() */)
-		: position_and_path((position){&ds, off}, path_from_root), 
-		  p_d(p_d ? p_d : die_from_offset(ds, off))
-		{ 
-			/* We've been given an offset but no path. So search for the 
-			 * offset, which will give us the path. */
-			if (off != 0UL && 
-				off != std::numeric_limits<Dwarf_Off>::max() &&
-				path_from_root.size() == 0) this->path_from_root = ds.find(off).path();
-			
-			assert(!p_d || p_d->get_offset() == off);
-		}
+// 		abstract_dieset::iterator_base::iterator_base(
+// 			abstract_dieset& ds, Dwarf_Off off,
+// 			const path_type& path_from_root,
+// 			shared_ptr<basic_die> p_d /* = shared_ptr<basic_die>() */)
+// 		: position_and_path((position){&ds, off}, path_from_root), 
+// 		  p_d(p_d ? p_d : die_from_offset(ds, off))
+// 		{ 
+// 			/* We've been given an offset but no path. So search for the 
+// 			 * offset, which will give us the path. */
+// 			if (off != 0UL && 
+// 				off != std::numeric_limits<Dwarf_Off>::max() &&
+// 				path_from_root.size() == 0) this->path_from_root = ds.find(off).path();
+// 			
+// 			assert(!p_d || p_d->get_offset() == off);
+// 		}
 		
 		/* Partial order on iterators -- these are comparable when they share a parent. */
 		bool

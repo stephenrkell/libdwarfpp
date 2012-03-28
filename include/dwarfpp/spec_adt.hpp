@@ -195,6 +195,7 @@ namespace dwarf
 				 : position((position){p_ds, path.back()}), path_from_root(path) {}
 				position_and_path(const position& pos, const path_type& path)
 				: position(pos), path_from_root(path) {}
+				position_and_path() : position((position){0, 0UL}) {}
 			};
 			
 			struct iterator_base 
@@ -212,8 +213,6 @@ namespace dwarf
 				}
 				bool operator!=(const iterator_base& arg) const 
 				{ return !(*this == arg); }
-				
-				
 
 				// helper for constructing p_d
 				static shared_ptr<basic_die> 
@@ -227,14 +226,20 @@ namespace dwarf
 
 				iterator_base(abstract_dieset& ds, Dwarf_Off off,
 					const path_type& path_from_root,
-					shared_ptr<basic_die> p_d = shared_ptr<basic_die>());
+					shared_ptr<basic_die> p_d = shared_ptr<basic_die>())
+				: position_and_path((position){&ds, off}, path_from_root), 
+				  p_d(p_d ? p_d : die_from_offset(ds, off))
+				{ 
+					//assert(!p_d || p_d->get_offset() == off);
+				}
 
 				iterator_base() // no dieset, never mind a die! path_from_root is empty
 				: position_and_path((position){0, 0UL}, path_type()), 
 				  p_d() {} 
 
 				iterator_base(abstract_dieset *p_ds, const path_type& arg)
-				: position_and_path(p_ds, arg) {}
+				: position_and_path(p_ds, arg), p_d(die_from_offset(*p_ds, arg.back()))
+				{}
 
 				iterator_base(const position_and_path& arg)
 				: position_and_path(arg), 
@@ -257,6 +262,7 @@ namespace dwarf
 	//				if (p_policy->is_undefined()) p_policy = arg.p_policy;
 					this->path_from_root = arg.path_from_root;
 					*static_cast<position*>(this) = arg;
+					this->p_d = arg.p_d;
 					return *this;
 				}
 			}; // end iterator_base
