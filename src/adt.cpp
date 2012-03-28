@@ -304,163 +304,200 @@ namespace dwarf
 			return s;
 		}
 /* from spec::with_static_location_die */
-		opt<Dwarf_Off> // returns *offset within the element*
-        with_static_location_die::contains_addr(Dwarf_Addr file_relative_address,
-        	sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
+		boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned> 
+		with_static_location_die::file_relative_intervals(
+			sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
 			void *arg /* = 0 */) const
-        {
-        	// FIXME: get rid of the const_casts
-            auto nonconst_this = const_cast<with_static_location_die *>(this);
-        	auto attrs = nonconst_this->get_attrs();
+		{
+			auto nonconst_this = const_cast<with_static_location_die *>(this);
+			auto attrs = nonconst_this->get_attrs();
+			using namespace boost::icl;
+			auto& right_open = interval<Dwarf_Addr>::right_open;
+			interval_map<Dwarf_Addr, Dwarf_Unsigned> retval;
 
-        	// HACK: if we're a local variable, return false. This function
-            // only deals with static storage. Mostly the restriction is covered
-            // by the fact that only certain tags are with_static_location_dies,
-            // but both locals and globals show up with DW_TAG_variable.
-            if (this->get_tag() == DW_TAG_variable &&
-            	!dynamic_cast<const variable_die *>(this)->has_static_storage())
-                return opt<Dwarf_Off>();
+			// HACK: if we're a local variable, return false. This function
+			// only deals with static storage. Mostly the restriction is covered
+			// by the fact that only certain tags are with_static_location_dies,
+			// but both locals and globals show up with DW_TAG_variable.
+			if (this->get_tag() == DW_TAG_variable &&
+				!dynamic_cast<const variable_die *>(this)->has_static_storage())
+				goto out;
+			else
+			{
+				auto found_low_pc = attrs.find(DW_AT_low_pc);
+				auto found_high_pc = attrs.find(DW_AT_high_pc);
+				auto found_ranges = attrs.find(DW_AT_ranges);
+				auto found_location = attrs.find(DW_AT_location);
+				auto found_mips_linkage_name = attrs.find(DW_AT_MIPS_linkage_name); // HACK: MIPS should...
+				auto found_linkage_name = attrs.find(DW_AT_linkage_name); // ... be in a non-default spec
 
-            auto found_low_pc = attrs.find(DW_AT_low_pc);
-            auto found_high_pc = attrs.find(DW_AT_high_pc);
-           	auto found_ranges = attrs.find(DW_AT_ranges);
-           	auto found_location = attrs.find(DW_AT_location);
-            auto found_mips_linkage_name = attrs.find(DW_AT_MIPS_linkage_name); // HACK: MIPS should...
-            auto found_linkage_name = attrs.find(DW_AT_linkage_name); // ... be in a non-default spec
-			/* We like ranges best, as they're the most precise.
-			 * Also, my gcc-4.6.2-produced executables on NetBSD have 0 for hipc and lopc,
-			 * but has precise information in ranges. */
-            if (found_ranges != attrs.end())
-            {
-            	auto rangelist = found_ranges->second.get_rangelist();
-                //std::cerr << "DIE at 0x" << std::hex << this->get_offset()
-                //	<< " has rangelist " << rangelist << std::endl;
-                /* auto nonconst_this = const_cast<with_static_location_die *>(this); */
-                // rangelist::find_addr() requires a dieset-relative (i.e. file-relative) address
-                /*assert(nonconst_this->enclosing_compile_unit()->get_low_pc());*/
-             	auto range_found = rangelist.find_addr(
-                 	file_relative_address /*- 
-                     *(nonconst_this->enclosing_compile_unit()->get_low_pc())*/);
-                 if (!range_found) return opt<Dwarf_Off>();
-                 else 
-                 {
-                 	return range_found->first;
-                 }
-            }
-            else if (found_low_pc != attrs.end()
-            	&& found_high_pc != attrs.end())
-            {
-            	//std::cerr << "DIE at 0x" << std::hex << this->get_offset()
-                //	<< " has low/high PC " << found_low_pc->second.get_address() << ", "
-                //    << found_high_pc->second.get_address() << std::endl;
-            	if (file_relative_address >= found_low_pc->second.get_address()
-                	&& file_relative_address < found_high_pc->second.get_address())
-                {
-                	return file_relative_address - found_low_pc->second.get_address();
-                }
-                else return opt<Dwarf_Off>();
-			}
-            else if (found_location != attrs.end())
-            {
-            	/* Location lists can be vaddr-dependent, where vaddr is the 
-                 * offset of the current PC within the containing subprogram.
-                 * However, this is only for parameters and locals, and even
-                 * then, they are usually relative to a DW_AT_frame_base, and
-                 * only that is vaddr-dependent. In any case, because we only
-                 * deal with variables and subprograms and 
-                 * lexical blocks and inlined subprogram
-                 * instances here, I don't *think* we need to worry about this. */
-                
-                /* FIXME: if we *do* need to worry about that, work out
-                 * whether lexical block DIEs can ever have
-                 * vaddr-dependent location lists, and if so, whether
-                 * they use subprogram-relative or block-relative vaddrs. */
-                
-            	/* Here we need a location and a size, which may come
-                 * directly, or from the type. First calculate the byte size (easier). */
-                Dwarf_Unsigned byte_size;
-                //std::cerr << "DIE at 0x" << std::hex << this->get_offset()
-                //	<< " has location list " << found_location->second.get_loclist() << std::endl;
-                auto found_byte_size = attrs.find(DW_AT_byte_size);
-                if (found_byte_size != attrs.end())
-                {
-                	byte_size = found_byte_size->second.get_unsigned();
-                }
-                else
-                {	
-                	/* Look for the type. "Type" means something different
-                     * for a subprogram, which should be covered by the
-                     * high_pc/low_pc and ranges cases, so assert that
-	                 * we don't have one of those. */
-                    assert(this->get_tag() != DW_TAG_subprogram);
-                    auto found_type = attrs.find(DW_AT_type);
-                    if (found_type == attrs.end()) return opt<Dwarf_Off>();
-                    else
-                    {
-                    	auto calculated_byte_size = boost::dynamic_pointer_cast<spec::type_die>(
-                    		this->get_ds()[found_type->second.get_ref().off])->calculate_byte_size();
-                        assert(calculated_byte_size);
-                        byte_size = *calculated_byte_size;
-                    }
+				if (found_ranges != attrs.end())
+				{
+					auto rangelist = enclosing_compile_unit()->normalize_rangelist(
+						found_ranges->second.get_rangelist()
+					);
+					Dwarf_Unsigned cumulative_bytes_seen = 0;
+					for (auto i_r = rangelist.begin(); i_r != rangelist.end(); ++i_r)
+					{
+						auto& r = *i_r;
+						if (r.dwr_addr1 == r.dwr_addr2) 
+						{
+							// I have seen this happen...
+							//assert(r.dwr_addr1 == 0);
+							continue;
+						}
+						auto ival = interval<Dwarf_Addr>::right_open(r.dwr_addr1, r.dwr_addr2);
+						clog << "Inserting interval " << ival << endl;
+						// HACK: icl doesn't like zero codomain values??
+						cumulative_bytes_seen += r.dwr_addr2 - r.dwr_addr1;
+						retval.insert(
+							make_pair(
+								ival, 
+								cumulative_bytes_seen 
+							)
+						);
+						assert(retval.find(ival) != retval.end());
+						assert(r.dwr_addr2 > r.dwr_addr1);
+					}
+					// sanity check: assert that the first interval is included
+					assert(rangelist.size() == 0 ||
+						retval.find(right_open(
+							(rangelist.begin())->dwr_addr1, 
+							(rangelist.begin())->dwr_addr2
+							)) != retval.end());
 				}
-                
-                auto loclist = found_location->second.get_loclist();
-                auto expr_pieces = loclist.loc_for_vaddr(0).pieces();
-                Dwarf_Off current_offset_within_object = 0UL;
-                for (auto i = expr_pieces.begin(); i != expr_pieces.end(); i++)
-                {
-                	/* Evaluate this pieces and see if it spans the address
-                     * we're interested in. */
-	                Dwarf_Unsigned location = dwarf::lib::evaluator(i->first,
-	                    this->get_spec()).tos();
-                    if (file_relative_address >= location
-                    	&& file_relative_address < location + i->second)
-                        // match
-                        return current_offset_within_object + (file_relative_address - location);
-                    else current_offset_within_object += i->second;
-                }
-            }
-            else if (sym_resolve &&
-            	(found_mips_linkage_name != attrs.end()
-            	|| found_linkage_name != attrs.end()))
-            {
-            	std::string linkage_name;
-                
-            	// prefer the DWARF 4 attribute to the MIPS/GNU/... extension
-                if (found_linkage_name != attrs.end()) linkage_name 
-                 = found_linkage_name->second.get_string();
-                else 
-                { 
-                	assert(found_mips_linkage_name != attrs.end());
-                	linkage_name = found_mips_linkage_name->second.get_string();
-                }
-                
-                std::cerr << "DIE at 0x" << std::hex << this->get_offset()
-                	<< " has linkage name " << linkage_name << std::endl;
-                
-                sym_binding_t binding;
-                try
-                {
-		            binding = sym_resolve(linkage_name, arg);
-                    if (file_relative_address >= binding.file_relative_start_addr
-                	    && file_relative_address < binding.file_relative_start_addr + binding.size)
-                    {
-                    	// slight HACK: assume objects located only by DW_AT_linkage_address...
-                        // ... are contiguous in memory
-                	    return opt<Dwarf_Off>(
-                        	file_relative_address -
-                            	binding.file_relative_start_addr);
-                    }
-                    // else fall through to final return statement
-                }
-                catch (lib::No_entry)
-                {
-                	std::cerr << "Warning: couldn't resolve linkage name " << linkage_name
-                    	<< " for DIE " << *this << std::endl;
-                }
-            }
-            return opt<Dwarf_Off>();
-        }
+				else if (found_low_pc != attrs.end() && found_high_pc != attrs.end())
+				{
+					auto hipc = found_high_pc->second.get_address().addr;
+					auto lopc = found_low_pc->second.get_address().addr;
+					if (hipc > lopc)
+					{
+						retval.insert(make_pair(right_open(
+							lopc, 
+							hipc
+						), hipc - lopc));
+					} else assert(hipc == lopc);
+				}
+				else if (found_location != attrs.end())
+				{
+					/* Location lists can be vaddr-dependent, where vaddr is the 
+					 * offset of the current PC within the containing subprogram.
+					 * Since we're a with_static_location_die, we *probably* don't
+					 * have vaddr-dependent location. FIXME: check this is okay. */
+
+					optional<Dwarf_Unsigned> opt_byte_size;
+					auto found_byte_size = attrs.find(DW_AT_byte_size);
+					if (found_byte_size != attrs.end())
+					{
+						opt_byte_size = found_byte_size->second.get_unsigned();
+					}
+					else
+					{	
+						/* Look for the type. "Type" means something different
+						 * for a subprogram, which should be covered by the
+						 * high_pc/low_pc and ranges cases, so assert that
+						 * we don't have one of those. */
+						assert(this->get_tag() != DW_TAG_subprogram);
+						auto found_type = attrs.find(DW_AT_type);
+						if (found_type == attrs.end()) goto out;
+						else
+						{
+							auto calculated_byte_size = dynamic_pointer_cast<spec::type_die>(
+								get_ds()[found_type->second.get_ref().off]
+							)->calculate_byte_size();
+							assert(calculated_byte_size);
+							opt_byte_size = *calculated_byte_size;
+						}
+					}
+					assert(opt_byte_size);
+					Dwarf_Unsigned byte_size = *opt_byte_size;
+					auto loclist = found_location->second.get_loclist();
+					auto expr_pieces = loclist.loc_for_vaddr(0).pieces();
+					Dwarf_Off current_offset_within_object = 0UL;
+					for (auto i = expr_pieces.begin(); i != expr_pieces.end(); ++i)
+					{
+						/* Evaluate this piece. */
+						Dwarf_Unsigned piece_size = i->second;
+						Dwarf_Unsigned piece_start = dwarf::lib::evaluator(i->first,
+							this->get_spec()).tos();
+						
+						// HACK: increment early to avoid icl zero bug
+						current_offset_within_object += i->second;
+						
+						retval.insert(make_pair(
+							right_open(piece_start, piece_start + piece_size),
+							current_offset_within_object
+						));
+					}
+					/* If we got only one piece, it means there might be no DW_OP_piece,
+					 * so the size of the piece will be unreliable (possibly zero). */
+					if (expr_pieces.size() == 1 && expr_pieces.begin()->second == 0)
+					{
+						current_offset_within_object = byte_size;
+					}
+					assert(current_offset_within_object == byte_size);
+
+				}
+				else if (sym_resolve &&
+					(found_mips_linkage_name != attrs.end()
+					|| found_linkage_name != attrs.end()))
+				{
+					std::string linkage_name;
+
+					// prefer the DWARF 4 attribute to the MIPS/GNU/... extension
+					if (found_linkage_name != attrs.end()) linkage_name 
+					 = found_linkage_name->second.get_string();
+					else 
+					{
+						assert(found_mips_linkage_name != attrs.end());
+						linkage_name = found_mips_linkage_name->second.get_string();
+					}
+
+					sym_binding_t binding;
+					try
+					{
+						binding = sym_resolve(linkage_name, arg);
+						retval.insert(make_pair(right_open(
+								binding.file_relative_start_addr,
+								binding.file_relative_start_addr + binding.size
+							), binding.size)
+						);
+					}
+					catch (lib::No_entry)
+					{
+						std::cerr << "Warning: couldn't resolve linkage name " << linkage_name
+							<< " for DIE " << *this << std::endl;
+					}
+				}
+
+			}
+		out:
+			cerr << "Intervals of " << this->summary() << ": " << retval << endl;
+			return retval;
+		}
+
+		opt<Dwarf_Off> // returns *offset within the element*
+		with_static_location_die::contains_addr(Dwarf_Addr file_relative_address,
+			sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
+			void *arg /* = 0 */) const
+		{
+			// FIXME: cache intervals
+			auto intervals = file_relative_intervals(sym_resolve, arg);
+			auto found = intervals.find(file_relative_address);
+			if (found != intervals.end())
+			{
+				Dwarf_Off interval_end_offset_from_object_start = found->second;
+				assert(file_relative_address >= found->first.lower());
+				Dwarf_Off addr_offset_from_interval_start
+				 = file_relative_address - found->first.lower();
+				assert(file_relative_address < found->first.upper());
+				auto interval_size = found->first.upper() - found->first.lower();
+				return interval_end_offset_from_object_start
+				 - interval_size
+				 + addr_offset_from_interval_start;
+			}
+			else return opt<Dwarf_Off>();
+		}
 /* helpers */        
         static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc, Dwarf_Addr high_pc);
         static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc, Dwarf_Addr high_pc)
@@ -781,6 +818,34 @@ namespace dwarf
             return scoped_resolve(multipart_name.begin(), multipart_name.end());
         }
 /* from spec::compile_unit_die */
+		encap::rangelist
+		compile_unit_die::normalize_rangelist(const encap::rangelist& rangelist) const
+		{
+			encap::rangelist retval;
+			/* We create a rangelist that has no address selection entries. */
+			for (auto i = rangelist.begin(); i != rangelist.end(); ++i)
+			{
+				switch(i->dwr_type)
+				{
+					case DW_RANGES_ENTRY:
+						retval.push_back(*i);
+					break;
+					case DW_RANGES_ADDRESS_SELECTION: {
+						assert(i->dwr_addr1 == 0xffffffff || i->dwr_addr1 == 0xffffffffffffffffULL);
+						assert(false);
+					} break;
+					case DW_RANGES_END: 
+						assert(i->dwr_addr1 == 0);
+						assert(i+1 == rangelist.end()); 
+						retval.push_back(*i);
+						break;
+					default: assert(false); break;
+				}
+			}
+			return retval;
+		}
+
+
 		opt<Dwarf_Unsigned> compile_unit_die::implicit_array_base() const
 		{
 			switch(this->get_language())
@@ -2005,6 +2070,18 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 				->add_cu_info(off, cu_header_length, version_stamp, abbrev_offset,
 					address_size, next_cu_header);
 		}
+		void add_cu_intervals(void *arg, 
+				Dwarf_Off off,
+				Dwarf_Unsigned cu_header_length,
+				Dwarf_Half version_stamp,
+				Dwarf_Unsigned abbrev_offset,
+				Dwarf_Half address_size,
+				Dwarf_Unsigned next_cu_header)
+		{
+			reinterpret_cast<file_toplevel_die*>(arg)
+				->add_cu_intervals(off, cu_header_length, version_stamp, abbrev_offset,
+					address_size, next_cu_header);
+		}
 		
 		// the actual member function
 		void file_toplevel_die::add_cu_info(Dwarf_Off off,
@@ -2016,13 +2093,15 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 		{
 			/* This function is supposed to be idempotent, so don't clobber 
 			 * any existing state. */
+			auto p_cu = dynamic_pointer_cast<compile_unit_die>(
+				get_ds().get(lib::die(*get_ds().p_f))
+			);
 			
 			cu_info[off].version_stamp = version_stamp;
 			cu_info[off].address_size = address_size;
 			// leave srcfiles as-is! FIXME: WHY? something about being done by other code...
-			cu_info[off].p_cu = dynamic_pointer_cast<compile_unit_die>(
-				get_ds().get(lib::die(*get_ds().p_f))
-			);
+			if (!cu_info[off].p_cu) cu_info[off].p_cu = p_cu;
+			else p_cu = cu_info[off].p_cu; // avoid making new p_cu 
 			
 			// also update (if null) or check (if nonnull) p_spec
 			switch (version_stamp)
@@ -2036,7 +2115,34 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			}
 			prev_version_stamp = version_stamp;
 		}
-			
+		
+		// the actual member function
+		void file_toplevel_die::add_cu_intervals(Dwarf_Off off,
+			Dwarf_Unsigned cu_header_length,
+			Dwarf_Half version_stamp,
+			Dwarf_Unsigned abbrev_offset,
+			Dwarf_Half address_size,
+			Dwarf_Unsigned next_cu_header)
+		{
+			// we keep an interval map, from file-rel address intervals to their CU offsets
+			auto found_cu = cu_info.find(off);
+			assert(found_cu != cu_info.end());
+			auto this_cu_intervals = found_cu->second.p_cu->file_relative_intervals(0, 0); // no resolver
+			for (auto i_int = this_cu_intervals.begin(); i_int != this_cu_intervals.end(); ++i_int)
+			{
+				cu_intervals.insert(make_pair(i_int->first, off));
+				auto found = cu_intervals.find(i_int->first);
+				if (found->second != off) cerr << "Warning: got an interval " 
+					<< i_int->first
+					<< " in CU " 
+					<< found_cu->second.p_cu->summary()
+					<< " which file interval map thinks "
+					<< "belongs to CU at 0x" 
+					<< std::hex << found->second << std::dec
+					<< " (under interval: " << found->first << ")" << endl;
+			}
+		}
+		
 		std::string 
 		file_toplevel_die::source_file_name_for_cu(
 			shared_ptr<compile_unit_die> cu,

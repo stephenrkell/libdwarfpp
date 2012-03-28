@@ -10,6 +10,7 @@
 #include <boost/iterator/filter_iterator.hpp>
 #include <boost/iterator/transform_iterator.hpp>
 #include <boost/make_shared.hpp>
+#include <boost/icl/interval_map.hpp>
 #include <boost/enable_shared_from_this.hpp>
 #include <srk31/concatenating_iterator.hpp>
 #include "lib.hpp"
@@ -574,10 +575,14 @@ namespace dwarf
 				Dwarf_Unsigned size;
 			};
 			virtual encap::loclist get_static_location() const;
-			virtual opt<Dwarf_Off> contains_addr(
+			opt<Dwarf_Off> contains_addr(
 				Dwarf_Addr file_relative_addr,
 				sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
 				void *arg = 0) const;
+			virtual boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned> 
+			file_relative_intervals(
+				sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
+				void *arg /* = 0 */) const;
 			/*virtual std::vector<std::pair<Dwarf_Addr, Dwarf_Addr> >
 			file_relative_extents(
 				sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
@@ -990,6 +995,7 @@ end_class(with_data_members)
 				{ return calculate_addr_in_object(io, dr_ip, p_regs); } \
 	encap::loclist get_dynamic_location() const;
 #define extra_decls_compile_unit \
+		encap::rangelist normalize_rangelist(const encap::rangelist& rangelist) const; \
 		opt<Dwarf_Unsigned> implicit_array_base() const; \
 		shared_ptr<type_die> implicit_enum_base_type() const; \
 		virtual Dwarf_Half get_address_size() const { return this->get_ds().get_address_size(); } \

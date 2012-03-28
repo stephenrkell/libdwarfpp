@@ -115,6 +115,13 @@ namespace dwarf
 				Dwarf_Unsigned abbrev_offset,
 				Dwarf_Half address_size,
 				Dwarf_Unsigned next_cu_header);
+		void add_cu_intervals(void *arg, 
+				Dwarf_Off off,
+				Dwarf_Unsigned cu_header_length,
+				Dwarf_Half version_stamp,
+				Dwarf_Unsigned abbrev_offset,
+				Dwarf_Half address_size,
+				Dwarf_Unsigned next_cu_header);
 		
         class dieset : public virtual abstract_dieset // virtual s.t. can derive from std::map
         {                                             // and have its methods satisfy interface
@@ -123,7 +130,7 @@ namespace dwarf
             friend class compile_unit_die;
 
 			file *p_f; // optional
-			boost::shared_ptr<basic_die> m_toplevel;
+			boost::shared_ptr<lib::file_toplevel_die> m_toplevel;
 			std::map<Dwarf_Off, Dwarf_Off> parent_cache; // HACK: doesn't evict
 
 			/* factory methods */
@@ -256,8 +263,18 @@ namespace dwarf
 				shared_ptr<compile_unit_die> p_cu;
 			};
 			std::map<Dwarf_Off, cu_info_t> cu_info;
+			
+			boost::icl::interval_map< 
+				Dwarf_Addr,
+				Dwarf_Off
+			> cu_intervals;
+			
+			friend class dieset;
 		private:
 			void add_all_cu_info();
+			void add_cu_intervals() {
+				ds.p_f->iterate_cu(&dwarf::lib::add_cu_intervals, this);
+			}
 			lib::dieset& ds;
 		public:
 			file_toplevel_die(dieset& ds)
@@ -294,6 +311,13 @@ namespace dwarf
 				Dwarf_Unsigned abbrev_offset,
 				Dwarf_Half address_size,
 				Dwarf_Unsigned next_cu_header);
+			friend void add_cu_intervals(void *arg, 
+				Dwarf_Off off,
+				Dwarf_Unsigned cu_header_length,
+				Dwarf_Half version_stamp,
+				Dwarf_Unsigned abbrev_offset,
+				Dwarf_Half address_size,
+				Dwarf_Unsigned next_cu_header);
 		private:
 			// the actual member function
 			void add_cu_info(Dwarf_Off off,
@@ -302,20 +326,29 @@ namespace dwarf
 				Dwarf_Unsigned abbrev_offset,
 				Dwarf_Half address_size,
 				Dwarf_Unsigned next_cu_header);
+			void add_cu_intervals(Dwarf_Off off,
+				Dwarf_Unsigned cu_header_length,
+				Dwarf_Half version_stamp,
+				Dwarf_Unsigned abbrev_offset,
+				Dwarf_Half address_size,
+				Dwarf_Unsigned next_cu_header);
 		};
-		inline dieset::dieset(file& f) : p_f(&f), 
-				m_toplevel(boost::make_shared<file_toplevel_die>(*this)) {}
+		
+		inline dieset::dieset(file& f)
+		 : p_f(&f), m_toplevel(boost::make_shared<file_toplevel_die>(*this)) 
+		{ m_toplevel->add_cu_intervals(); }
+		
 		inline	Dwarf_Half dieset::get_address_size() const
-			{
-				auto nonconst_this = const_cast<dieset *>(this); // HACK
-				auto nonconst_toplevel = dynamic_pointer_cast<file_toplevel_die>(
-					nonconst_this->m_toplevel);
-				assert(nonconst_toplevel->compile_unit_children_begin()
-					!= nonconst_toplevel->compile_unit_children_end());
-				return nonconst_toplevel->get_address_size_for_cu(
-					dynamic_pointer_cast<lib::compile_unit_die>(
-						*(nonconst_toplevel->compile_unit_children_begin())));
-			}
+		{
+			auto nonconst_this = const_cast<dieset *>(this); // HACK
+			auto nonconst_toplevel = dynamic_pointer_cast<file_toplevel_die>(
+				nonconst_this->m_toplevel);
+			assert(nonconst_toplevel->compile_unit_children_begin()
+				!= nonconst_toplevel->compile_unit_children_end());
+			return nonconst_toplevel->get_address_size_for_cu(
+				dynamic_pointer_cast<lib::compile_unit_die>(
+					*(nonconst_toplevel->compile_unit_children_begin())));
+		}
 
 
 /****************************************************************/

@@ -491,58 +491,56 @@ namespace dwarf
 //             else return std::make_pair(offset, i - this->begin());
 //         }
         
-        boost::optional<std::pair<Dwarf_Off, long int> >
-        rangelist::find_addr(Dwarf_Off dieset_relative_address)
-        {
-            iterator found = this->end();
-            Dwarf_Off offset = 0UL;
-            iterator i;
-            //Dwarf_Off current_cu_relative_base = 0UL; // FIXME: use this. 
-            // FIXME: are the base addresses file-relative or CU-relative?
-            
-	    long int dist_moved = 0;
-            for (i = this->begin(); i != this->end(); ++dist_moved, ++i)
-            {
-            	switch(i->dwr_type)
-                {
-                	case DW_RANGES_ENTRY:
-                		//std::cerr << "Considering range " << *i << std::endl;
-                    	if (dieset_relative_address >= i->dwr_addr1
-                        	&& dieset_relative_address < i->dwr_addr2)
-                        {
-                            //std::cerr << "Matches..." << std::endl;
-                            found = i;
-                    		offset += dieset_relative_address - i->dwr_addr1;
-                        }
-                        else if (i->dwr_addr2 <= dieset_relative_address)
-                        {
-                            //std::cerr << "Precedes." << std::endl;
-                            offset += i->dwr_addr2 - i->dwr_addr1;
-                        }
-                    break;
-                    case DW_RANGES_ADDRESS_SELECTION: {
-                    	assert(i->dwr_addr1 == 0xffffffff || i->dwr_addr1 == 0xffffffffffffffffULL);
-                    	//current_cu_relative_base = i->dwr_addr2 - ;
-                        assert(false);
-                    } break;
-                    case DW_RANGES_END: 
-                    	assert(i->dwr_addr1 == 0);
-                    	assert(i+1 == this->end()); 
-                        break;
-                    default: assert(false); break;
-                }
-            }
-            if (found == this->end()) 
-            {
-                //std::cerr << "No match." << std::endl;
-	            return 0;
-            }
-            else return std::make_pair<dwarf::lib::Dwarf_Off, long int>(
-			(Dwarf_Off) offset, 
-			(long int) dist_moved
-		);
-        }
-
-
-    }
+		boost::optional<std::pair<Dwarf_Off, long int> >
+		rangelist::find_addr(Dwarf_Off dieset_relative_address)
+		{
+			iterator found = this->end();
+			Dwarf_Off offset = 0UL;
+			iterator i;
+			//Dwarf_Off current_cu_relative_base = 0UL; // FIXME: use this. 
+			// FIXME: are the base addresses file-relative or CU-relative?
+			
+			long int dist_moved = 0;
+			for (i = this->begin(); i != this->end(); ++dist_moved, ++i)
+			{
+				switch(i->dwr_type)
+				{
+					case DW_RANGES_ENTRY:
+						//std::cerr << "Considering range " << *i << std::endl;
+						if (dieset_relative_address >= i->dwr_addr1
+							&& dieset_relative_address < i->dwr_addr2)
+						{
+							//std::cerr << "Matches..." << std::endl;
+							found = i;
+							offset += dieset_relative_address - i->dwr_addr1;
+						}
+						else if (i->dwr_addr2 <= dieset_relative_address)
+						{
+							//std::cerr << "Precedes." << std::endl;
+							offset += i->dwr_addr2 - i->dwr_addr1;
+						}
+					break;
+					case DW_RANGES_ADDRESS_SELECTION: {
+						assert(i->dwr_addr1 == 0xffffffff || i->dwr_addr1 == 0xffffffffffffffffULL);
+						//current_cu_relative_base = i->dwr_addr2 - ;
+						assert(false);
+					} break;
+					case DW_RANGES_END: 
+						assert(i->dwr_addr1 == 0);
+						assert(i+1 == this->end()); 
+						break;
+					default: assert(false); break;
+				}
+			}
+			if (found == this->end()) 
+			{
+				//std::cerr << "No match." << std::endl;
+				return 0;
+			}
+			else return std::make_pair<dwarf::lib::Dwarf_Off, long int>(
+				(Dwarf_Off) offset, 
+				(long int) dist_moved
+			);
+		}
+	}
 }
