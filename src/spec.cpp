@@ -557,7 +557,8 @@ namespace dwarf
             bool table_def<0U>::op_reads_register(int op) const
 		    {
 			    return this->Extended::op_reads_register(op)
-				    || (op >= DW_OP_reg0 && op <= DW_OP_bregx);
+				    || (op >= DW_OP_reg0 && op <= DW_OP_bregx)
+					|| op == DW_OP_fbreg;
 		    }
 		    MAKE_LOOKUP(forward_name_mapping_t, op_forward_tbl, PAIR_ENTRY_FORWARDS_VARARGS, PAIR_ENTRY_FORWARDS_VARARGS_LAST, OP_DECL_LIST);
 		    MAKE_LOOKUP(inverse_name_mapping_t, op_inverse_tbl, PAIR_ENTRY_BACKWARDS_VARARGS, PAIR_ENTRY_BACKWARDS_VARARGS_LAST, OP_DECL_LIST);

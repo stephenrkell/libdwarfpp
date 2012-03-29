@@ -22,9 +22,9 @@ namespace dwarf
 		: m_stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
 		{
 			// sanity check while I suspect stack corruption
-			assert(vaddr < 0x00008000000000UL
-			|| 	vaddr == 0xffffffffU
-			||  vaddr == 0xffffffffffffffffUL);
+			assert(vaddr < 0x00008000000000ULL
+			|| 	vaddr == 0xffffffffULL
+			||  vaddr == 0xffffffffffffffffULL);
 			
 			i = expr.begin();
 			Dwarf_Addr current_vaddr_base = 0; // relative to CU "applicable base" (Dwarf 3 sec 3.1)
@@ -38,7 +38,7 @@ namespace dwarf
 				// Dwarf_Addr magic_addr = 
 					
 				if (i_loc_expr->lopc == 0xffffffffU
-				||  i_loc_expr->lopc == 0xffffffffffffffffUL)
+				||  i_loc_expr->lopc == 0xffffffffffffffffULL)
 				{
 					/* This is a "base address selection entry". */
 					current_vaddr_base = i_loc_expr->hipc;

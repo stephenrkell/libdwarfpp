@@ -205,6 +205,8 @@ namespace dwarf
 		}
 		using namespace table;
 
+		using std::cerr;
+		
 		class abstract_def
 		{
 		public:
@@ -236,23 +238,40 @@ namespace dwarf
 		public:
 			empty_def() {}
             static const empty_def inst;
-			virtual const char *tag_lookup(int tag) const { return "(unknown tag)"; }			
-			virtual bool tag_is_type(int tag) const { return false; }
-            virtual bool tag_is_type_chain(int tag) const { return false; }
-			virtual bool tag_has_named_children(int tag) const { return false; }
-			virtual const char *attr_lookup(int attr) const { return "(unknown attribute)"; }
-	        virtual const int *attr_get_classes(int attr) const { return empty_class_list; }
-			virtual bool attr_describes_location(int attr) const { return false; }
-			virtual const char *form_lookup(int form) const { return "(unknown form)"; }
-	        virtual const int *form_get_classes(int form) const { return empty_class_list; }
-			virtual const char *encoding_lookup(int encoding) const { return "(unknown encoding)"; }
-			virtual const char *op_lookup(int op) const { return "(unknown opcode)"; }
+			virtual const char *tag_lookup(int tag) const 
+			{ cerr << "Saw unknown tag 0x" << std::hex << tag << std::dec << std::endl;
+				return "(unknown tag)"; }			
+			virtual bool tag_is_type(int tag) const 
+			{ return false; }
+            virtual bool tag_is_type_chain(int tag) const 
+			{ return false; }
+			virtual bool tag_has_named_children(int tag) const 
+			{ return false; }
+			virtual const char *attr_lookup(int attr) const 
+			{ cerr << "Saw unknown attr 0x" << std::hex << attr << std::dec << std::endl;
+			return "(unknown attribute)"; }
+	        virtual const int *attr_get_classes(int attr) const 
+			{ return empty_class_list; }
+			virtual bool attr_describes_location(int attr) const 
+			{ return false; }
+			virtual const char *form_lookup(int form) const 
+			{ cerr << "Saw unknown form 0x" << std::hex << form << std::dec << std::endl;
+			return "(unknown form)"; }
+	        virtual const int *form_get_classes(int form) const 
+			{ return empty_class_list; }
+			virtual const char *encoding_lookup(int encoding) const 
+			{ cerr << "Saw unknown encoding 0x" << std::hex << encoding << std::dec << std::endl;
+			return "(unknown encoding)"; }
+			virtual const char *op_lookup(int op) const 
+			{ cerr << "Saw unknown opcode 0x" << std::hex << op << std::dec << std::endl;
+			return "(unknown opcode)"; }
 			virtual bool op_reads_register(int op) const { return false; }
 			virtual size_t op_operand_count(int op) const { return 0; }
 			virtual const int *op_operand_form_list(int op) const { return empty_operand_form_list; }
             virtual int get_explicit_interp(int attr, int form) const { return interp::EOL; }
             virtual int get_interp(int attr, int form) const { return interp::EOL; }
-            virtual const char *interp_lookup(int interp) const { return "(unknown class)"; }
+            virtual const char *interp_lookup(int interp) const 
+			{ return "(unknown class)"; }
             virtual std::ostream& print(std::ostream& o) const {
             	o << "Tags:\nAttributes:\nForms:\nEncodings:\nOperators:\nInterpretations:\nAttribute classes:\nForm classes:\n";
                 return o;

@@ -130,8 +130,8 @@ namespace dwarf
 				return built;
 			}
 		}
-        boost::shared_ptr<spec::basic_die> 
-        basic_die::nearest_enclosing(Dwarf_Half tag) const
+		boost::shared_ptr<spec::basic_die> 
+		basic_die::nearest_enclosing(Dwarf_Half tag) const
 		{
 			return const_cast<basic_die *>(this)->nearest_enclosing(tag);
 		}
@@ -210,9 +210,10 @@ namespace dwarf
 			 * this faster than the more general nearest_enclosing(tag). */
 			cerr << "Looking for record of CU beginning at or before 0x" 
 				<< std::hex << my_offset << std::dec << endl;
-			auto cu_entry = srk31::greatest_le(
+			auto cu_entry = srk31::greatest_le_from_upper_bound(
 					toplevel->cu_info.begin(),
 					toplevel->cu_info.end(),
+					toplevel->cu_info.upper_bound(my_offset),
 					make_pair(my_offset, file_toplevel_die::cu_info_t()), /* we have to pass a pair */
 					toplevel->cu_info.value_comp()
 				);
@@ -347,7 +348,7 @@ namespace dwarf
 							continue;
 						}
 						auto ival = interval<Dwarf_Addr>::right_open(r.dwr_addr1, r.dwr_addr2);
-						clog << "Inserting interval " << ival << endl;
+						//clog << "Inserting interval " << ival << endl;
 						// HACK: icl doesn't like zero codomain values??
 						cumulative_bytes_seen += r.dwr_addr2 - r.dwr_addr1;
 						retval.insert(
@@ -360,8 +361,9 @@ namespace dwarf
 						assert(r.dwr_addr2 > r.dwr_addr1);
 					}
 					// sanity check: assert that the first interval is included
-					assert(rangelist.size() == 0 ||
-						retval.find(right_open(
+					assert(rangelist.size() == 0 
+						|| (rangelist.begin())->dwr_addr1 == (rangelist.begin())->dwr_addr2
+						|| retval.find(right_open(
 							(rangelist.begin())->dwr_addr1, 
 							(rangelist.begin())->dwr_addr2
 							)) != retval.end());
@@ -412,7 +414,21 @@ namespace dwarf
 					assert(opt_byte_size);
 					Dwarf_Unsigned byte_size = *opt_byte_size;
 					auto loclist = found_location->second.get_loclist();
-					auto expr_pieces = loclist.loc_for_vaddr(0).pieces();
+					std::vector<std::pair<dwarf::encap::loc_expr, Dwarf_Unsigned> > expr_pieces;
+					try
+					{
+						expr_pieces = loclist.loc_for_vaddr(0).pieces();
+					}
+					catch (No_entry)
+					{
+						cerr << "Vaddr-dependent static location " << *this << endl;
+						//if (loclist.size() > 0)
+						//{
+						//	expr_pieces = loclist.begin()->pieces();
+						//}
+						/*else*/ goto out;
+					}
+					
 					Dwarf_Off current_offset_within_object = 0UL;
 					for (auto i = expr_pieces.begin(); i != expr_pieces.end(); ++i)
 					{
@@ -420,10 +436,10 @@ namespace dwarf
 						Dwarf_Unsigned piece_size = i->second;
 						Dwarf_Unsigned piece_start = dwarf::lib::evaluator(i->first,
 							this->get_spec()).tos();
-						
+
 						// HACK: increment early to avoid icl zero bug
 						current_offset_within_object += i->second;
-						
+
 						retval.insert(make_pair(
 							right_open(piece_start, piece_start + piece_size),
 							current_offset_within_object
@@ -472,7 +488,7 @@ namespace dwarf
 
 			}
 		out:
-			cerr << "Intervals of " << this->summary() << ": " << retval << endl;
+			//cerr << "Intervals of " << this->summary() << ": " << retval << endl;
 			return retval;
 		}
 
@@ -777,7 +793,7 @@ namespace dwarf
             assert(attrs.find(DW_AT_data_member_location) != attrs.end());
 			return (Dwarf_Addr) dwarf::lib::evaluator(
 				attrs.find(DW_AT_data_member_location)->second.get_loclist(),
-				dieset_relative_ip // needs to be CU-relative
+				dieset_relative_ip == 0 ? 0 : // if we specify it, needs to be CU-relative
 				 - (this->enclosing_compile_unit()->get_low_pc() ? 
 				 	this->enclosing_compile_unit()->get_low_pc()->addr : (Dwarf_Addr)0),
 				this->get_ds().get_spec(),
@@ -1093,8 +1109,9 @@ namespace dwarf
 		bool variable_die::has_static_storage() const
 		{
 			auto nonconst_this = const_cast<variable_die *>(this);
-			if (nonconst_this->nearest_enclosing(DW_TAG_subprogram))
-			{
+			// don't bother testing whether we have an enclosing subprogram -- too expensive
+			//if (nonconst_this->nearest_enclosing(DW_TAG_subprogram))
+			//{
 				// we're either a local or a static -- skip if local
 				auto attrs = nonconst_this->get_attrs();
 				if (attrs.find(DW_AT_location) != attrs.end())
@@ -1109,7 +1126,9 @@ namespace dwarf
 					// static storage is recorded in DWARF using 
 					// register-relative addressing....
 					auto loclist = attrs.find(DW_AT_location)->second.get_loclist();
-					for (auto i_loc_expr = loclist.begin(); i_loc_expr != loclist.end(); ++i_loc_expr)
+					for (auto i_loc_expr = loclist.begin(); 
+						i_loc_expr != loclist.end(); 
+						++i_loc_expr)
 					{
 						for (auto i_instr = i_loc_expr->begin(); 
 							i_instr != i_loc_expr->end();
@@ -1119,7 +1138,7 @@ namespace dwarf
 						}
 					}
 				}
-			}
+			//}
 			return true;
 		}
 /* from spec::member_die */ 

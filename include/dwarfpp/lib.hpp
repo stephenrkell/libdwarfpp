@@ -423,6 +423,8 @@ namespace dwarf
 			Dwarf_Signed count() { return cnt; }		
 			int get_info(int i, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
 				Dwarf_Error *error = 0);
+			int get_info_for_addr(Dwarf_Addr a, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
+				Dwarf_Error *error = 0);
             virtual ~aranges()
             {
             	// FIXME: uncomment this after dwarf_dealloc segfault bug fixed

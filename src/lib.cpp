@@ -536,6 +536,22 @@ namespace dwarf
             if (i >= cnt) throw No_entry();
             return dwarf_get_arange_info(p_aranges[i], start, length, cu_die_offset, error);
         }
+		int aranges::get_info_for_addr(Dwarf_Addr addr, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
+				Dwarf_Error *error/* = 0*/)
+		{
+        	if (error == 0) error = p_last_error; // TODO: fix
+			Dwarf_Arange returned;
+			int ret = dwarf_get_arange(p_aranges, cnt, addr, &returned, error);
+			if (ret == DW_DLV_OK)
+			{
+				int ret2 = dwarf_get_arange_info(returned, start, length, cu_die_offset, error);
+				return ret2;
+			}
+			return ret;
+			
+		}
+
+		
 		
 		std::ostream& operator<<(std::ostream& s, const Dwarf_Locdesc& ld)
 		{
