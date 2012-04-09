@@ -9,6 +9,9 @@ namespace dwarf
 {
 	namespace encap
     {
+		boost::shared_ptr<spec::type_die> attribute_value::get_refdie_is_type() const 
+		{ return boost::dynamic_pointer_cast<spec::type_die>(get_refdie()); }
+		
 		void attribute_value::print_raw(std::ostream& s) const
 		{
 			switch (f)
@@ -63,7 +66,7 @@ namespace dwarf
 			}			
 		} // end attribute_value::print	
 
-		const attribute_value::form attribute_value::dwarf_form_to_form(const Dwarf_Half form)
+		attribute_value::form attribute_value::dwarf_form_to_form(const Dwarf_Half form)
 		{
 			switch (form)
 			{
@@ -265,10 +268,128 @@ namespace dwarf
 					print_raw(s);
 			}			
 		} // end attribute_value::print_as
+		
+		// temporary HACK: copy 
+		attribute_value::attribute_value(const dwarf::core::Attribute& a, 
+			core::Debug::raw_handle_type dbg,
+			spec::abstract_def& spec /* = spec::DEFAULT_DWARF_SPEC */)
+		{
+			int retval;
+			orig_form = 0;
+			retval = dwarf_whatform(a.handle.get(), &orig_form, &core::current_dwarf_error);
+
+			Dwarf_Unsigned u;
+			Dwarf_Signed s;
+			Dwarf_Bool flag;
+			Dwarf_Off o;
+			Dwarf_Addr addr;
+			char *str;
+			int cls = spec::interp::EOL; // dummy initialization
+			if (retval != DW_DLV_OK) goto fail; // retval set by whatform() above
+			Dwarf_Half attr; retval = dwarf_whatattr(a.handle.get(), &attr, &core::current_dwarf_error);
+			if (retval != DW_DLV_OK) goto fail;
+			cls = spec.get_interp(attr, orig_form);
+						
+			switch(cls)
+			{
+				case spec::interp::string:
+					dwarf_formstring(a.handle.get(), &str, &core::current_dwarf_error);
+					this->f = STRING; 
+					this->v_string = new string(str);
+					break;
+				case spec::interp::flag:
+					dwarf_formflag(a.handle.get(), &flag, &core::current_dwarf_error);
+					this->f = FLAG;
+					this->v_flag = flag;
+					break;
+				case spec::interp::address:
+					dwarf_formaddr(a.handle.get(), &addr, &core::current_dwarf_error);
+					this->f = ADDR;
+					this->v_addr.addr = addr;
+					break;
+				case spec::interp::block:
+// 					{
+// 						block b(a);
+// 						this->f = BLOCK;
+// 						this->v_block = new vector<unsigned char>(
+// 							(unsigned char *) b.data(), ((unsigned char *) b.data()) + b.len());
+// 					}
+					assert(false);
+// 					break;
+				case spec::interp::reference:
+// 					this->f = REF;
+// 					Dwarf_Off referencing_off; 
+// 					a.get_containing_array().get_containing_die().offset(&referencing_off);
+// 					Dwarf_Half referencing_attr;
+// 					a.whatattr(&referencing_attr);
+// 					a.formref_global(&o);
+// 					this->v_ref = new weak_ref(*(abstract_dieset*)0), o, 
+// 						true, referencing_off, referencing_attr);
+					assert(false);
+// 					break;
+				as_if_unsigned:
+				case spec::interp::constant:
+					if (orig_form == DW_FORM_sdata)
+					{
+						int ret = dwarf_formsdata(a.handle.get(), &s, &core::current_dwarf_error);
+						assert(ret == DW_DLV_OK);
+						this->f = SIGNED;
+						this->v_s = s;					
+					}
+					else
+					{
+						int ret = dwarf_formudata(a.handle.get(), &u, &core::current_dwarf_error);
+						assert(ret == DW_DLV_OK);
+						this->f = UNSIGNED;
+						this->v_u = u;
+					}
+					break;
+				case spec::interp::block_as_dwarf_expr: // dwarf_loclist_n works for both of these
+				case spec::interp::loclistptr:
+					try
+					{
+						this->f = LOCLIST;
+						this->v_loclist = new loclist(dwarf::lib::loclist(a, dbg));
+						break;
+					}
+					catch (...)
+					{
+						/* This can happen if the loclist includes opcodes that our libdwarf
+						 * doesn't recognise. Treat it as a not-supported case.*/
+						goto fail;
+					}
+				case spec::interp::rangelistptr: {
+//                 	this->f = RANGELIST;
+//                     retval = dwarf_formudata(a.handle, &u, &current_dwarf_error); 
+// 					assert(retval == DW_DLV_OK);
+//                     dwarf::lib::ranges rs(a, u);
+//                     this->v_rangelist = new rangelist(rs.begin(), rs.end());
+					assert(false);
+                } break;
+				case spec::interp::lineptr:
+				case spec::interp::macptr:
+					goto as_if_unsigned;		
+				fail:
+				default:
+					// FIXME: we failed to case-catch, or handle, the FORM; do something
+					std::cerr << "FIXME: didn't know how to handle an attribute "
+						<< "numbered 0x" << std::hex << attr << std::dec << " of form "
+						<< /*ds.toplevel()->get_spec()*/spec.form_lookup(orig_form) 
+						<< ", skipping." << std::endl;
+					throw Not_supported("unrecognised attribute");
+					/* NOTE: this Not_supportd doesn't happen in some cases, because often
+					 * we have successfully guessed an interp:: class for the attribute
+					 * anyway. FIXME: remember how this works, and see if we can do better. */
+					break;
+			}
+			
+		}
+		
 		attribute_value::attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a)
         	: p_ds(&ds)
 		{
 			int retval;
+			orig_form = 0;
 			retval = a.whatform(&orig_form);
 
 			Dwarf_Unsigned u;

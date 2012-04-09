@@ -429,29 +429,38 @@ namespace dwarf
 						/*else*/ goto out;
 					}
 					
-					Dwarf_Off current_offset_within_object = 0UL;
-					for (auto i = expr_pieces.begin(); i != expr_pieces.end(); ++i)
+					try
 					{
-						/* Evaluate this piece. */
-						Dwarf_Unsigned piece_size = i->second;
-						Dwarf_Unsigned piece_start = dwarf::lib::evaluator(i->first,
-							this->get_spec()).tos();
+						Dwarf_Off current_offset_within_object = 0UL;
+						for (auto i = expr_pieces.begin(); i != expr_pieces.end(); ++i)
+						{
+							/* Evaluate this piece. */
+							Dwarf_Unsigned piece_size = i->second;
+							Dwarf_Unsigned piece_start = dwarf::lib::evaluator(i->first,
+								this->get_spec()).tos();
 
-						// HACK: increment early to avoid icl zero bug
-						current_offset_within_object += i->second;
+							// HACK: increment early to avoid icl zero bug
+							current_offset_within_object += i->second;
 
-						retval.insert(make_pair(
-							right_open(piece_start, piece_start + piece_size),
-							current_offset_within_object
-						));
+							retval.insert(make_pair(
+								right_open(piece_start, piece_start + piece_size),
+								current_offset_within_object
+							));
+						}
+						/* If we got only one piece, it means there might be no DW_OP_piece,
+						 * so the size of the piece will be unreliable (possibly zero). */
+						if (expr_pieces.size() == 1 && expr_pieces.begin()->second == 0)
+						{
+							current_offset_within_object = byte_size;
+						}
+						assert(current_offset_within_object == byte_size);
 					}
-					/* If we got only one piece, it means there might be no DW_OP_piece,
-					 * so the size of the piece will be unreliable (possibly zero). */
-					if (expr_pieces.size() == 1 && expr_pieces.begin()->second == 0)
+					catch (Not_supported)
 					{
-						current_offset_within_object = byte_size;
+						// some opcode we don't recognise
+						err << "Unrecognised opcode in " << *this << endl;
+						goto out;
 					}
-					assert(current_offset_within_object == byte_size);
 
 				}
 				else if (sym_resolve &&

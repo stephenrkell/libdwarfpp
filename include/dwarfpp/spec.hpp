@@ -237,7 +237,7 @@ namespace dwarf
             static const int empty_class_list[];
 		public:
 			empty_def() {}
-            static const empty_def inst;
+            static empty_def inst;
 			virtual const char *tag_lookup(int tag) const 
 			{ cerr << "Saw unknown tag 0x" << std::hex << tag << std::dec << std::endl;
 				return "(unknown tag)"; }			
@@ -302,7 +302,7 @@ namespace dwarf
 		{
         public:
         	typedef typename Extended_By<spec_id>::spec Extended;
-            static const table_def<spec_id> inst;
+            static table_def<spec_id> inst;
 		private:	
 			// tag table and maps
 			const size_t tag_tbl_size; // assigned from *template* constructor
@@ -529,8 +529,8 @@ namespace dwarf
 		typedef table_def<0U> dwarf3_def;
         // specialization of template-supplied override
         //extern const dwarf3_def::inst
-        extern const abstract_def& DEFAULT_DWARF_SPEC;
-        extern const abstract_def& dwarf3;
+        extern /*const*/ abstract_def& DEFAULT_DWARF_SPEC;
+        extern /*const*/ abstract_def& dwarf3;
 	}   
 }
 

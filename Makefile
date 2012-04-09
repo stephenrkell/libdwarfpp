@@ -37,7 +37,7 @@ clean:
 	$(MAKE) -C src clean
 	$(MAKE) -C examples clean
 	$(MAKE) -C tests clean
-	rm -f lib/*.so
+	rm -f lib/*.so lib/*.a
 
 .PHONY: lib
 lib: libs

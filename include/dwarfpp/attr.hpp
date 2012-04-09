@@ -37,34 +37,7 @@ namespace dwarf
     	class dieset; // forward decl
         class die;
         
-//         struct arange
-//         {
-//         	Dwarf_Addr start;
-// 			Dwarf_Unsigned length;
-// 			Dwarf_Off cu_die_offset;
-//         };
-//         struct arangelist : public std::vector<arange>
-//         {
-//         	arangelist(lib::aranges& all_aranges, Dwarf_Unsigned i)
-//             {
-//             	arange r = { 42, 42, 42 };  // any non-sentinel value
-//                 try
-//                 {
-//                     while (!(r.start == 0 && r.length == 0))
-//                     {
-//                 	    int ret = all_aranges.get_info(i++, &r.start, &r.length, &r.cu_die_offset);
-//                 	    assert(ret == DW_DLV_OK);
-//                         // assume we don't have a "base address selection entry"
-//                         assert(r.start != 0xffffffffU && r.start != 0xffffffffffffffffULL);
-//                         this->push_back(r);
-//                     } // terminate on end-of-list entry (start and length both 0)...
-//                 } // ... or on exhausting the list
-//                 catch (No_entry) {}
-//             }
-//             boost::optional<std::pair<Dwarf_Off, int> >
-//         	find_addr(Dwarf_Off cu_relative_address);
-//         };
-        class rangelist : public std::vector<lib::Dwarf_Ranges> 
+       class rangelist : public std::vector<lib::Dwarf_Ranges> 
         {
         public:
         	template <class In> rangelist(In first, In last) 
@@ -185,42 +158,38 @@ namespace dwarf
 				loclist *v_loclist;
                 rangelist *v_rangelist;
 			};
-			// the following constructor is a HACK to re-use formatting logic when printing Dwarf_Locs
 			// -- the operator<< is a friend
 			friend std::ostream& ::dwarf::lib::operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
 
-			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned data, Dwarf_Half o_form) 
-				: p_ds(&ds), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
-			attribute_value(Dwarf_Unsigned data, Dwarf_Half o_form) 
-				: p_ds(0), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
-			static const form dwarf_form_to_form(const Dwarf_Half form); // helper hack
+			static form dwarf_form_to_form(const Dwarf_Half form); // helper hack
 
 			/*attribute_value() : orig_form(0), f(NO_ATTR) { v_u = 0U; } // FIXME: this zero value can still be harmful when clients do get_ on wrong type
 				// ideally the return values of get_() methods should return some Option-style type,
 				// which I think boost provides... i.e. Some of value | None*/
 			static const attribute_value *dne_val;
 			
+		private:
+			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned data, Dwarf_Half o_form) 
+				: p_ds(&ds), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
+			// the following constructor is a HACK to re-use formatting logic when printing Dwarf_Locs
+			attribute_value(Dwarf_Unsigned data, Dwarf_Half o_form) 
+				: p_ds(0), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
+			// the following is a temporary HACK to allow core:: to create attribute_values
+		public:
+			attribute_value(const dwarf::core::Attribute& attr, 
+				core::Debug::raw_handle_type dbg,
+				spec::abstract_def& = spec::DEFAULT_DWARF_SPEC);
 		public:
 			attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a);
 // 			//attribute_value() {} // allow uninitialised temporaries
  			attribute_value(spec::abstract_dieset& ds, Dwarf_Bool b) : p_ds(&ds), orig_form(DW_FORM_flag), f(FLAG), v_flag(b) {}
-// 			// HACK to allow overload resolution: addr is ignored
  			attribute_value(spec::abstract_dieset& ds, address addr) : p_ds(&ds), orig_form(DW_FORM_addr), f(ADDR), v_addr(addr) {}		
  			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned u) : p_ds(&ds), orig_form(DW_FORM_udata), f(UNSIGNED), v_u(u) {}				
  			attribute_value(spec::abstract_dieset& ds, Dwarf_Signed s) : p_ds(&ds), orig_form(DW_FORM_sdata), f(SIGNED), v_s(s) {}			
-// 			attribute_value(dwarf::block& b) : f(BLOCK), v_block(new std::vector<unsigned char>(
-// 					(unsigned char *) b.data(), ((unsigned char *) b.data()) + b.len())) 
-// 					{ /*std::cerr << "Constructed a block attribute_value with vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;*/ }			
  			attribute_value(spec::abstract_dieset& ds, const char *s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}
  			attribute_value(spec::abstract_dieset& ds, const std::string& s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}				
-// 			attribute_value(Dwarf_Off off, bool abs) : f(REF), v_ref(new ref(off, abs)) {}
-//			attribute_value(die& d) : orig_form(DW_FORM_ref_addr), f(REF), v_ref(new ref(*d.p_ds, d.m_offset, true, 
  			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
  			attribute_value(spec::abstract_dieset& ds, boost::shared_ptr<spec::basic_die> ref_target);
- 			//attribute_value(spec::abstract_dieset& ds, boost::shared_ptr<spec::basic_die> p_r)
-			// : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
-//			attribute_value(lib::abstract_dieset& ds, spec::basic_die& d) : orig_form(DW_FORM_ref_addr), f(REF)
-//            { assert(dynamic_cast<encap::dieset *>(ds)); this->v_ref = new ref(*d.p_ds, d.m_offset, true, 
 			attribute_value(spec::abstract_dieset& ds, const loclist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new loclist(l)) {}
 			attribute_value(spec::abstract_dieset& ds, const rangelist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(RANGELIST), v_rangelist(new rangelist(l)) {}
 		public:
@@ -231,10 +200,10 @@ namespace dwarf
 			const std::vector<unsigned char> *get_block() const { assert(f == BLOCK); return v_block; }
 			const std::string& get_string() const { assert(f == STRING); return *v_string; }
 			weak_ref& get_ref() const { assert(f == REF); return *v_ref; }
-            address get_address() const { assert(f == ADDR); return v_addr; }
-            boost::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
+			address get_address() const { assert(f == ADDR); return v_addr; }
+			boost::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
 			//spec::basic_die& get_refdie() const; // defined in cpp file
-            boost::shared_ptr<spec::type_die> get_refdie_is_type() const { return boost::dynamic_pointer_cast<spec::type_die>(get_refdie()); }
+			boost::shared_ptr<spec::type_die> get_refdie_is_type() const; 
             //spec::type_die& get_refdie_is_type() { return dynamic_cast<spec::type_die&>(get_refdie()); }
             /* ^^^ I think a plain reference is okay here because the "this" pointer
              * (i.e. whatever pointer we'll be accessing the attribute through)

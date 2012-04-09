@@ -15,6 +15,411 @@
 
 namespace dwarf
 {
+	namespace core
+	{
+		using std::pair;
+		using std::make_pair;
+		using std::string;
+		using boost::optional;
+		using std::unique_ptr;
+		using std::deque;
+		using std::map;
+		using std::endl;
+		using namespace dwarf::lib;
+		
+#ifndef NO_TLS
+		__thread Dwarf_Error current_dwarf_error;
+#else
+		Dwarf_Error current_dwarf_error;
+#endif
+		
+		void exception_error_handler(Dwarf_Error error, Dwarf_Ptr errarg)
+		{
+			throw Error(error, errarg); // FIXME: saner non-copying interface? 
+		}
+		
+		Debug::Debug(int fd)
+		{
+			Dwarf_Debug returned;
+			int ret = dwarf_init(fd, DW_DLC_READ, exception_error_handler, 
+				nullptr, &returned, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			this->handle = handle_type(returned);
+		}
+		
+		Debug::Debug(Elf *elf)
+		{
+			Dwarf_Debug returned;
+			int ret = dwarf_elf_init(reinterpret_cast<dwarf::lib::Elf_opaque_in_libdwarf*>(elf), 
+				DW_DLC_READ, exception_error_handler, 
+				nullptr, &returned, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			this->handle = handle_type(returned);
+		}
+		
+		void 
+		Debug::deleter::operator()(raw_handle_type arg) const
+		{
+			dwarf_finish(arg, &current_dwarf_error);
+		}
+
+		/* print a single DIE */
+		std::ostream& operator<<(std::ostream& s, const basic_die& d)
+		{
+			s << "DIE, payload tbc"; 
+			return s;
+		}
+		/* print a whole tree of DIEs */
+		std::ostream& operator<<(std::ostream& s, const basic_root_die& d)
+		{
+			for (auto i = d.begin(); i != d.end(); ++i)
+			{
+				s << "At 0x" << std::hex << i.offset_here() << std::dec
+					<< ", depth " << i.depth()
+					<< ", tag " << i.spec_here().tag_lookup(i.tag_here()) 
+					/*<< ", " << *i*/
+					<< endl;
+			}
+			return s;
+		}
+		
+		/* Moving around, there are a few concerns to deal with. 
+		 * 1. maintaining the parent cache
+		 * 2. exploiting the parent cache
+		 * 3. libdwarf's compilation unit quirk 
+		 * 4. maintaining the depth field
+		 * 5. maintaining the sticky set
+		 * 6. exploiting the sticky set.
+		 *
+		 * We deal with the first four here. 
+		 * Sticky set exploitation is done in iterator_base::iterator_base(handle).
+		 * Sticky set maintenance is done in iterator_base's copy constructor / root_die::make_payload. */
+		bool 
+		root_die::move_to_parent(iterator_base& it)
+		{
+			assert(&it.get_root() == this);
+			if (it.tag_here() == DW_TAG_compile_unit) 
+			{
+				it = it.get_root().begin();
+				return true;
+			}
+			else if (it.offset_here() == 0UL) return false;
+			else
+			{
+				auto found = parent_of.find(it.offset_here());
+				// if we issued `it', we should have recorded its parent
+				// FIXME: relax this policy perhaps, to allow soft cache?
+				assert(found != parent_of.end());
+				
+				auto maybe_handle = Die::try_construct(*this,
+					found->second);
+				if (maybe_handle)
+				{
+					// update it
+					it = std::move(iterator_base(maybe_handle, it.get_depth() - 1, *this));
+					return true;
+				}
+				else
+				{
+					// no such DIE?!
+					assert(false);
+				}
+			}
+		}
+		
+		bool 
+		root_die::move_to_first_child(iterator_base& it)
+		{
+			assert(&it.get_root() == this);
+			Dwarf_Off start_offset = it.offset_here();
+			Die::handle_type maybe_handle;
+			if (start_offset == 0UL) 
+			{
+				// do the CU thing
+				bool ret1 = clear_cu_context();
+				assert(ret1);
+				bool ret2 = advance_cu_context(); 
+				if (!ret2) return false;
+				maybe_handle = std::move(Die::try_construct(*this));
+			}
+			else
+			{
+				// do the non-CU thing
+				maybe_handle = std::move(Die::try_construct(it));
+			}
+			
+			// shared parent cache logic
+			if (maybe_handle)
+			{
+				// update it
+				it = std::move(iterator_base(maybe_handle, it.get_depth() + 1, it.get_root()));
+				// install in parent cache
+				parent_of[it.offset_here()] = start_offset;
+				return true;
+			}
+			else return false;
+		}
+		
+		bool root_die::advance_cu_context()
+		{
+			// boost::optional doesn't let us get a writable lvalue out of an
+			// uninitialized optional, so we have to dummy up. 
+
+			Dwarf_Unsigned seen_cu_header_length;
+			Dwarf_Half seen_version_stamp;
+			Dwarf_Unsigned seen_abbrev_offset;
+			Dwarf_Half seen_address_size;
+			Dwarf_Half seen_offset_size;
+			Dwarf_Half seen_extension_size;
+			Dwarf_Unsigned seen_next_cu_header;
+			
+			int retval = dwarf_next_cu_header_b(dbg.handle.get(),
+				&seen_cu_header_length, &seen_version_stamp, 
+				&seen_abbrev_offset, &seen_address_size, 
+				&seen_offset_size, &seen_extension_size,
+				&seen_next_cu_header, &current_dwarf_error);
+			assert(retval == DW_DLV_OK || retval == DW_DLV_NO_ENTRY);
+			if (retval == DW_DLV_NO_ENTRY)
+			{
+				// this means no variables (including last_seen_next_cu_header) were set
+				last_seen_cu_header_length = optional<decltype(*last_seen_cu_header_length)>(); assert(!last_seen_cu_header_length);
+				last_seen_version_stamp = optional<decltype(*last_seen_version_stamp)>(); assert(!last_seen_version_stamp);
+				last_seen_abbrev_offset = optional<decltype(*last_seen_abbrev_offset)>(); assert(!last_seen_abbrev_offset);
+				last_seen_address_size = optional<decltype(*last_seen_address_size)>(); assert(!last_seen_address_size);
+				last_seen_offset_size = optional<decltype(*last_seen_offset_size)>(); assert(!last_seen_offset_size);
+				last_seen_extension_size = optional<decltype(*last_seen_extension_size)>(); assert(!last_seen_extension_size);
+				last_seen_next_cu_header = optional<decltype(*last_seen_next_cu_header)>(); assert(!last_seen_next_cu_header);
+				current_cu_offset = 0UL;
+				return false;
+			}
+			else
+			{
+				assert(retval == DW_DLV_OK);
+				optional<Dwarf_Off> prev_next_cu_header = last_seen_next_cu_header;
+				Dwarf_Off prev_current_cu_offset = current_cu_offset;
+			
+				last_seen_cu_header_length = seen_cu_header_length;
+				last_seen_version_stamp = seen_version_stamp;
+				last_seen_abbrev_offset = seen_abbrev_offset;
+				last_seen_address_size = seen_address_size;
+				last_seen_offset_size = seen_offset_size;
+				last_seen_extension_size = seen_extension_size;
+				last_seen_next_cu_header = seen_next_cu_header;
+				
+				// also grab the current CU DIE offset
+				auto tmp_handle = Die::try_construct(*this);
+				assert(tmp_handle.get());
+				current_cu_offset = iterator_base(tmp_handle, 1U, *this).offset_here();
+				if (prev_current_cu_offset == 0UL)
+				{
+					first_cu_offset = optional<Dwarf_Off>(current_cu_offset);
+				} 
+				if (prev_next_cu_header) // sanity check
+				{
+					/* Note that next_cu_header is subtle:
+					 * according to libdwarf,
+					 * "the offset into the debug_info section of the next CU header",
+					 * BUT it tends to be smaller than the value we got
+					 * from offset_here(). */
+					
+					//assert(current_cu_offset == *prev_next_cu_header); // -- this is wrong
+					
+					assert(first_cu_offset);
+					assert(current_cu_offset == *first_cu_offset
+					 ||    current_cu_offset == *prev_next_cu_header + *first_cu_offset);
+				}
+				
+				return true;
+			}
+		}
+		bool root_die::clear_cu_context()
+		{
+			if (current_cu_offset == 0UL) return true;
+			while(advance_cu_context());
+			return true; // i.e. success
+		}
+		bool root_die::set_subsequent_cu_context(Dwarf_Off off)
+		{
+			if (current_cu_offset == off) return true;
+			else assert(!last_seen_next_cu_header);
+			bool ret = last_seen_next_cu_header; // i.e. false if we have no current context
+			do ret = advance_cu_context();
+			while (last_seen_next_cu_header // i.e. stop if we hit the no-context case
+				&& *last_seen_next_cu_header != off // i.e. stop if we reach our target
+				&& ret); // i.e. stop if we fail to advance
+			// begin sanity check
+			if (ret)
+			{
+				Dwarf_Die test;
+				Dwarf_Error temporary_error;
+				int test_ret = dwarf_siblingof(dbg.handle.get(), nullptr, &test, &temporary_error);
+				assert(test_ret == DW_DLV_OK);
+				Dwarf_Off test_off;
+				dwarf_dieoffset(test, &test_off, &temporary_error);
+				assert(test_off == off);
+			}
+			// end sanity check
+			return ret;
+		}
+		bool root_die::set_cu_context(Dwarf_Off off)
+		{
+			bool ret = set_subsequent_cu_context(off);
+			if (!ret)
+			{
+				// we got to the end; try again
+				clear_cu_context(); // should be a no-op
+				return set_subsequent_cu_context(off);
+				// FIXME: avoid repeated search
+			}
+			else return true;
+		}
+		
+		bool 
+		root_die::move_to_next_sibling(iterator_base& it)
+		{
+			assert(&it.get_root() == this);
+			if (!it.is_real_die_position()) return false;
+
+			Dwarf_Off offset_here = it.offset_here();
+			auto found = parent_of.find(offset_here);
+			// if we issued `it', we should have recorded its parent
+			// FIXME: relax this policy perhaps, to allow soft cache?
+			assert(found != parent_of.end());
+			Dwarf_Off common_parent_offset = found->second;
+			Die::handle_type maybe_handle;
+			
+			if (it.tag_here() == DW_TAG_compile_unit)
+			{
+				// do the CU thing
+				bool ret = set_cu_context(it.offset_here());
+				assert(ret);
+				ret = advance_cu_context();
+				if (!ret) return false;
+				maybe_handle = std::move(Die::try_construct(*this));
+			}
+			else
+			{
+				// do the non-CU thing
+				maybe_handle = std::move(Die::try_construct(*this, it));
+			}
+			
+			// shared parent cache logic
+			if (maybe_handle)
+			{
+				// install in parent cache
+				it = std::move(iterator_base(maybe_handle, it.get_depth(), *this));
+				parent_of[it.offset_here()] = common_parent_offset;
+				return true;
+			}
+			else return false;
+		}
+		
+		template <typename Iter /* = typename iterator_df<> */ >
+		Iter basic_root_die::begin()
+		{
+			/* The first DIE is always the root.
+			 * We denote an iterator pointing at the root by
+			 * a Debug but no Die. */
+			return Iter(iterator_base(*this));
+		}
+		
+		const iterator_base iterator_base::END; 
+		
+		template <typename Iter /* = iterator_df<> */ >
+		Iter basic_root_die::end()
+		{
+			return Iter(iterator_base::END);
+		}
+		
+		template <typename Iter /* = iterator_df<> */ >
+		pair<Iter, Iter> 
+		basic_root_die::sequence()
+		{
+			return make_pair(begin(), end());
+		}
+		
+		basic_root_die::ptr_type 
+		root_die::make_payload(const iterator_base& it)
+		{
+			/* This call is asking us to heap-allocate the state of the iterator
+			 * and upgrade the iterator so that it is copyable. There are some exceptions:
+			 * root and END iterators have no handle, so they can be copied directly. */
+
+			if (it.state == iterator_base::WITH_PAYLOAD) return it.cur_payload;
+			else
+			{
+				// heap-allocate the right kind of basic_die
+				basic_die *p;
+				switch (it.tag_here())
+				{
+#define factory_case(name, ...) \
+case DW_TAG_ ## name: p = new basic_die(*this); break;
+#include "dwarf3-factory.h"
+#undef factory_case
+					default: assert(false);
+				}
+				p->d = std::move(it.cur_handle);
+				p->depth = it.get_depth();
+				it.state = iterator_base::WITH_PAYLOAD;
+				it.cur_payload = p;
+				return it.cur_payload;
+			}
+		}
+		
+		bool root_die::is_sticky(const iterator_base& it)
+		{
+			/* This sets the default policy for stickiness: compile unit DIEs
+			 * are sticky, but others aren't. */
+			return it.tag_here() == DW_TAG_compile_unit;
+		}
+		
+		Dwarf_Off iterator_base::offset_here() const
+		{
+			if (!is_real_die_position()) { assert(is_root_position()); return 0; }
+			Dwarf_Off off;
+			int ret = dwarf_dieoffset(get_raw_handle(), &off, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			return off;
+		}
+		
+		Dwarf_Half iterator_base::tag_here() const
+		{
+			if (!is_real_die_position()) return 0;
+			Dwarf_Half tag;
+			int ret = dwarf_tag(get_raw_handle(), &tag, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			return tag;
+		}
+		
+		std::unique_ptr<const char, string_deleter>
+		iterator_base::name_here() const
+		{
+			if (!is_real_die_position()) return nullptr;
+			char *str;
+			int ret = dwarf_diename(get_raw_handle(), &str, &current_dwarf_error);
+			if (ret == DW_DLV_NO_ENTRY) return nullptr;
+			if (ret == DW_DLV_OK) return unique_ptr<const char, string_deleter>(
+				str, string_deleter(p_root->get_dbg()));
+			assert(false);
+		}
+		
+		iterator_base iterator_base::nearest_enclosing(Dwarf_Half tag) const
+		{
+			auto cur = *this; // copies!
+			while (cur.is_real_die_position() && cur.tag_here() != tag)
+			{
+				if (!p_root->move_to_parent(cur)) return END;
+			}
+			if (!cur.is_real_die_position()) return END;
+			else return cur;
+		}
+		// FIXME: for nearest_enclosing(DW_TAG_compile_unit), libdwarf supplies a call:
+		// dwarf_CU_dieoffset_given_die
+		// -- gives you the CU of a DIE
+	
+	
+	} /* end namespace core */
+
 	namespace lib
 	{
 		void default_error_handler(Dwarf_Error e, Dwarf_Ptr errarg) 
@@ -434,19 +839,20 @@ namespace dwarf
 		}
 
 		attribute::attribute(Dwarf_Half attr, attribute_array& a, Dwarf_Error *error /*= 0*/)
-         : a(a)
+         : p_a(&a)
         {
-			if (error == 0) error = a.p_last_error;
+			if (error == 0) error = p_a->p_last_error;
             
 			Dwarf_Bool ret = false; 
-            if (!(a.d.hasattr(attr, &ret), ret)) throw No_entry(); 
+            if (!(p_a->d.hasattr(attr, &ret), ret)) throw No_entry(); 
             
             for (int i = 0; i < a.cnt; i++)
             {
                 Dwarf_Half out;
-                if ((dwarf_whatattr(a.p_attrs[i], &out, error), out) == attr)
+                if ((dwarf_whatattr(p_a->p_attrs[i], &out, error), out) == attr)
                 {
                 	this->i = i;
+					this->p_raw_attr = p_a->p_attrs[i];
                     return;
                 }
             }
@@ -459,73 +865,73 @@ namespace dwarf
 		int attribute::hasform(Dwarf_Half form, Dwarf_Bool *return_hasform,
 			Dwarf_Error *error /*=0*/) const
 		{
-			if (error == 0) error = a.p_last_error;
-			return dwarf_hasform(a.p_attrs[i], form, return_hasform, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_hasform(p_a->p_attrs[i], form, return_hasform, error);
 		}
 		int attribute::whatform(Dwarf_Half *return_form, Dwarf_Error *error /*=0*/) const
 		{
-			if (error == 0) error = a.p_last_error;
-			return dwarf_whatform(a.p_attrs[i], return_form, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_whatform(p_a->p_attrs[i], return_form, error);
 		}
 		int attribute::whatform_direct(Dwarf_Half *return_form,	Dwarf_Error *error /*=0*/) const
 		{
-			if (error == 0) error = a.p_last_error;
-			return dwarf_whatform_direct(a.p_attrs[i], return_form, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_whatform_direct(p_a->p_attrs[i], return_form, error);
 		}
 		int attribute::whatattr(Dwarf_Half *return_attr, Dwarf_Error *error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error;
-			return dwarf_whatattr(a.p_attrs[i], return_attr, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_whatattr(p_a->p_attrs[i], return_attr, error);
 		}
 		int attribute::formref(Dwarf_Off *return_offset, Dwarf_Error *error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error;
-			return dwarf_formref(a.p_attrs[i], return_offset, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_formref(p_a->p_attrs[i], return_offset, error);
 		}
 		int attribute::formref_global(Dwarf_Off *return_offset, Dwarf_Error *error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error;
-			return dwarf_global_formref(a.p_attrs[i], return_offset, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_global_formref(p_a->p_attrs[i], return_offset, error);
 		}
 		int attribute::formaddr(Dwarf_Addr * return_addr, Dwarf_Error *error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error;
-			return dwarf_formaddr(a.p_attrs[i], return_addr, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_formaddr(p_a->p_attrs[i], return_addr, error);
 		}
 		int attribute::formflag(Dwarf_Bool * return_bool, Dwarf_Error *error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error;
-			return dwarf_formflag(a.p_attrs[i], return_bool, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_formflag(p_a->p_attrs[i], return_bool, error);
 		}
 		int attribute::formudata(Dwarf_Unsigned * return_uvalue, Dwarf_Error * error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error;
-			return dwarf_formudata(a.p_attrs[i], return_uvalue, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_formudata(p_a->p_attrs[i], return_uvalue, error);
 		}
 		int attribute::formsdata(Dwarf_Signed * return_svalue, Dwarf_Error *error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error;
-			return dwarf_formsdata(a.p_attrs[i], return_svalue, error);
+			if (error == 0) error = p_a->p_last_error;
+			return dwarf_formsdata(p_a->p_attrs[i], return_svalue, error);
 		}
 		int attribute::formblock(Dwarf_Block ** return_block, Dwarf_Error * error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error; // TODO: fix this to be RAII
-			return dwarf_formblock(a.p_attrs[i], return_block, error);
+			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
+			return dwarf_formblock(p_a->p_attrs[i], return_block, error);
 		}
 		int attribute::formstring(char ** return_string, Dwarf_Error *error /*=0*/) const
 		{		
-			if (error == 0) error = a.p_last_error; // TODO: fix this to be RAII
-			return dwarf_formstring(a.p_attrs[i], return_string, error);
+			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
+			return dwarf_formstring(p_a->p_attrs[i], return_string, error);
 		}
 		int attribute::loclist_n(Dwarf_Locdesc ***llbuf, Dwarf_Signed *listlen, Dwarf_Error *error /*=0*/) const
 		{
-			if (error == 0) error = a.p_last_error; // TODO: fix this to be RAII
-			return dwarf_loclist_n(a.p_attrs[i], llbuf, listlen, error);
+			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
+			return dwarf_loclist_n(p_a->p_attrs[i], llbuf, listlen, error);
 		}
 		int attribute::loclist(Dwarf_Locdesc **llbuf, Dwarf_Signed *listlen, Dwarf_Error *error /*=0*/) const
 		{
-			if (error == 0) error = a.p_last_error; // TODO: fix this to be RAII
-			return dwarf_loclist(a.p_attrs[i], llbuf, listlen, error);
+			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
+			return dwarf_loclist(p_a->p_attrs[i], llbuf, listlen, error);
 		}
         
         /* methods defined on aranges */
@@ -720,7 +1126,7 @@ namespace dwarf
 					
 					default:
 						std::cerr << "Error: unrecognised opcode: " << spec.op_lookup(i->lr_atom) << std::endl;
-						assert(false);
+						throw Not_supported("unrecognised opcode");
                     logic_error:
                     	std::cerr << "Logic error in DWARF expression evaluator";
                         if (error_detail) std::cerr << ": " << *error_detail;

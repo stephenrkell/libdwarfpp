@@ -14,7 +14,7 @@ namespace dwarf
     {
    		const int empty_def::empty_operand_form_list[] = { 0 };
         const int empty_def::empty_class_list[] = { interp::EOL };
-        const empty_def empty_def::inst;
+        empty_def empty_def::inst;
 
         template<unsigned spec_id> 
         int table_def<spec_id>::get_explicit_interp(int attr, int form) const
@@ -544,6 +544,8 @@ namespace dwarf
 						    make_decl(DW_OP_form_tls_address, 0) \
 						    make_decl(DW_OP_call_frame_cfa, 0) \
 						    make_decl(DW_OP_bit_piece, 0) \
+						    make_decl(DW_OP_implicit_value, 2) \
+						    make_decl(DW_OP_stack_value, 0) \
 						    make_decl(DW_OP_GNU_push_tls_address, 0) \
 						    make_decl(DW_OP_HP_is_value, 0) \
 						    make_decl(DW_OP_HP_fltconst4, 0) \
@@ -615,9 +617,9 @@ namespace dwarf
 			    }
 		    }  
 
-        template<> const dwarf3_def dwarf3_def::inst(TABLE_ARGS_NS(::dwarf::spec));
-        const abstract_def& dwarf3 = dwarf3_def::inst;
-        const abstract_def& DEFAULT_DWARF_SPEC = dwarf3_def::inst;
+        template<> dwarf3_def dwarf3_def::inst(TABLE_ARGS_NS(::dwarf::spec));
+        /*const*/ abstract_def& dwarf3 = dwarf3_def::inst;
+        /*const*/ abstract_def& DEFAULT_DWARF_SPEC = dwarf3_def::inst;
         
         void print_symmetric_map_pair(
         	std::ostream& o,

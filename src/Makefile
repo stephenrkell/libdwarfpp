@@ -1,6 +1,6 @@
 CXX ?= g++
 
-CXXFLAGS += -std=gnu++0x -Wall -fPIC 
+CXXFLAGS += -std=gnu++0x -fkeep-inline-functions -Wall -fPIC 
 ifeq ($(DEBUG),)
 $(warning Optimised build)
 CXXFLAGS += -O4 
@@ -68,3 +68,5 @@ libdwarfpp.so: $(OBJS)
 clean:
 	rm -f *.o *.a *.inc .*.d *.so
 
+coretest: coretest.cpp spec.o
+	$(CXX) $(CXXFLAGS) -O0 -g -DMAKE_TEST_PROGRAM -o "$@" "$<" spec.o $(LDFLAGS) -ldwarf -lelf -lc++fileno $(LDLIBS)

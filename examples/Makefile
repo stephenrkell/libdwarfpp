@@ -46,7 +46,7 @@ dwarfpplibdump: dwarfpplibdump.o ../src/libdwarfpp.a
 %: %.o ../src/libdwarfpp.so
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) \
 	-Wl,-R$(realpath ../src) \
-	-o "$@" "$<" -ldwarfpp -ldwarf -lelf -lsrk31c++ -lboost_regex -lc++fileno
+	-o "$@" "$<" -ldwarfpp -ldwarf -lelf -lsrk31c++ -lboost_regex -lboost_serialization -lc++fileno
 
 %.o: %.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) -c -o "$@" "$<"
