@@ -367,7 +367,7 @@ namespace dwarf
 			Iter find(Dwarf_Off off);
 			/* This is the cheap version -- must give a valid offset. */
 			template <typename Iter = iterator_df<> >
-			Iter pos(Dwarf_Off off);
+			Iter pos(Dwarf_Off off, unsigned depth);
 			
 			::Elf *get_elf(); // hmm: lib-only?
 			Debug& get_dbg() { return dbg; }
@@ -692,6 +692,7 @@ namespace dwarf
 			typedef Dwarf_Signed difference_type;
 			
 			iterator_base nearest_enclosing(Dwarf_Half tag) const;
+			Dwarf_Off enclosing_cu_offset_here() const;
 			
 			unsigned depth() const { return m_depth; }
 			unsigned get_depth() const { return m_depth; }
@@ -928,6 +929,8 @@ namespace dwarf
 		{
 			return std::make_pair(begin(), end());
 		}
+
+
 	}
 	
 	namespace lib

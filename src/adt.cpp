@@ -413,6 +413,12 @@ namespace dwarf
 					}
 					assert(opt_byte_size);
 					Dwarf_Unsigned byte_size = *opt_byte_size;
+					if (byte_size == 0)
+					{
+						cerr << "Zero-length object: " << this->summary() << endl;
+						goto out;
+					}
+					
 					auto loclist = found_location->second.get_loclist();
 					std::vector<std::pair<dwarf::encap::loc_expr, Dwarf_Unsigned> > expr_pieces;
 					try
@@ -443,19 +449,19 @@ namespace dwarf
 							Dwarf_Unsigned piece_start = dwarf::lib::evaluator(i->first,
 								this->get_spec()).tos();
 
+							/* If we have only one piece, it means there might be no DW_OP_piece,
+							 * so the size of the piece will be unreliable (possibly zero). */
+							if (expr_pieces.size() == 1 && expr_pieces.begin()->second == 0)
+							{
+								piece_size = byte_size;
+							}
 							// HACK: increment early to avoid icl zero bug
-							current_offset_within_object += i->second;
+							current_offset_within_object += piece_size;
 
 							retval.insert(make_pair(
 								right_open(piece_start, piece_start + piece_size),
 								current_offset_within_object
 							));
-						}
-						/* If we got only one piece, it means there might be no DW_OP_piece,
-						 * so the size of the piece will be unreliable (possibly zero). */
-						if (expr_pieces.size() == 1 && expr_pieces.begin()->second == 0)
-						{
-							current_offset_within_object = byte_size;
 						}
 						assert(current_offset_within_object == byte_size);
 					}
