@@ -74,6 +74,7 @@ namespace dwarf
 		bool dieset::move_to_next_sibling(spec::abstract_dieset::iterator_base& arg)
 		{
 			if (!arg.p_d) return false;
+			if (arg.path_from_root.back() == 0UL) return false;
 			auto p_encap = dynamic_pointer_cast<encap::basic_die>(arg.p_d);
 			assert(p_encap);
 

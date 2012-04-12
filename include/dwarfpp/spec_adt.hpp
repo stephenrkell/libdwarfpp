@@ -283,6 +283,9 @@ namespace dwarf
 			virtual bool move_to_first_child(iterator_base& arg) = 0;
 			virtual bool move_to_parent(iterator_base& arg) = 0;
 			virtual bool move_to_next_sibling(iterator_base& arg) = 0;
+			// backlinks aren't necessarily stored, so support search for parent
+			virtual Dwarf_Off find_parent_offset_of(Dwarf_Off off) = 0;
+
 			
 			//virtual path_type
 			//path_from_root(Dwarf_Off off) = 0;
@@ -1008,7 +1011,7 @@ end_class(with_data_members)
                     Dwarf_Off dieset_relative_ip, \
                     Dwarf_Signed *out_frame_base, \
                     dwarf::lib::regs *p_regs = 0) const; \
-        bool is_variadic() const;
+        bool is_variadic() const; 
 #define extra_decls_variable \
         bool has_static_storage() const; \
 		has_stack_based_location
@@ -1018,7 +1021,8 @@ end_class(with_data_members)
 		opt<Dwarf_Unsigned> element_count() const; \
         opt<Dwarf_Unsigned> calculate_byte_size() const; \
         bool is_rep_compatible(boost::shared_ptr<type_die> arg) const; \
-		shared_ptr<type_die> ultimate_element_type() const; 
+		shared_ptr<type_die> ultimate_element_type() const; \
+		opt<Dwarf_Unsigned> ultimate_element_count() const; 
 #define extra_decls_pointer_type \
 		boost::shared_ptr<type_die> get_concrete_type() const; \
         opt<Dwarf_Unsigned> calculate_byte_size() const; \

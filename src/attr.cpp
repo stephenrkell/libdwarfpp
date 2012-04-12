@@ -96,7 +96,8 @@ namespace dwarf
 				case DW_FORM_ref_udata:
 				case DW_FORM_indirect:
 				default:
-					assert(false);
+					cerr << "Warning: unknown attribute form 0x" 
+						<< std::hex << form << std::dec << endl;
 					return dwarf::encap::attribute_value::NO_ATTR;
 			}	
 		}

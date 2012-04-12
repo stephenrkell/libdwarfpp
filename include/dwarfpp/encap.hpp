@@ -219,7 +219,7 @@ namespace dwarf {
 			bool move_to_first_child(spec::abstract_dieset::iterator_base& arg);
 			bool move_to_parent(spec::abstract_dieset::iterator_base& arg);
 			bool move_to_next_sibling(spec::abstract_dieset::iterator_base& arg);
-
+			inline Dwarf_Off find_parent_offset_of(Dwarf_Off off);
 // 			// FIXME: delete this old cruft
 // 			opt<die&> resolve_die_path(const Dwarf_Off start, 
 // 				const pathname& path, pathname::const_iterator pos);
@@ -523,6 +523,10 @@ namespace dwarf {
 				o << *this;
 			}
 		};
+		
+		inline Dwarf_Off dieset::find_parent_offset_of(Dwarf_Off off)
+		{ auto found = map_find(off); assert(found != map_end());
+		  return found->second->p_parent->get_offset(); } 
 
 		
 /****************************************************************/

@@ -314,30 +314,6 @@ namespace dwarf
 			else return false;
 		}
 		
-		template <typename Iter /* = typename iterator_df<> */ >
-		Iter basic_root_die::begin()
-		{
-			/* The first DIE is always the root.
-			 * We denote an iterator pointing at the root by
-			 * a Debug but no Die. */
-			return Iter(iterator_base(*this));
-		}
-		
-		const iterator_base iterator_base::END; 
-		
-		template <typename Iter /* = iterator_df<> */ >
-		Iter basic_root_die::end()
-		{
-			return Iter(iterator_base::END);
-		}
-		
-		template <typename Iter /* = iterator_df<> */ >
-		pair<Iter, Iter> 
-		basic_root_die::sequence()
-		{
-			return make_pair(begin(), end());
-		}
-		
 		basic_root_die::ptr_type 
 		root_die::make_payload(const iterator_base& it)
 		{
@@ -416,6 +392,7 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 		// FIXME: for nearest_enclosing(DW_TAG_compile_unit), libdwarf supplies a call:
 		// dwarf_CU_dieoffset_given_die
 		// -- gives you the CU of a DIE
+		const iterator_base iterator_base::END; 
 	
 	
 	} /* end namespace core */
@@ -933,26 +910,47 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
 			return dwarf_loclist(p_a->p_attrs[i], llbuf, listlen, error);
 		}
-        
-        /* methods defined on aranges */
-     	int aranges::get_info(int i, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
-				Dwarf_Error *error/* = 0*/)
-        {
-        	if (error == 0) error = p_last_error; // TODO: fix
-            if (i >= cnt) throw No_entry();
-            return dwarf_get_arange_info(p_aranges[i], start, length, cu_die_offset, error);
-        }
-		int aranges::get_info_for_addr(Dwarf_Addr addr, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
+		
+		/* methods defined on aranges */
+		int aranges::get_info(int i, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
 				Dwarf_Error *error/* = 0*/)
 		{
-        	if (error == 0) error = p_last_error; // TODO: fix
+			if (error == 0) error = p_last_error; // TODO: fix
+			if (i >= cnt) throw No_entry();
+			return dwarf_get_arange_info(p_aranges[i], start, length, cu_die_offset, error);
+		}
+		int aranges::get_info_for_addr(Dwarf_Addr addr, Dwarf_Addr *start, Dwarf_Unsigned *length, 
+			Dwarf_Off *cu_die_offset, Dwarf_Error *error/* = 0*/)
+		{
+			if (error == 0) error = p_last_error; // TODO: fix
+			cerr << "Getting info for addr 0x" << std::hex << addr << std::dec
+				<< " from aranges block at " << p_aranges << endl;
+			for (int j = 0; j < cnt && j < 10; ++j)
+			{
+				Dwarf_Addr tmp_start;
+				Dwarf_Unsigned tmp_length;
+				Dwarf_Off tmp_cu_die_offset;
+				int ret2 = dwarf_get_arange_info(p_aranges[j], 
+					&tmp_start, &tmp_length, &tmp_cu_die_offset, error);
+				assert(ret2 == DW_DLV_OK);
+				cerr << "Arange number " << j << " has "
+					<< "start address 0x" << std::hex << tmp_start << std::dec
+					<< ", length " << tmp_length
+					<< ", CU offset 0x" << std::hex << tmp_cu_die_offset << std::dec << endl;
+			}
+			if (cnt > 10) cerr << "More aranges follow." << endl;
 			Dwarf_Arange returned;
+			assert(p_aranges);
+			assert(cnt > 0);
 			int ret = dwarf_get_arange(p_aranges, cnt, addr, &returned, error);
 			if (ret == DW_DLV_OK)
 			{
+				cerr << "get_arange succeeded" << endl;
 				int ret2 = dwarf_get_arange_info(returned, start, length, cu_die_offset, error);
 				return ret2;
-			}
+			} else if (ret == -1) cerr << "get_arange found no entry convering address 0x" 
+				<< std::hex << addr << std::dec << endl;
+			else cerr << "get_arange failed with error " << ret << endl;
 			return ret;
 			
 		}

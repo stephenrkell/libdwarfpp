@@ -346,12 +346,14 @@ namespace dwarf
 			// That has the problem that we don't know where to store copied policies.
 			// And that inlining is less likely to happen.
 			template <typename Iter = iterator_df<> >
-			Iter begin();
-			template <typename Iter = iterator_df<> >
-			Iter end();
-			template <typename Iter = iterator_df<> >
-			pair<Iter, Iter> sequence();
+			inline Iter begin(); 
 			
+			template <typename Iter = iterator_df<> >
+			inline Iter end();
+			
+			template <typename Iter = iterator_df<> >
+			inline pair<Iter, Iter> sequence();
+
 			template <typename Iter = iterator_df<> >
 			Iter begin() const { return const_cast<basic_root_die*>(this)->begin<Iter>(); } 
 			template <typename Iter = iterator_df<> >
@@ -906,6 +908,26 @@ namespace dwarf
 		inline basic_die::basic_die(root_die& r/*, const Iter& i*/)
 		: d(Die::handle_type(nullptr)), p_root(&r) {}
 
+		template <typename Iter /* = iterator_df<> */ >
+		inline Iter basic_root_die::begin()
+		{
+			/* The first DIE is always the root.
+			 * We denote an iterator pointing at the root by
+			 * a Debug but no Die. */
+			return Iter(iterator_base(*this));
+		}
+
+		template <typename Iter /* = iterator_df<> */ >
+		inline Iter basic_root_die::end()
+		{
+			return Iter(iterator_base::END);
+		}
+
+		template <typename Iter /* = iterator_df<> */ >
+		inline pair<Iter, Iter> basic_root_die::sequence()
+		{
+			return std::make_pair(begin(), end());
+		}
 	}
 	
 	namespace lib
@@ -1283,7 +1305,9 @@ namespace dwarf
         class aranges
         {
         	file &f;
+		public: // temporary HACK
             Dwarf_Error *const p_last_error;
+		//private:
             Dwarf_Arange *p_aranges;
             Dwarf_Signed cnt;
             // TODO: forbid copying or assignment
@@ -1292,14 +1316,17 @@ namespace dwarf
             {
             	if (error == 0) error = p_last_error;
                 int retval = dwarf_get_aranges(f.get_dbg(), &p_aranges, &cnt, error);
-                if (retval == DW_DLV_NO_ENTRY) { cnt = 0; p_aranges = 0; return; }
+                if (retval == DW_DLV_NO_ENTRY) { cnt = 0; p_aranges = 0; }
                 else if (retval != DW_DLV_OK) throw Error(*error, f.get_dbg());
+				cerr << "Constructed an aranges from block at " << p_aranges 
+					<< ", count " << cnt << endl;
             }
 			Dwarf_Signed count() { return cnt; }		
 			int get_info(int i, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
 				Dwarf_Error *error = 0);
 			int get_info_for_addr(Dwarf_Addr a, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
 				Dwarf_Error *error = 0);
+			void *arange_block_base() const { return p_aranges; }
             virtual ~aranges()
             {
             	// FIXME: uncomment this after dwarf_dealloc segfault bug fixed

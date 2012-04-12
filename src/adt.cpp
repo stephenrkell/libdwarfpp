@@ -177,7 +177,7 @@ namespace dwarf
 		basic_die::iterator_here(
 			abstract_dieset::policy& pol /* = abstract_dieset::default_policy_sg */)
 		{
-			dieset& ds = dynamic_cast<dieset&>(get_ds());
+			abstract_dieset& ds = dynamic_cast<abstract_dieset&>(get_ds());
 			abstract_dieset::path_type path;
 			Dwarf_Off off = get_offset();
 			Dwarf_Off cur = off;
@@ -421,7 +421,11 @@ namespace dwarf
 					}
 					catch (No_entry)
 					{
-						cerr << "Vaddr-dependent static location " << *this << endl;
+						if (loclist.size() > 0)
+						{
+							cerr << "Vaddr-dependent static location " << *this << endl;
+						}
+						else cerr << "Static var with no location: " << *this << endl;
 						//if (loclist.size() > 0)
 						//{
 						//	expr_pieces = loclist.begin()->pieces();
@@ -458,7 +462,7 @@ namespace dwarf
 					catch (Not_supported)
 					{
 						// some opcode we don't recognise
-						err << "Unrecognised opcode in " << *this << endl;
+						cerr << "Unrecognised opcode in " << *this << endl;
 						goto out;
 					}
 
@@ -950,8 +954,21 @@ namespace dwarf
 		{
 			// Size of a type_chain is always the size of its concrete type
 			// which is *not* to be confused with its pointed-to type!
-			if (this->get_concrete_type()) return this->get_concrete_type()->calculate_byte_size();
-			else return opt<Dwarf_Unsigned>();
+			if (this->get_concrete_type())
+			{
+				auto to_return = this->get_concrete_type()->calculate_byte_size();
+				if (!to_return)
+				{
+					cerr << "Type chain concrete type " << *get_concrete_type()
+						<< " returned no byte size" << endl;
+				}
+				return to_return;
+			}
+			else
+			{
+				cerr << "Type with no concrete type: " << *this << endl;
+				return opt<Dwarf_Unsigned>();
+			}
 		}
         boost::shared_ptr<type_die> type_chain_die::get_concrete_type() const
         {
@@ -1057,10 +1074,34 @@ namespace dwarf
 			return cur;
 		}
 		
+		opt<Dwarf_Unsigned> array_type_die::ultimate_element_count() const 
+		{
+			auto nonconst_this = const_cast<array_type_die *>(this);
+			shared_ptr<type_die> cur
+			 = dynamic_pointer_cast<type_die>(nonconst_this->shared_from_this());
+			Dwarf_Unsigned count = 1;
+			while (cur->get_concrete_type()
+				 && cur->get_concrete_type()->get_tag() == DW_TAG_array_type)
+			{
+				auto as_array = dynamic_pointer_cast<array_type_die>(cur->get_concrete_type());
+				auto opt_count = as_array->element_count();
+				
+				if (!opt_count) return opt<Dwarf_Unsigned>();
+				else 
+				{
+					count *= *opt_count;
+					cur = as_array->get_type();
+				}
+			}
+			return opt<Dwarf_Unsigned>(count);
+		
+		}
+		
+		
 /* from spec::structure_type_die */
 		opt<Dwarf_Unsigned> structure_type_die::calculate_byte_size() const
 		{
-			// HACK: for now, do nothign
+			// HACK: for now, do nothing
 			// We should make this more reliable,
 			// but it's difficult because overall size of a struct is
 			// language- and implementation-dependent.
@@ -1135,6 +1176,11 @@ namespace dwarf
 					// static storage is recorded in DWARF using 
 					// register-relative addressing....
 					auto loclist = attrs.find(DW_AT_location)->second.get_loclist();
+					
+					// if our loclist is empty, we're probably an optimised-out local,
+					// so return false
+					if (loclist.begin() == loclist.end()) return false;
+					
 					for (auto i_loc_expr = loclist.begin(); 
 						i_loc_expr != loclist.end(); 
 						++i_loc_expr)
