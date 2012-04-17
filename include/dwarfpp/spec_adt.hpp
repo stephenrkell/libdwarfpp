@@ -856,7 +856,15 @@ struct with_iterator_partial_order : public Iter
 					= optional<vg_cache_rec_t>(),
 				shared_ptr<visible_grandchildren_sequence_t> p_seq 
 					= shared_ptr<visible_grandchildren_sequence_t>()); 
-					
+		protected:
+			virtual
+			pair<Dwarf_Off, visible_grandchildren_iterator>
+			next_visible_grandchild_with_name(
+				const string& name, 
+				visible_grandchildren_iterator begin, 
+				visible_grandchildren_iterator end
+			);
+		private:
 			std::map<string, optional< vector< vg_cache_rec_t > > > visible_grandchildren_cache;
 			Dwarf_Off vg_cache_is_exhaustive_up_to_offset;
 			Dwarf_Off vg_max_offset_on_last_complete_search;

@@ -823,9 +823,36 @@ namespace dwarf
 		template <typename DerefAs /* = basic_die*/>
 		struct iterator_sibs : public iterator_base
 		{
-			iterator_sibs(const iterator_base& arg) : iterator_base(arg) {}
-			iterator_sibs& operator=(const iterator_base& arg)
-			{ static_cast<iterator_base&>(*this) = arg; }
+			typedef iterator_sibs<DerefAs> self;
+			friend class boost::iterator_core_access;
+			
+			iterator_base& base_reference()
+			{ return static_cast<iterator_base&>(*this); }
+			const iterator_base& base() const
+			{ return static_cast<const iterator_base&>(*this); }
+			
+			iterator_sibs() : iterator_base()
+			{}
+
+			iterator_sibs(const iterator_base& arg)
+			 : iterator_base(arg)
+			{}
+			
+			iterator_sibs& operator=(const iterator_base& arg) 
+			{ this->base_reference() = arg; }
+			
+			void increment()
+			{
+				if (this->base_reference().get_root().move_to_next_sibling(this->base_reference())) return;
+				else { this->base_reference() = this->base_reference().get_root().end/*<self>*/(); return; }
+			}
+			
+			void decrement()
+			{
+				assert(false);
+			}
+			
+			bool equal(const self& arg) const { return this->base() == arg.base(); }
 		};
 		
 		inline Die::handle_type 
@@ -976,6 +1003,7 @@ namespace dwarf
 			friend class file_toplevel_die;
 			friend class compile_unit_die;
 
+			int fd;
 			Dwarf_Debug dbg; // our peer structure
 			Dwarf_Error last_error; // pointer to Dwarf_Error_s detailing our last error
 			//dieset file_ds; // the structure to hold encapsulated DIEs, if we use it
@@ -997,7 +1025,7 @@ namespace dwarf
 			 * - we can wrap the libdwarf producer interface too.
 			 * Note that dummy_file has gone away! */
 			// protected constructor
-			file() : dbg(0), last_error(0), 
+			file() : fd(-1), dbg(0), last_error(0), 
 			  elf(0), p_aranges(0), have_cu_context(false)
 			{} 
 
@@ -1015,6 +1043,7 @@ namespace dwarf
 
 			// TODO: forbid copying or assignment by adding private definitions 
 		public:
+			int get_fd() { return fd; }
 			Dwarf_Debug get_dbg() { return dbg; }
 			//dieset& get_ds() { return file_ds; }
 			file(int fd, Dwarf_Unsigned access = DW_DLC_READ,

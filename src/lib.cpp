@@ -432,7 +432,7 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 		file::file(int fd, Dwarf_Unsigned access /*= DW_DLC_READ*/,
 			Dwarf_Ptr errarg /*= 0*/,
 			Dwarf_Handler errhand /*= default_error_handler*/,
-			Dwarf_Error *error /*= 0*/)
+			Dwarf_Error *error /*= 0*/) : fd(fd)
 		{
     		if (error == 0) error = &last_error;
 			if (errarg == 0) errarg = this;

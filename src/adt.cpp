@@ -1667,7 +1667,6 @@ namespace dwarf
 
 			{
 			search_onward:
-				Dwarf_Off last_seen_offset = 0UL;
 				//if (opt_start_here) vg_seq = dynamic_pointer_cast<visible_grandchildren_sequence_t>(
 				//	opt_start_here->base().get_sequence());
 
@@ -1680,50 +1679,48 @@ namespace dwarf
 				clog << "Linear search startpos is "
 					<< ((start_iter == vg_seq->end()) ? "(end of dieset)" : (*start_iter)->summary())
 					<< endl;
-
-				for (auto i_vg = start_iter;
-					i_vg != vg_seq->end(); 
-					last_seen_offset = (*i_vg)->get_offset(), ++i_vg)
+				
+				// refactored a bit: the actual search is done by a different function,
+				pair<Dwarf_Off, visible_grandchildren_iterator> found
+				 = next_visible_grandchild_with_name(name, start_iter, vg_seq->end());
+				Dwarf_Off last_seen_offset = found.first;
+				visible_grandchildren_iterator found_vg = found.second;
+				
+				if (found_vg != vg_seq->end())
 				{
-					Dwarf_Off cur_off = (*i_vg)->get_offset();
-					assert(cur_off > last_seen_offset
-						|| cur_off > this->get_ds().get_last_monotonic_offset());
-					if ((*i_vg)->get_name())
+					Dwarf_Off cur_off = (*found_vg)->get_offset();
+					string cur_name = *(*found_vg)->get_name();
+					
+					// ensure we have a vector in the cache to write to
+					if (!visible_grandchildren_cache[cur_name]) 
 					{
-						string cur_name = *(*i_vg)->get_name();
-						if (cur_name == name)
-						{
-							// ensure we have a vector in the cache to write to
-							if (!visible_grandchildren_cache[cur_name]) 
-							{
-								visible_grandchildren_cache[cur_name] = vector<vg_cache_rec_t>();
-							}
-							vg_cache_rec_t cache_ent_added
-							 = make_pair(i_vg.base().base().base(), i_vg.base().get_currently_in());
-							//clog << "Traversing cacheable entry " << (*i_vg)->summary() << endl;
-
-							// we should not be adding something we've added already
-							/*if*/ assert( (std::find(visible_grandchildren_cache[cur_name]->begin(),
-									visible_grandchildren_cache[cur_name]->end(), 
-									cache_ent_added) == visible_grandchildren_cache[cur_name]->end()));
-							//{
-							//	clog << "Cacheable entry is not already cached, so adding it." << endl;
-								visible_grandchildren_cache[cur_name]->push_back(
-									cache_ent_added
-								);
-							//}
-						//if (cur_name == name)
-						//{
-						
-							assert(vg_cache_is_exhaustive_up_to_offset < cur_off
-							||     vg_cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
-							if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
-							{ vg_cache_is_exhaustive_up_to_offset = cur_off; }
-							clog << "Search succeeded at " << (*i_vg)->summary() << endl;
-							return optional<vg_cache_rec_t>(cache_ent_added);
-						}
+						visible_grandchildren_cache[cur_name] = vector<vg_cache_rec_t>();
 					}
+					vg_cache_rec_t cache_ent_added
+					 = make_pair(found_vg.base().base().base(), found_vg.base().get_currently_in());
+					//clog << "Traversing cacheable entry " << (*i_vg)->summary() << endl;
+
+					// we should not be adding something we've added already
+					/*if*/ assert( (std::find(visible_grandchildren_cache[cur_name]->begin(),
+							visible_grandchildren_cache[cur_name]->end(), 
+							cache_ent_added) == visible_grandchildren_cache[cur_name]->end()));
+					//{
+					//	clog << "Cacheable entry is not already cached, so adding it." << endl;
+						visible_grandchildren_cache[cur_name]->push_back(
+							cache_ent_added
+						);
+					//}
+				//if (cur_name == name)
+				//{
+
+					assert(vg_cache_is_exhaustive_up_to_offset < cur_off
+					||     vg_cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
+					if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
+					{ vg_cache_is_exhaustive_up_to_offset = cur_off; }
+					clog << "Search succeeded at " << (*found_vg)->summary() << endl;
+					return optional<vg_cache_rec_t>(cache_ent_added);
 				}
+				
 				if (!opt_start_here) 
 				{
 					// we use last_seen_offset and not the end() offset (max()) 
@@ -1746,6 +1743,48 @@ namespace dwarf
 				make_pair(get_ds().end().base(), vg_seq->subsequences_count() - 1)
 			);
 		}
+		
+		pair<Dwarf_Off, file_toplevel_die::visible_grandchildren_iterator>
+		file_toplevel_die::next_visible_grandchild_with_name(
+			const string& name, 
+			visible_grandchildren_iterator begin, 
+			visible_grandchildren_iterator end
+		)
+		{
+			Dwarf_Off last_seen_offset = 0UL;
+			for (auto i_vg = begin;
+				i_vg != end; 
+				last_seen_offset = (*i_vg)->get_offset(), ++i_vg)
+			{
+				Dwarf_Off cur_off = (*i_vg)->get_offset();
+				assert(cur_off > last_seen_offset
+					|| cur_off > this->get_ds().get_last_monotonic_offset());
+				if ((*i_vg)->get_name())
+				{
+					string cur_name = *(*i_vg)->get_name();
+					if (cur_name == name)
+					{
+						return make_pair(last_seen_offset, i_vg);
+					}
+				}
+			}
+			return make_pair(last_seen_offset, end);
+		}
+		/* from lib::file_toplevel_die! */
+	}
+	namespace lib {
+	/* from lib::file_toplevel_die! */
+		pair<Dwarf_Off, spec::file_toplevel_die::visible_grandchildren_iterator>
+		file_toplevel_die::next_visible_grandchild_with_name(
+			const string& name, 
+			visible_grandchildren_iterator begin, 
+			visible_grandchildren_iterator end
+		)
+		{
+			/* We have to deconstruct the visible_grandchildren_iterator */
+		}
+	}
+	namespace spec {
 		
 		boost::shared_ptr<file_toplevel_die::grandchildren_sequence_t>
 		file_toplevel_die::grandchildren_sequence()

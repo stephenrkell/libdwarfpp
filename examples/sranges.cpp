@@ -107,18 +107,34 @@ int main(int argc, char **argv)
 // 							out.begin()->first.upper() - out.begin()->first.lower()
 // 						)
 // 					));
-					/* We output ad-hoc text data in tab-separated fields as follows. 
+					/* We output to stderr ad-hoc text data in tab-separated fields as follows. 
 					 * file-relative address; 
 					 * CU offset;
 					 * object size;
 					 * name (free text)
 					 */
-					cout << std::hex 
-						<< "0x" << out.begin()->first.lower() << '\t' // addr
-						<< "0x" << i.enclosing_cu_offset_here() << '\t'  // CU offset
-						<< "0x" << out.begin()->first.upper() - out.begin()->first.lower() << '\t' // size
+					Dwarf_Addr file_relative_addr = out.begin()->first.lower();
+					Dwarf_Off cu_offset =  i.enclosing_cu_offset_here();
+					unsigned size = out.begin()->first.upper() - out.begin()->first.lower();
+					cerr << std::hex 
+						<< "0x" << file_relative_addr << '\t' // addr
+						<< "0x" << cu_offset << '\t'  // CU offset
+						<< "0x" << size << '\t' // size
 						<< (name.get() ? name.get() : "") 
 						<< std::dec << endl;
+					/* We output to stdout binary data as follows. 
+					 * file-relative address (width: native); 
+					 * CU offset (64 bits);
+					 * object size (32 bits).
+					 */
+					auto addr_size = (*ds.toplevel()->compile_unit_children_begin())->get_address_size();
+					assert(addr_size == 4 || addr_size == 8);
+					assert(sizeof cu_offset == 8);
+					assert(sizeof size == 4);
+					cout.write((char*) &file_relative_addr, addr_size);
+					cout.write((char*) &cu_offset, 8);
+					cout.write((char*) &size, 4);
+					
 				}
 				catch (dwarf::lib::Not_supported)
 				{
