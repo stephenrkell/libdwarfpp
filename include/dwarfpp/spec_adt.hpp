@@ -1171,10 +1171,17 @@ end_class(with_data_members)
 					 * we can't call resolve() on all DIEs that we might want
 					 * to terminate on, because the last hop needn't be a
 					 * with_named_children DIE. */
-					if (p_next_hop && !p_next_hop_with_children
-						&& path_pos + 1 == path_end) return p_next_hop;
-					assert(p_next_hop_with_children);
-					return p_next_hop_with_children->resolve(++path_pos, path_end);
+					if (!p_next_hop_with_children)
+					{
+						// it's okay if we're terminating here
+						if (path_pos + 1 == path_end) return p_next_hop;
+						else return shared_ptr<basic_die>();
+					}
+					else
+					{
+						assert(p_next_hop_with_children);
+						return p_next_hop_with_children->resolve(++path_pos, path_end);
+					}
 				}
 			}
 		}

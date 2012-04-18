@@ -227,7 +227,7 @@ tags = [ \
 ("dwarf_procedure", ( [], [], ["basic"]  ) ), \
 ("restrict_type", ( [], [], ["qualified_type"]  ) ), \
 ("interface_type", ( [], [ "member" ], ["type"]  ) ), \
-("namespace", ( [], [], ["basic"]  ) ), \
+("namespace", ( [], [], ["program_element", "with_named_children"]  ) ), \
 ("imported_module", ( [], [], ["basic"]  ) ), \
 ("unspecified_type", ( [], [] , ["type"] ) ), \
 ("partial_unit", ( [], [], ["basic"]  ) ), \

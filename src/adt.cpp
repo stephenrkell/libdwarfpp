@@ -1641,6 +1641,8 @@ namespace dwarf
 					}
 				}
 			}
+			else clog << "Missed cache." << endl;
+// DISABLEd exhaustiveness logic since we no longer aggressively cache all named DIEs we traverse
 			/* We could short-circuit the search for nonexistent DIEs here, 
 			 * by using cache_is_exhaustive_before_offset. BUT 
 			 * if we're a lib::file_toplevel_die, we don't know
@@ -1713,10 +1715,10 @@ namespace dwarf
 				//if (cur_name == name)
 				//{
 
-					assert(vg_cache_is_exhaustive_up_to_offset < cur_off
-					||     vg_cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
-					if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
-					{ vg_cache_is_exhaustive_up_to_offset = cur_off; }
+	//				assert(vg_cache_is_exhaustive_up_to_offset < cur_off
+	//				||     vg_cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
+	//				if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
+	//				{ vg_cache_is_exhaustive_up_to_offset = cur_off; }
 					clog << "Search succeeded at " << (*found_vg)->summary() << endl;
 					return optional<vg_cache_rec_t>(cache_ent_added);
 				}
@@ -1726,7 +1728,7 @@ namespace dwarf
 					// we use last_seen_offset and not the end() offset (max()) 
 					// because DIEs might get added later, at higher offsets
 					//  than the current max, but less than the sentinel.
-					vg_cache_is_exhaustive_up_to_offset = last_seen_offset;
+	//				vg_cache_is_exhaustive_up_to_offset = last_seen_offset;
 
 					// we can also store a negative result if we searched all the way
 					cerr << "Installing negative cache result for " << name << endl;
@@ -1781,23 +1783,29 @@ namespace dwarf
 			visible_grandchildren_iterator end
 		)
 		{
+			cerr << "Hello from lib::file_toplevel_die::next_visible_grandchild_with_name" << endl;
 			if (begin == end) return make_pair(0UL, end);
 			
 			/* We have to deconstruct the visible_grandchildren_iterator 
 			 * and make a core:: siblings iterator out of it. */
 			Dwarf_Off cur_off = begin.base().base().base().off;
 			/* Create an iterator_sibs<> at this offset. */
-			auto i = this->root.pos<core::iterator_base>(cur_off, 2);
+			auto i = std::move(this->root.pos<core::iterator_base>(cur_off, 2));
 			/* Also create an iterator for the current CU. */
+			Dwarf_Off enclosing_cu_off = i.enclosing_cu_offset_here();
+			assert(enclosing_cu_off > 0);
 			auto cu_iter = this->root.pos<core::iterator_sibs<> >(
-				i.enclosing_cu_offset_here(), 1);
+				enclosing_cu_off, 1);
+			assert(cu_iter.offset_here() == enclosing_cu_off);
 			/* Keep track of how many CUs we've skipped forwards. */
 			unsigned cus_moved = 0;
 			/* Keep a handle on the next cu handle. */
-			core::Die::handle_type next_cu_handle;
+			//core::Die::handle_type next_cu_handle;
 			/* Search forwards, hopping on to the next CU if we fail. */
 			do
 			{
+				cerr << "Searching within CU at 0x" 
+					<< std::hex << cu_iter.offset_here() << std::dec << endl;
 				do
 				{
 					// remember that we've visited this offset
@@ -1819,17 +1827,23 @@ namespace dwarf
 						if (name_here && string(name_here.get()) == name)
 						{
 							/* It's a result. */
+							cerr << "Found visible DIE named " << name << " at 0x"
+								<< std::hex << i.offset_here() << std::dec << endl;
 							goto result;
 						}
 					}
 				} while (root.move_to_next_sibling(i));
 				
-				// if we got here, we hit the end of one CU. 
-				// See if we can get the next.
-				next_cu_handle = std::move(core::Die::try_construct(cu_iter));
+// 				cerr << "Trying next CU...";
+// 				
+// 				// if we got here, we hit the end of one CU. 
+// 				// See if we can get the next.
+// 				next_cu_handle = std::move(core::Die::try_construct(cu_iter));
+// 				if (!next_cu_handle) cerr << " seems not to exist." << endl;
+// 				else cerr << endl;
 				
 			} while (root.move_to_next_sibling(cu_iter) 
-				&& ((i = std::move(core::iterator_base(next_cu_handle, 2, root))), 
+				&& ((i = core::iterator_base(core::Die::try_construct(cu_iter), 2, root)), 
 				     ++cus_moved, true));
 			
 			// if we got here, we really hit the end

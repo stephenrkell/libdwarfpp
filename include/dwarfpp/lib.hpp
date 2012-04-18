@@ -367,7 +367,8 @@ namespace dwarf
 			Iter find(Dwarf_Off off);
 			/* This is the cheap version -- must give a valid offset. */
 			template <typename Iter = iterator_df<> >
-			Iter pos(Dwarf_Off off, unsigned depth);
+			Iter pos(Dwarf_Off off, unsigned depth, 
+				optional<Dwarf_Off> parent_off = optional<Dwarf_Off>() );
 			
 			::Elf *get_elf(); // hmm: lib-only?
 			Debug& get_dbg() { return dbg; }
@@ -556,7 +557,7 @@ namespace dwarf
 			
 			// this constructor sets us up using a handle -- 
 			// this does the exploitation of the sticky set
-			iterator_base(Die::handle_type& h, unsigned depth, basic_root_die& r)
+			iterator_base(Die::handle_type&& h, unsigned depth, basic_root_die& r)
 			 : cur_handle(Die(nullptr)) // will be replaced in function body...
 			{
 				Dwarf_Off off; 
@@ -610,6 +611,11 @@ namespace dwarf
 			
 			// move assignment
 			iterator_base& operator=(iterator_base&& arg) = default; // does the upgrade...
+			
+			/* BUT note: these constructors are not enough, because unless we want
+			 * users to construct raw handles, the user has no nice way of constructing
+			 * a new iterator that is a sibling/child of an existing one. Note that
+			 * this doesn't imply copying... we might want to create a new handle. */
 			
 			/*DerefAs&*/ basic_die& dereference() { assert(false); }
 		
@@ -751,11 +757,18 @@ namespace dwarf
 			{}
 
 			iterator_df(const iterator_base& arg)
-			 : iterator_base(arg)
+			 : iterator_base(arg) // this COPIES so avoid
+			{}
+
+			iterator_df(iterator_base&& arg)
+			 : iterator_base(arg) 
 			{}
 			
 			iterator_df& operator=(const iterator_base& arg) 
 			{ this->base_reference() = arg; }
+			
+			iterator_df& operator=(iterator_base&& arg) 
+			{ this->base_reference() = std::move(arg); }
 			
 			void increment()
 			{
@@ -837,9 +850,15 @@ namespace dwarf
 			iterator_sibs(const iterator_base& arg)
 			 : iterator_base(arg)
 			{}
+
+			iterator_sibs(iterator_base&& arg)
+			 : iterator_base(std::move(arg))
+			{}
 			
 			iterator_sibs& operator=(const iterator_base& arg) 
 			{ this->base_reference() = arg; }
+			iterator_sibs& operator=(iterator_base&& arg) 
+			{ this->base_reference() = std::move(arg); }
 			
 			void increment()
 			{
@@ -854,6 +873,11 @@ namespace dwarf
 			
 			bool equal(const self& arg) const { return this->base() == arg.base(); }
 		};
+
+		#define GET_HANDLE_OFFSET \
+		Dwarf_Off off; \
+			int ret = dwarf_dieoffset(returned, &off, &current_dwarf_error); \
+			assert(ret == DW_DLV_OK)
 		
 		inline Die::handle_type 
 		Die::try_construct(basic_root_die& r, const iterator_base& die) /* siblingof */
@@ -861,7 +885,17 @@ namespace dwarf
 			raw_handle_type returned;
 			int ret
 			 = dwarf_siblingof(r.dbg.handle.get(), die.get_raw_handle(), &returned, &current_dwarf_error);
-			if (ret == DW_DLV_OK) return handle_type(returned);
+			if (ret == DW_DLV_OK)
+			{	
+				// also update the parent cache
+				GET_HANDLE_OFFSET;
+				auto found = r.parent_of.find(die.offset_here());
+				if (found != r.parent_of.end())
+				{
+					r.parent_of[off] = found->second;
+				} else cerr << "Warning: parent cache did not know 0x" << std::hex << die.offset_here() << std::dec << endl;
+				return handle_type(returned);
+			}
 			else return handle_type(nullptr);
 		}
 		inline Die::handle_type 
@@ -870,7 +904,13 @@ namespace dwarf
 			raw_handle_type returned;
 			int ret
 			 = dwarf_siblingof(r.dbg.handle.get(), nullptr, &returned, &current_dwarf_error);
-			if (ret == DW_DLV_OK) return handle_type(returned);
+			if (ret == DW_DLV_OK)
+			{
+				// update parent cache
+				GET_HANDLE_OFFSET;
+				r.parent_of[off] = 0UL;
+				return handle_type(returned);
+			}
 			else return handle_type(nullptr);
 		}
 		inline Die::handle_type 
@@ -878,7 +918,12 @@ namespace dwarf
 		{
 			raw_handle_type returned;
 			int ret = dwarf_child(die.get_raw_handle(), &returned, &current_dwarf_error);
-			if (ret == DW_DLV_OK) return handle_type(returned);
+			if (ret == DW_DLV_OK)
+			{
+				GET_HANDLE_OFFSET;
+				die.get_root().parent_of[off] = die.offset_here();
+				return handle_type(returned);
+			}
 			else return handle_type(nullptr);
 
 		}
@@ -887,22 +932,26 @@ namespace dwarf
 		{
 			raw_handle_type returned;
 			int ret = dwarf_offdie(r.dbg.handle.get(), off, &returned, &current_dwarf_error);
-			if (ret == DW_DLV_OK) return handle_type(returned);
+			if (ret == DW_DLV_OK)
+			{
+				// can't update parent cache
+				return handle_type(returned);
+			}
 			else return handle_type(nullptr);
 		}
-
+			
 		inline Die::Die(handle_type h) { this->handle = std::move(h); }
 		inline Die::Die(basic_root_die& r, const iterator_base& die) /* siblingof */
 		 : handle(try_construct(r, die))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		} 
-		inline Die::Die(basic_root_die& r) /* siblingof */
+		inline Die::Die(basic_root_die& r) /* siblingof in "first die of CU" case */
 		 : handle(try_construct(r))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		} 
-		inline Die::Die(basic_root_die& r, Dwarf_Off off) /* siblingof */
+		inline Die::Die(basic_root_die& r, Dwarf_Off off) /* offdie */
 		 : handle(try_construct(r, off))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
@@ -915,15 +964,18 @@ namespace dwarf
 		
 		/* NOTE: pos() is incompatible with a strict parent cache.
 		 * But it is necessary to support following references.
-		 * We fill in the parent if depth <= 2. */
+		 * We fill in the parent if depth <= 2, or if the user can tell us. */
 		template <typename Iter /* = iterator_df<> */ >
-		inline Iter basic_root_die::pos(Dwarf_Off off, unsigned depth)
+		inline Iter basic_root_die::pos(Dwarf_Off off, unsigned depth,
+			optional<Dwarf_Off> parent_off /* = optional<Dwarf_Off>() */ )
 		{
 			if (depth == 0) { assert(off == 0UL); return Iter(begin()); }
 			auto handle = Die::try_construct(*this, off);
-			iterator_base base(handle, depth, *this);
+			assert(handle);
+			iterator_base base(std::move(handle), depth, *this);
 			if (depth == 1) parent_of[off] = 0UL;
 			else if (depth == 2) parent_of[off] = base.enclosing_cu_offset_here();
+			else if (parent_off) parent_of[off] = *parent_off;
 			
 			return Iter(std::move(base));
 		}		

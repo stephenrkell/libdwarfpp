@@ -116,7 +116,7 @@ namespace dwarf
 				if (maybe_handle)
 				{
 					// update it
-					it = std::move(iterator_base(maybe_handle, it.get_depth() - 1, *this));
+					it = std::move(iterator_base(std::move(maybe_handle), it.get_depth() - 1, *this));
 					return true;
 				}
 				else
@@ -152,7 +152,7 @@ namespace dwarf
 			if (maybe_handle)
 			{
 				// update it
-				it = std::move(iterator_base(maybe_handle, it.get_depth() + 1, it.get_root()));
+				it = std::move(iterator_base(std::move(maybe_handle), it.get_depth() + 1, it.get_root()));
 				// install in parent cache
 				parent_of[it.offset_here()] = start_offset;
 				return true;
@@ -209,7 +209,7 @@ namespace dwarf
 				// also grab the current CU DIE offset
 				auto tmp_handle = Die::try_construct(*this);
 				assert(tmp_handle.get());
-				current_cu_offset = iterator_base(tmp_handle, 1U, *this).offset_here();
+				current_cu_offset = iterator_base(std::move(tmp_handle), 1U, *this).offset_here();
 				if (prev_current_cu_offset == 0UL)
 				{
 					first_cu_offset = optional<Dwarf_Off>(current_cu_offset);
@@ -241,11 +241,16 @@ namespace dwarf
 		bool root_die::set_subsequent_cu_context(Dwarf_Off off)
 		{
 			if (current_cu_offset == off) return true;
-			else assert(!last_seen_next_cu_header);
-			bool ret = last_seen_next_cu_header; // i.e. false if we have no current context
-			do ret = advance_cu_context();
-			while (last_seen_next_cu_header // i.e. stop if we hit the no-context case
-				&& *last_seen_next_cu_header != off // i.e. stop if we reach our target
+			bool have_no_context = (current_cu_offset == 0UL);
+			//else assert(!last_seen_next_cu_header);
+			bool ret; //= last_seen_next_cu_header; // i.e. false if we have no current context
+			do
+			{
+				ret = advance_cu_context();
+				if (have_no_context) { have_no_context = false; assert(current_cu_offset == 11); }
+			}
+			while (current_cu_offset != 0 // i.e. stop if we hit the no-context case
+				&& current_cu_offset != off // i.e. stop if we reach our target
 				&& ret); // i.e. stop if we fail to advance
 			// begin sanity check
 			if (ret)
@@ -307,7 +312,7 @@ namespace dwarf
 			if (maybe_handle)
 			{
 				// install in parent cache
-				it = std::move(iterator_base(maybe_handle, it.get_depth(), *this));
+				it = std::move(iterator_base(std::move(maybe_handle), it.get_depth(), *this));
 				parent_of[it.offset_here()] = common_parent_offset;
 				return true;
 			}
@@ -401,7 +406,8 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 		Dwarf_Off iterator_base::enclosing_cu_offset_here() const
 		{
 			Dwarf_Off cu_offset;
-			int ret = dwarf_CU_dieoffset_given_die(get_raw_handle(), 
+			auto raw_handle = get_raw_handle();
+			int ret = dwarf_CU_dieoffset_given_die(raw_handle,
 				&cu_offset, &current_dwarf_error);
 			if (ret == DW_DLV_OK) return cu_offset;
 			else assert(false);
