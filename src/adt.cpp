@@ -413,6 +413,12 @@ namespace dwarf
 					}
 					assert(opt_byte_size);
 					Dwarf_Unsigned byte_size = *opt_byte_size;
+					if (byte_size == 0)
+					{
+						cerr << "Zero-length object: " << this->summary() << endl;
+						goto out;
+					}
+					
 					auto loclist = found_location->second.get_loclist();
 					std::vector<std::pair<dwarf::encap::loc_expr, Dwarf_Unsigned> > expr_pieces;
 					try
@@ -443,19 +449,19 @@ namespace dwarf
 							Dwarf_Unsigned piece_start = dwarf::lib::evaluator(i->first,
 								this->get_spec()).tos();
 
+							/* If we have only one piece, it means there might be no DW_OP_piece,
+							 * so the size of the piece will be unreliable (possibly zero). */
+							if (expr_pieces.size() == 1 && expr_pieces.begin()->second == 0)
+							{
+								piece_size = byte_size;
+							}
 							// HACK: increment early to avoid icl zero bug
-							current_offset_within_object += i->second;
+							current_offset_within_object += piece_size;
 
 							retval.insert(make_pair(
 								right_open(piece_start, piece_start + piece_size),
 								current_offset_within_object
 							));
-						}
-						/* If we got only one piece, it means there might be no DW_OP_piece,
-						 * so the size of the piece will be unreliable (possibly zero). */
-						if (expr_pieces.size() == 1 && expr_pieces.begin()->second == 0)
-						{
-							current_offset_within_object = byte_size;
 						}
 						assert(current_offset_within_object == byte_size);
 					}
@@ -1661,7 +1667,6 @@ namespace dwarf
 
 			{
 			search_onward:
-				Dwarf_Off last_seen_offset = 0UL;
 				//if (opt_start_here) vg_seq = dynamic_pointer_cast<visible_grandchildren_sequence_t>(
 				//	opt_start_here->base().get_sequence());
 
@@ -1674,50 +1679,48 @@ namespace dwarf
 				clog << "Linear search startpos is "
 					<< ((start_iter == vg_seq->end()) ? "(end of dieset)" : (*start_iter)->summary())
 					<< endl;
-
-				for (auto i_vg = start_iter;
-					i_vg != vg_seq->end(); 
-					last_seen_offset = (*i_vg)->get_offset(), ++i_vg)
+				
+				// refactored a bit: the actual search is done by a different function,
+				pair<Dwarf_Off, visible_grandchildren_iterator> found
+				 = next_visible_grandchild_with_name(name, start_iter, vg_seq->end());
+				Dwarf_Off last_seen_offset = found.first;
+				visible_grandchildren_iterator found_vg = found.second;
+				
+				if (found_vg != vg_seq->end())
 				{
-					Dwarf_Off cur_off = (*i_vg)->get_offset();
-					assert(cur_off > last_seen_offset
-						|| cur_off > this->get_ds().get_last_monotonic_offset());
-					if ((*i_vg)->get_name())
+					Dwarf_Off cur_off = (*found_vg)->get_offset();
+					string cur_name = *(*found_vg)->get_name();
+					
+					// ensure we have a vector in the cache to write to
+					if (!visible_grandchildren_cache[cur_name]) 
 					{
-						string cur_name = *(*i_vg)->get_name();
-						if (cur_name == name)
-						{
-							// ensure we have a vector in the cache to write to
-							if (!visible_grandchildren_cache[cur_name]) 
-							{
-								visible_grandchildren_cache[cur_name] = vector<vg_cache_rec_t>();
-							}
-							vg_cache_rec_t cache_ent_added
-							 = make_pair(i_vg.base().base().base(), i_vg.base().get_currently_in());
-							//clog << "Traversing cacheable entry " << (*i_vg)->summary() << endl;
-
-							// we should not be adding something we've added already
-							/*if*/ assert( (std::find(visible_grandchildren_cache[cur_name]->begin(),
-									visible_grandchildren_cache[cur_name]->end(), 
-									cache_ent_added) == visible_grandchildren_cache[cur_name]->end()));
-							//{
-							//	clog << "Cacheable entry is not already cached, so adding it." << endl;
-								visible_grandchildren_cache[cur_name]->push_back(
-									cache_ent_added
-								);
-							//}
-						//if (cur_name == name)
-						//{
-						
-							assert(vg_cache_is_exhaustive_up_to_offset < cur_off
-							||     vg_cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
-							if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
-							{ vg_cache_is_exhaustive_up_to_offset = cur_off; }
-							clog << "Search succeeded at " << (*i_vg)->summary() << endl;
-							return optional<vg_cache_rec_t>(cache_ent_added);
-						}
+						visible_grandchildren_cache[cur_name] = vector<vg_cache_rec_t>();
 					}
+					vg_cache_rec_t cache_ent_added
+					 = make_pair(found_vg.base().base().base(), found_vg.base().get_currently_in());
+					//clog << "Traversing cacheable entry " << (*i_vg)->summary() << endl;
+
+					// we should not be adding something we've added already
+					/*if*/ assert( (std::find(visible_grandchildren_cache[cur_name]->begin(),
+							visible_grandchildren_cache[cur_name]->end(), 
+							cache_ent_added) == visible_grandchildren_cache[cur_name]->end()));
+					//{
+					//	clog << "Cacheable entry is not already cached, so adding it." << endl;
+						visible_grandchildren_cache[cur_name]->push_back(
+							cache_ent_added
+						);
+					//}
+				//if (cur_name == name)
+				//{
+
+					assert(vg_cache_is_exhaustive_up_to_offset < cur_off
+					||     vg_cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
+					if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
+					{ vg_cache_is_exhaustive_up_to_offset = cur_off; }
+					clog << "Search succeeded at " << (*found_vg)->summary() << endl;
+					return optional<vg_cache_rec_t>(cache_ent_added);
 				}
+				
 				if (!opt_start_here) 
 				{
 					// we use last_seen_offset and not the end() offset (max()) 
@@ -1740,6 +1743,121 @@ namespace dwarf
 				make_pair(get_ds().end().base(), vg_seq->subsequences_count() - 1)
 			);
 		}
+		
+		pair<Dwarf_Off, file_toplevel_die::visible_grandchildren_iterator>
+		file_toplevel_die::next_visible_grandchild_with_name(
+			const string& name, 
+			visible_grandchildren_iterator begin, 
+			visible_grandchildren_iterator end
+		)
+		{
+			Dwarf_Off last_seen_offset = 0UL;
+			for (auto i_vg = begin;
+				i_vg != end; 
+				last_seen_offset = (*i_vg)->get_offset(), ++i_vg)
+			{
+				Dwarf_Off cur_off = (*i_vg)->get_offset();
+				assert(cur_off > last_seen_offset
+					|| cur_off > this->get_ds().get_last_monotonic_offset());
+				if ((*i_vg)->get_name())
+				{
+					string cur_name = *(*i_vg)->get_name();
+					if (cur_name == name)
+					{
+						return make_pair(last_seen_offset, i_vg);
+					}
+				}
+			}
+			return make_pair(last_seen_offset, end);
+		}
+		/* from lib::file_toplevel_die! */
+	}
+	namespace lib {
+	/* from lib::file_toplevel_die! */
+		pair<Dwarf_Off, spec::file_toplevel_die::visible_grandchildren_iterator>
+		file_toplevel_die::next_visible_grandchild_with_name(
+			const string& name, 
+			visible_grandchildren_iterator begin, 
+			visible_grandchildren_iterator end
+		)
+		{
+			if (begin == end) return make_pair(0UL, end);
+			
+			/* We have to deconstruct the visible_grandchildren_iterator 
+			 * and make a core:: siblings iterator out of it. */
+			Dwarf_Off cur_off = begin.base().base().base().off;
+			/* Create an iterator_sibs<> at this offset. */
+			auto i = this->root.pos<core::iterator_base>(cur_off, 2);
+			/* Also create an iterator for the current CU. */
+			auto cu_iter = this->root.pos<core::iterator_sibs<> >(
+				i.enclosing_cu_offset_here(), 1);
+			/* Keep track of how many CUs we've skipped forwards. */
+			unsigned cus_moved = 0;
+			/* Keep a handle on the next cu handle. */
+			core::Die::handle_type next_cu_handle;
+			/* Search forwards, hopping on to the next CU if we fail. */
+			do
+			{
+				do
+				{
+					// remember that we've visited this offset
+					cur_off = i.offset_here();
+					
+					/* Are we visible? */
+					bool visible;
+					if (!i.has_attribute_here(DW_AT_visibility)) visible = true;
+					else
+					{
+						core::Attribute a(i, DW_AT_visibility);
+						encap::attribute_value val(a, root.get_dbg());
+						visible = (val.get_unsigned() != DW_VIS_local);
+					}
+
+					if (visible)
+					{
+						auto name_here = i.name_here();
+						if (name_here && string(name_here.get()) == name)
+						{
+							/* It's a result. */
+							goto result;
+						}
+					}
+				} while (root.move_to_next_sibling(i));
+				
+				// if we got here, we hit the end of one CU. 
+				// See if we can get the next.
+				next_cu_handle = std::move(core::Die::try_construct(cu_iter));
+				
+			} while (root.move_to_next_sibling(cu_iter) 
+				&& ((i = std::move(core::iterator_base(next_cu_handle, 2, root))), 
+				     ++cus_moved, true));
+			
+			// if we got here, we really hit the end
+			return make_pair(cur_off, end);
+			
+		result:
+			/* Now create a visible_grandchildren_iterator out of it. */
+			abstract_dieset::path_type path;
+			path.push_back(0UL); 
+			path.push_back(cu_iter.offset_here());
+			path.push_back(cur_off);
+			abstract_dieset::position_and_path pos_and_path(
+				(abstract_dieset::position) { &this->get_ds(), cur_off },
+				path
+			);
+			abstract_dieset::iterator cu_child_iterator(
+				pos_and_path, 
+				abstract_dieset::siblings_policy_sg
+			);
+			auto vg_iter = begin.base().get_sequence()->at(
+				cu_child_iterator, 
+				begin.base().get_currently_in() + cus_moved
+			);
+
+			return make_pair(cur_off, vg_iter);
+		}
+	}
+	namespace spec {
 		
 		boost::shared_ptr<file_toplevel_die::grandchildren_sequence_t>
 		file_toplevel_die::grandchildren_sequence()

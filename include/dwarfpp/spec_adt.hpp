@@ -239,16 +239,17 @@ namespace dwarf
 				  p_d() {} 
 
 				iterator_base(abstract_dieset *p_ds, const path_type& arg)
-				: position_and_path(p_ds, arg), p_d(die_from_offset(*p_ds, arg.back()))
+				: position_and_path(p_ds, arg), 
+				  p_d(p_ds ? die_from_offset(*p_ds, arg.back()) : shared_ptr<basic_die>())
 				{}
 
 				iterator_base(const position_and_path& arg)
 				: position_and_path(arg), 
-				  p_d(die_from_offset(*arg.p_ds, arg.off)) {}
+				  p_d(arg.p_ds ? die_from_offset(*arg.p_ds, arg.off) : shared_ptr<basic_die>()) {}
 				
 				iterator_base(const iterator_base& arg)
 				: position_and_path(arg),
-				  p_d(die_from_offset(*arg.p_ds, arg.off)) {}
+				  p_d(arg.p_ds ? die_from_offset(*arg.p_ds, arg.off) : shared_ptr<basic_die>()) {}
 
 				typedef std::bidirectional_iterator_tag iterator_category;
 				typedef spec::basic_die value_type;
@@ -856,7 +857,15 @@ struct with_iterator_partial_order : public Iter
 					= optional<vg_cache_rec_t>(),
 				shared_ptr<visible_grandchildren_sequence_t> p_seq 
 					= shared_ptr<visible_grandchildren_sequence_t>()); 
-					
+		protected:
+			virtual
+			pair<Dwarf_Off, visible_grandchildren_iterator>
+			next_visible_grandchild_with_name(
+				const string& name, 
+				visible_grandchildren_iterator begin, 
+				visible_grandchildren_iterator end
+			);
+		private:
 			std::map<string, optional< vector< vg_cache_rec_t > > > visible_grandchildren_cache;
 			Dwarf_Off vg_cache_is_exhaustive_up_to_offset;
 			Dwarf_Off vg_max_offset_on_last_complete_search;

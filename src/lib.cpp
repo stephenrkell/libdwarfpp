@@ -381,15 +381,31 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 		
 		iterator_base iterator_base::nearest_enclosing(Dwarf_Half tag) const
 		{
-			auto cur = *this; // copies!
-			while (cur.is_real_die_position() && cur.tag_here() != tag)
+			if (tag == DW_TAG_compile_unit)
 			{
-				if (!p_root->move_to_parent(cur)) return END;
+				Dwarf_Off cu_off = enclosing_cu_offset_here();
+				return p_root->pos(cu_off, 1);
 			}
-			if (!cur.is_real_die_position()) return END;
-			else return cur;
+			else
+			{
+				auto cur = *this; // copies!
+				while (cur.is_real_die_position() && cur.tag_here() != tag)
+				{
+					if (!p_root->move_to_parent(cur)) return END;
+				}
+				if (!cur.is_real_die_position()) return END;
+				else return cur;
+			}
 		}
-		// FIXME: for nearest_enclosing(DW_TAG_compile_unit), libdwarf supplies a call:
+		// for nearest_enclosing(DW_TAG_compile_unit), libdwarf supplies a call:
+		Dwarf_Off iterator_base::enclosing_cu_offset_here() const
+		{
+			Dwarf_Off cu_offset;
+			int ret = dwarf_CU_dieoffset_given_die(get_raw_handle(), 
+				&cu_offset, &current_dwarf_error);
+			if (ret == DW_DLV_OK) return cu_offset;
+			else assert(false);
+		}
 		// dwarf_CU_dieoffset_given_die
 		// -- gives you the CU of a DIE
 		const iterator_base iterator_base::END; 
@@ -411,7 +427,7 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 		file::file(int fd, Dwarf_Unsigned access /*= DW_DLC_READ*/,
 			Dwarf_Ptr errarg /*= 0*/,
 			Dwarf_Handler errhand /*= default_error_handler*/,
-			Dwarf_Error *error /*= 0*/)
+			Dwarf_Error *error /*= 0*/) : fd(fd)
 		{
     		if (error == 0) error = &last_error;
 			if (errarg == 0) errarg = this;

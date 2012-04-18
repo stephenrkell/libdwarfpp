@@ -28,6 +28,8 @@ namespace dwarf
 {
 	namespace lib
 	{
+		using std::pair;
+		using std::make_pair;
 		using boost::dynamic_pointer_cast;
 		using boost::shared_ptr;
 		using dwarf::spec::opt; // FIXME: put this in a different namespace
@@ -142,6 +144,8 @@ namespace dwarf
 			static boost::shared_ptr<basic_die>
 			my_make_shared(Args&&... args) 
 			{ boost::shared_ptr<basic_die> p(new T(std::forward<Args>(args)...)); return p; }
+
+
 
 		public:
 
@@ -276,9 +280,22 @@ namespace dwarf
 				//ds.p_f->iterate_cu(&dwarf::lib::add_cu_intervals, this);
 			}
 			lib::dieset& ds;
+			// let's construct a core:: root_die too!
+			// SUPER HACK: do it by reopening the underlying file
+			int dup_fd;
+			core::basic_root_die root;
+		protected: // override
+			pair<Dwarf_Off, visible_grandchildren_iterator>
+			next_visible_grandchild_with_name(
+				const string& name, 
+				visible_grandchildren_iterator begin, 
+				visible_grandchildren_iterator end
+			);
+					
 		public:
 			file_toplevel_die(dieset& ds)
-			 : basic_die(ds, 0), prev_version_stamp(-1), p_spec(0), ds(ds)
+			 : basic_die(ds, 0), prev_version_stamp(-1), p_spec(0), ds(ds), 
+			   dup_fd(dup(ds.p_f->get_fd())), root(dup_fd)
 			{
 				add_all_cu_info();
 			}
