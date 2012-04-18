@@ -366,12 +366,7 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 			assert(ret == DW_DLV_OK);
 			return tag;
 		}
-		template <typename Iter /* = iterator_df<> */ >
-		Iter basic_root_die::pos(Dwarf_Off off, unsigned depth)
-		{
-			auto handle = Die::try_construct(*this, off);
-			return Iter(iterator_base(handle, depth, *this));
-		}		
+		
 		std::unique_ptr<const char, string_deleter>
 		iterator_base::name_here() const
 		{

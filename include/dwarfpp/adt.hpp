@@ -277,7 +277,7 @@ namespace dwarf
 		private:
 			void add_all_cu_info();
 			void add_cu_intervals() {
-				ds.p_f->iterate_cu(&dwarf::lib::add_cu_intervals, this);
+				// ds.p_f->iterate_cu(&dwarf::lib::add_cu_intervals, this);
 			}
 			lib::dieset& ds;
 			// let's construct a core:: root_die too!

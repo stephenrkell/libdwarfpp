@@ -1781,7 +1781,80 @@ namespace dwarf
 			visible_grandchildren_iterator end
 		)
 		{
-			/* We have to deconstruct the visible_grandchildren_iterator */
+			if (begin == end) return make_pair(0UL, end);
+			
+			/* We have to deconstruct the visible_grandchildren_iterator 
+			 * and make a core:: siblings iterator out of it. */
+			Dwarf_Off cur_off = begin.base().base().base().off;
+			/* Create an iterator_sibs<> at this offset. */
+			auto i = this->root.pos<core::iterator_base>(cur_off, 2);
+			/* Also create an iterator for the current CU. */
+			auto cu_iter = this->root.pos<core::iterator_sibs<> >(
+				i.enclosing_cu_offset_here(), 1);
+			/* Keep track of how many CUs we've skipped forwards. */
+			unsigned cus_moved = 0;
+			/* Keep a handle on the next cu handle. */
+			core::Die::handle_type next_cu_handle;
+			/* Search forwards, hopping on to the next CU if we fail. */
+			do
+			{
+				do
+				{
+					// remember that we've visited this offset
+					cur_off = i.offset_here();
+					
+					/* Are we visible? */
+					bool visible;
+					if (!i.has_attribute_here(DW_AT_visibility)) visible = true;
+					else
+					{
+						core::Attribute a(i, DW_AT_visibility);
+						encap::attribute_value val(a, root.get_dbg());
+						visible = (val.get_unsigned() != DW_VIS_local);
+					}
+
+					if (visible)
+					{
+						auto name_here = i.name_here();
+						if (name_here && string(name_here.get()) == name)
+						{
+							/* It's a result. */
+							goto result;
+						}
+					}
+				} while (root.move_to_next_sibling(i));
+				
+				// if we got here, we hit the end of one CU. 
+				// See if we can get the next.
+				next_cu_handle = std::move(core::Die::try_construct(cu_iter));
+				
+			} while (root.move_to_next_sibling(cu_iter) 
+				&& ((i = std::move(core::iterator_base(next_cu_handle, 2, root))), 
+				     ++cus_moved, true));
+			
+			// if we got here, we really hit the end
+			return make_pair(cur_off, end);
+			
+		result:
+			/* Now create a visible_grandchildren_iterator out of it. */
+			abstract_dieset::path_type path;
+			path.push_back(0UL); 
+			path.push_back(cu_iter.offset_here());
+			path.push_back(cur_off);
+			abstract_dieset::position_and_path pos_and_path(
+				(abstract_dieset::position) { &this->get_ds(), cur_off },
+				path
+			);
+			abstract_dieset::iterator cu_child_iterator(
+				pos_and_path, 
+				abstract_dieset::siblings_policy_sg
+			);
+			auto vg_iter = begin.base().get_sequence()->at(
+				cu_child_iterator, 
+				begin.base().get_currently_in() + cus_moved
+			);
+
+			return make_pair(cur_off, vg_iter);
 		}
 	}
 	namespace spec {

@@ -913,6 +913,20 @@ namespace dwarf
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		}
 		
+		/* NOTE: pos() is incompatible with a strict parent cache.
+		 * But it is necessary to support following references.
+		 * We fill in the parent if depth <= 2. */
+		template <typename Iter /* = iterator_df<> */ >
+		inline Iter basic_root_die::pos(Dwarf_Off off, unsigned depth)
+		{
+			if (depth == 0) { assert(off == 0UL); return Iter(begin()); }
+			auto handle = Die::try_construct(*this, off);
+			iterator_base base(handle, depth, *this);
+			if (depth == 1) parent_of[off] = 0UL;
+			else if (depth == 2) parent_of[off] = base.enclosing_cu_offset_here();
+			
+			return Iter(std::move(base));
+		}		
 		inline Attribute::handle_type 
 		Attribute::try_construct(const iterator_base& it, Dwarf_Half attr)
 		{
