@@ -921,6 +921,37 @@ namespace dwarf
 					return shared_ptr<type_die>();
 			}
 		}
+		
+		abstract_dieset::iterator compile_unit_die::children_begin() /* faster than the norm */
+		{
+			opt<Dwarf_Off> first_child = first_child_offset();
+			if (first_child) 
+			{
+				//return this->get_first_child()->iterator_here(
+				//	abstract_dieset::siblings_policy_sg);
+				// instead of iterator_here, we construct the path ourselves
+				abstract_dieset::path_type path;
+				path.push_back(0UL);
+				path.push_back(this->get_offset());
+				path.push_back(*first_child);
+				abstract_dieset::position_and_path pos_and_path(&this->get_ds(), path);
+				return abstract_dieset::iterator(
+					pos_and_path,
+					abstract_dieset::iterator_base::die_from_offset(this->get_ds(), *first_child),
+					abstract_dieset::siblings_policy_sg
+				);
+			}
+			else
+			{
+				return this->get_ds().end(abstract_dieset::siblings_policy_sg);
+			}
+
+		}
+		abstract_dieset::iterator compile_unit_die::children_end()
+		{
+			return this->get_ds().end(abstract_dieset::siblings_policy_sg);
+		}
+		
 /* from spec::type_die */
 		opt<Dwarf_Unsigned> type_die::calculate_byte_size() const
 		{

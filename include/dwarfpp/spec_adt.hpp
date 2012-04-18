@@ -1012,7 +1012,9 @@ end_class(with_data_members)
 		shared_ptr<type_die> implicit_enum_base_type() const; \
 		virtual Dwarf_Half get_address_size() const { return this->get_ds().get_address_size(); } \
 		virtual std::string source_file_name(unsigned o) const = 0; \
-		virtual unsigned source_file_count() const = 0;
+		virtual unsigned source_file_count() const = 0; \
+		abstract_dieset::iterator children_begin(); /* faster than the norm */ \
+		abstract_dieset::iterator children_end(); 
 #define extra_decls_subprogram \
         opt< std::pair<Dwarf_Off, boost::shared_ptr<spec::with_dynamic_location_die> > > \
         contains_addr_as_frame_local_or_argument( \
