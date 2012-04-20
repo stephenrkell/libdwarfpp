@@ -716,6 +716,12 @@ namespace dwarf
                     dwarf::lib::regs *p_regs) const
         {
         	auto attrs = const_cast<with_dynamic_location_die *>(this)->get_attrs();
+			if (attrs.find(DW_AT_location) == attrs.end())
+			{
+				cerr << "Warning: " << this->summary() << " has no DW_AT_location; "
+					<< "assuming it does not cover any stack locations." << endl;
+				return opt<Dwarf_Off>();
+			}
             auto base_addr = calculate_addr_on_stack(
 				frame_base_addr,
 				dieset_relative_ip,
