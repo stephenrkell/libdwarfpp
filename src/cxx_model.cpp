@@ -119,7 +119,7 @@ namespace tool {
 		// to make sure we don't get ourselves as "conflicting",
 		// we should check that we're a member_die or other non-CU-level thing
 		auto conflicting_toplevel_die = 
-			(p_d->get_parent()->get_tag() != DW_TAG_compile_unit) 
+			(p_d->get_name() && p_d->get_parent()->get_tag() != DW_TAG_compile_unit) 
 				? p_d->get_ds().toplevel()->visible_named_grandchild(*p_d->get_name())
 				: shared_ptr<spec::basic_die>();
 		assert(!conflicting_toplevel_die

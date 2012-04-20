@@ -310,6 +310,7 @@ namespace dwarf
 								)
 							);
 							//cerr << "dies size after: " << ds().size() << endl;
+							get_ds().toplevel()->clear_vg_cache(symname);
 
 							// IMPORTANT: it's a declaration, not a definition
 							subprogram->set_external(true);
@@ -327,11 +328,11 @@ namespace dwarf
 								subprogram->set_type(
 									dynamic_pointer_cast<spec::type_die>(base_type)
 								);
-							//}
+							//
 						}
 					}
 				}
-			}
+			} /* end while */
 		}
 	 
 		shared_ptr<file_toplevel_die> dieset::all_compile_units()
