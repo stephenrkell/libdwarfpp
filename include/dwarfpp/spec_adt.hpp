@@ -20,6 +20,7 @@
 
 namespace dwarf
 {
+	namespace tool { class cxx_compiler; }
 	namespace spec 
 	{
 		using namespace lib;
@@ -36,6 +37,7 @@ namespace dwarf
 		struct basic_die;
 		struct file_toplevel_die;
 		struct member_die;
+		struct type_die;
 		ostream& operator<<(ostream& s, const basic_die& d);
 		ostream& operator<<(ostream& s, const abstract_dieset& ds);
 
@@ -286,6 +288,15 @@ namespace dwarf
 			virtual bool move_to_next_sibling(iterator_base& arg) = 0;
 			// backlinks aren't necessarily stored, so support search for parent
 			virtual Dwarf_Off find_parent_offset_of(Dwarf_Off off) = 0;
+
+			shared_ptr<type_die> canonicalise_type(shared_ptr<type_die> p_t,
+				dwarf::tool::cxx_compiler& compiler);
+			template <typename Action>
+			void
+			for_all_identical_types(
+				shared_ptr<type_die> p_t,
+				const Action& action
+			);
 
 			
 			//virtual path_type
@@ -1386,6 +1397,36 @@ end_class(with_data_members)
 // 				get_factory(const dwarf::spec::abstract_def& spec) //__attribute__((no_return))
 // 			{ throw Bad_spec(); }
 // 		};
+
+		// HACK: declared in util.hpp
+		template <typename Action>
+		void
+		abstract_dieset::for_all_identical_types(
+			shared_ptr<type_die> p_t,
+			const Action& action
+		)
+		{
+			auto opt_ident_path = p_t->ident_path_from_cu();
+			vector< shared_ptr<type_die> > ts;
+			if (!opt_ident_path) ts.push_back(p_t);
+			else
+			{
+				for (auto i_cu = this->toplevel()->compile_unit_children_begin();
+					i_cu != this->toplevel()->compile_unit_children_end(); ++i_cu)
+				{
+					auto candidate = (*i_cu)->resolve(opt_ident_path->begin(), opt_ident_path->end());
+					if (dynamic_pointer_cast<type_die>(candidate))
+					{
+						ts.push_back(dynamic_pointer_cast<type_die>(candidate));
+					}
+				}
+			}
+			for (auto i_t = ts.begin(); i_t != ts.end(); ++i_t)
+			{
+				action(*i_t);
+			}
+		}
+
 	}
 }
 

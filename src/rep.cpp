@@ -146,7 +146,9 @@ namespace dwarf
 		bool base_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
-			if (arg->get_concrete_type() != arg) return this->is_rep_compatible(
+			// HACK: strange infinite recursion bug here, so try using get_offset
+			if (!arg->get_concrete_type()) return false;
+			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			auto arg_base_type = boost::dynamic_pointer_cast<base_type_die>(arg);
 			if (!arg_base_type) return false;
