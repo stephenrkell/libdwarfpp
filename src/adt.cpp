@@ -1741,11 +1741,11 @@ namespace dwarf
 			auto found_in_cache = visible_grandchildren_cache.find(name);
 			if (found_in_cache != visible_grandchildren_cache.end())
 			{
-				clog << "Hit cache..." << endl;
+				//clog << "Hit cache..." << endl;
 				// two cases: we find a positive result in the cache...
 				if (found_in_cache->second)
 				{
-					clog << "Cache hit is positive" << endl;
+					//clog << "Cache hit is positive" << endl;
 					auto& vec = *found_in_cache->second;
 					assert(vec.size() != 0);
 					if (opt_start_here)
@@ -1758,7 +1758,7 @@ namespace dwarf
 							//);
 							*opt_start_here;
 						abstract_dieset::iterator startpos(previous_match.first);
-						clog << "Looking in cache, starting from " << (*startpos)->summary() << endl;
+						//clog << "Looking in cache, starting from " << (*startpos)->summary() << endl;
 						auto found_previous = std::find(vec.begin(), vec.end(), previous_match);
 						if (found_previous == vec.end())
 						{
@@ -1769,8 +1769,8 @@ namespace dwarf
 						else if (found_previous + 1 != vec.end())
 						{
 							auto found_rec = *(found_previous + 1);
-							clog << "Returning cached match " 
-								<< (*abstract_dieset::iterator(found_rec.first))->summary() << endl;
+							//clog << "Returning cached match " 
+							//	<< (*abstract_dieset::iterator(found_rec.first))->summary() << endl;
 							return found_rec; //*abstract_dieset::iterator(found_rec.first); //(this->get_ds())[found_off];
 						}
 						else // found_previous + 1 == vec.end()
@@ -1778,7 +1778,7 @@ namespace dwarf
 							// this means that we haven't cached a later result
 							// there may or may not be one
 							// so we continue searching
-							clog << "Cache has nothing after startpos; searching onward" << endl;
+							//clog << "Cache has nothing after startpos; searching onward" << endl;
 							goto search_onward;
 						}
 
@@ -1786,7 +1786,7 @@ namespace dwarf
 					else
 					{
 						// we are free just to return the first match
-						clog << "No starting pos, so returning first cached match" << endl;
+						//clog << "No starting pos, so returning first cached match" << endl;
 						auto found_rec = *vec.begin();
 						//return (this->get_ds())[found_off];
 						return found_rec; // *abstract_dieset::iterator(found_rec.first);
@@ -1794,24 +1794,24 @@ namespace dwarf
 				}
 				else /* negative result in cache */
 				{
-					clog << "Cache hit is negative" << endl;
+					//clog << "Cache hit is negative" << endl;
 					// do we trust the negative result?
 					if (vg_max_offset_on_last_complete_search 
 						== this->get_ds().highest_offset_upper_bound())
 					{
-						cerr << "Hit cached negative result for " << name << endl;
+						//cerr << "Hit cached negative result for " << name << endl;
 						//return optional<vg_cache_rec_t>(); // shared_ptr<basic_die>();
 						goto return_no_entry;
 					}
 					// else we will do the lookup afresh
 					else 
 					{
-						clog << "Disregarding stale negative cache hit" << endl;
+						//clog << "Disregarding stale negative cache hit" << endl;
 						goto search_onward;
 					}
 				}
 			}
-			else clog << "Missed cache." << endl;
+			//else clog << "Missed cache." << endl;
 // DISABLEd exhaustiveness logic since we no longer aggressively cache all named DIEs we traverse
 			/* We could short-circuit the search for nonexistent DIEs here, 
 			 * by using cache_is_exhaustive_before_offset. BUT 
@@ -1848,9 +1848,9 @@ namespace dwarf
 				 = opt_start_here ? ++(vg_seq->at(opt_start_here->first, opt_start_here->second))
 			                	  : vg_seq->begin();
 				
-				clog << "Linear search startpos is "
-					<< ((start_iter == vg_seq->end()) ? "(end of dieset)" : (*start_iter)->summary())
-					<< endl;
+// 				clog << "Linear search startpos is "
+// 					<< ((start_iter == vg_seq->end()) ? "(end of dieset)" : (*start_iter)->summary())
+// 					<< endl;
 				
 				// refactored a bit: the actual search is done by a different function,
 				pair<Dwarf_Off, visible_grandchildren_iterator> found
@@ -1889,7 +1889,7 @@ namespace dwarf
 	//				||     vg_cache_is_exhaustive_up_to_offset > this->get_ds().get_last_monotonic_offset());
 	//				if (!opt_start_here && cur_off > this->get_ds().get_last_monotonic_offset())
 	//				{ vg_cache_is_exhaustive_up_to_offset = cur_off; }
-					clog << "Search succeeded at " << (*found_vg)->summary() << endl;
+					//clog << "Search succeeded at " << (*found_vg)->summary() << endl;
 					return optional<vg_cache_rec_t>(cache_ent_added);
 				}
 				
@@ -1901,14 +1901,14 @@ namespace dwarf
 	//				vg_cache_is_exhaustive_up_to_offset = last_seen_offset;
 
 					// we can also store a negative result if we searched all the way
-					cerr << "Installing negative cache result for " << name << endl;
+					//cerr << "Installing negative cache result for " << name << endl;
 					visible_grandchildren_cache[name] = optional< vector<vg_cache_rec_t> >();
 
 					// timestamp this search
 					// HACK: "upper bound" is not appropriate here, but it'll do for now
 					vg_max_offset_on_last_complete_search = this->get_ds().highest_offset_upper_bound();
 				}
-				cerr << "Linear search for " << name << " went all the way to the end." << endl;
+				//cerr << "Linear search for " << name << " went all the way to the end." << endl;
 			} // end convenience lexical block
 		return_no_entry:
 			return optional<vg_cache_rec_t>(
