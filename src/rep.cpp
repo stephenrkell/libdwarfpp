@@ -96,8 +96,9 @@ namespace dwarf
         {
         	// first, try to make ourselves concrete to
 			// get rid of typedefs and qualifiers
-			if (this->get_concrete_type() != this->get_this()
-			||  arg->get_concrete_type() != arg)
+			if (!this->get_concrete_type() || !arg->get_concrete_type()) return false;
+			if (this->get_concrete_type()->get_offset() != this->get_offset()
+			||  arg->get_concrete_type()->get_offset() != arg->get_offset())
 			{
 				return this->get_concrete_type()->is_rep_compatible(arg->get_concrete_type());
 			}
@@ -109,7 +110,7 @@ namespace dwarf
 		bool array_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
-			if (arg->get_concrete_type() != arg) return this->is_rep_compatible(
+			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			// HMM: do we want singleton arrays to be rep-compatible wit
 			// non-array single objects? Not so at present.
@@ -124,7 +125,7 @@ namespace dwarf
 		bool pointer_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
-			if (arg->get_concrete_type() != arg) return this->is_rep_compatible(
+			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			// HMM: do we want pointers and references to be mutually
 			// rep-compatible? Not so at present.
@@ -135,7 +136,7 @@ namespace dwarf
 		bool reference_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
-			if (arg->get_concrete_type() != arg) return this->is_rep_compatible(
+			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			// HMM: do we want pointers and references to be mutually
 			// rep-compatible? Not so at present.
@@ -161,7 +162,7 @@ namespace dwarf
 		bool structure_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
-			if (arg->get_concrete_type() != arg) return this->is_rep_compatible(
+			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			auto nonconst_this = const_cast<structure_type_die *>(this); // HACK: remove
 			return is_structurally_rep_compatible(
@@ -171,7 +172,7 @@ namespace dwarf
 		bool union_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
-			if (arg->get_concrete_type() != arg) return this->is_rep_compatible(
+			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			auto nonconst_this = const_cast<union_type_die *>(this); // HACK: remove
 			return is_structurally_rep_compatible(
@@ -181,7 +182,7 @@ namespace dwarf
 		bool class_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
-			if (arg->get_concrete_type() != arg) return this->is_rep_compatible(
+			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			auto nonconst_this = const_cast<class_type_die *>(this); // HACK: remove
 			return is_structurally_rep_compatible(
@@ -192,7 +193,7 @@ namespace dwarf
 		{
 			auto nonconst_this = const_cast<enumeration_type_die *>(this);
 			// first, try to make arg concrete
-			if (arg->get_concrete_type() != arg) return this->is_rep_compatible(
+			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			auto arg_enumeration_type = boost::dynamic_pointer_cast<enumeration_type_die>(arg);
 			auto arg_base_type = boost::dynamic_pointer_cast<base_type_die>(arg);
@@ -225,7 +226,7 @@ namespace dwarf
 			auto nonconst_this = const_cast<subroutine_type_die *>(this);
 			if (!subt_arg) return false;
 			// first, try to make arg concrete
-			if (subt_arg->get_concrete_type() != subt_arg) return nonconst_this->is_rep_compatible(
+			if (subt_arg->get_concrete_type()->get_offset() != subt_arg->get_offset()) return nonconst_this->is_rep_compatible(
 				subt_arg->get_concrete_type());
 			
 			// we're rep-compatible if our arg types are rep-compatible...

@@ -218,16 +218,16 @@ namespace dwarf
 					make_pair(my_offset, file_toplevel_die::cu_info_t()), /* we have to pass a pair */
 					toplevel->cu_info.value_comp()
 				);
-			cerr << "cu_info has " << toplevel->cu_info.size() << " entries." << endl;
-			cerr << "search for CU enclosing 0x" << std::hex << my_offset << std::dec
-				<< " yielded " << ((cu_entry == toplevel->cu_info.end()) ? " no " : " an ")
-				<< " entry." << std::endl;
+			//cerr << "cu_info has " << toplevel->cu_info.size() << " entries." << endl;
+			//cerr << "search for CU enclosing 0x" << std::hex << my_offset << std::dec
+			//	<< " yielded " << ((cu_entry == toplevel->cu_info.end()) ? " no " : " an ")
+			//	<< " entry." << std::endl;
 			assert(cu_entry != toplevel->cu_info.end());
 			auto p_d = dynamic_pointer_cast<spec::compile_unit_die>(
 				get_ds()[cu_entry->first]
 			);
 			assert(p_d);
-			cerr << "Successfully retrieved " << p_d->summary() << endl;
+			//cerr << "Successfully retrieved " << p_d->summary() << endl;
 			assert(p_d->get_offset() <= my_offset);
 			return p_d;
 		}
@@ -1557,7 +1557,7 @@ namespace dwarf
 			 * level. */
 
 			auto concrete_t = p_t->get_concrete_type();
-			clog << "Canonicalising concrete type " << concrete_t->summary() << endl;
+			//clog << "Canonicalising concrete type " << concrete_t->summary() << endl;
 			if (!concrete_t) goto return_concrete; // void is already canonicalised
 			else
 			{
@@ -1571,7 +1571,7 @@ namespace dwarf
 					auto resolved_all = this->toplevel()->resolve_all_visible(
 						opt_ident_path->begin(), opt_ident_path->end()
 					);
-					clog << "Name path: ";
+					//clog << "Name path: ";
 					for (auto i_part = opt_ident_path->begin();
 						 i_part != opt_ident_path->end(); ++i_part)
 					{
@@ -1621,7 +1621,7 @@ namespace dwarf
 			}
 
 		return_concrete:
-			clog << "Most canonical concrete type is " << concrete_t->summary() << endl;
+			//clog << "Most canonical concrete type is " << concrete_t->summary() << endl;
 			static canonicalisation_cache_t cache;
 			/* Now we handle base types. */
 			if (concrete_t->get_tag() != DW_TAG_base_type) return concrete_t;
@@ -1953,7 +1953,7 @@ namespace dwarf
 			visible_grandchildren_iterator end
 		)
 		{
-			cerr << "Hello from lib::file_toplevel_die::next_visible_grandchild_with_name" << endl;
+			//cerr << "Hello from lib::file_toplevel_die::next_visible_grandchild_with_name" << endl;
 			if (begin == end) return make_pair(0UL, end);
 			
 			/* We have to deconstruct the visible_grandchildren_iterator 
@@ -1974,8 +1974,8 @@ namespace dwarf
 			/* Search forwards, hopping on to the next CU if we fail. */
 			do
 			{
-				cerr << "Searching within CU at 0x" 
-					<< std::hex << cu_iter.offset_here() << std::dec << endl;
+				//cerr << "Searching within CU at 0x" 
+				//	<< std::hex << cu_iter.offset_here() << std::dec << endl;
 				do
 				{
 					// remember that we've visited this offset
@@ -1997,8 +1997,8 @@ namespace dwarf
 						if (name_here && string(name_here.get()) == name)
 						{
 							/* It's a result. */
-							cerr << "Found visible DIE named " << name << " at 0x"
-								<< std::hex << i.offset_here() << std::dec << endl;
+							//cerr << "Found visible DIE named " << name << " at 0x"
+							//	<< std::hex << i.offset_here() << std::dec << endl;
 							goto result;
 						}
 					}
