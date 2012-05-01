@@ -209,8 +209,8 @@ namespace dwarf
 
 			/* We use the cu_info maintained by file_toplevel_die to implement
 			 * this faster than the more general nearest_enclosing(tag). */
-			cerr << "Looking for record of CU beginning at or before 0x" 
-				<< std::hex << my_offset << std::dec << endl;
+			//cerr << "Looking for record of CU beginning at or before 0x" 
+			//	<< std::hex << my_offset << std::dec << endl;
 			auto cu_entry = srk31::greatest_le_from_upper_bound(
 					toplevel->cu_info.begin(),
 					toplevel->cu_info.end(),

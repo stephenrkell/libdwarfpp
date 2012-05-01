@@ -222,8 +222,8 @@ namespace dwarf
 		}
 		bool subroutine_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
-			cerr << "Testing this subroutine type at 0x" << std::hex << get_offset()
-				<< " against arg subroutine type at 0x" << arg->get_offset() << std::dec << endl;
+			//cerr << "Testing this subroutine type at 0x" << std::hex << get_offset()
+			//	<< " against arg subroutine type at 0x" << arg->get_offset() << std::dec << endl;
 			auto subt_arg = dynamic_pointer_cast<subroutine_type_die>(arg);
 			auto nonconst_this = const_cast<subroutine_type_die *>(this);
 			if (!subt_arg) return false;
