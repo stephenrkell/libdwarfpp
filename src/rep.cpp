@@ -222,6 +222,8 @@ namespace dwarf
 		}
 		bool subroutine_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
 		{
+			cerr << "Testing this subroutine type at 0x" << std::hex << get_offset()
+				<< " against arg subroutine type at 0x" << arg->get_offset() << std::dec << endl;
 			auto subt_arg = dynamic_pointer_cast<subroutine_type_die>(arg);
 			auto nonconst_this = const_cast<subroutine_type_die *>(this);
 			if (!subt_arg) return false;
@@ -250,9 +252,20 @@ namespace dwarf
 				return false;
 			
 			// ... and our return type
-			if (!((bool) nonconst_this->get_type() == (bool) subt_arg->get_type())
-			|| !(nonconst_this->get_type() && subt_arg->get_type() 
-				&& nonconst_this->get_type()->is_rep_compatible(subt_arg->get_type()))) return false;
+			if (!((bool) nonconst_this->get_type() == (bool) subt_arg->get_type())) return false;
+			// we still may or may not have a return type (but we agree on this)
+			if (nonconst_this->get_type())
+			{
+				assert(subt_arg->get_type());
+				auto this_conc = nonconst_this->get_type()->get_concrete_type();
+				auto arg_conc = subt_arg->get_type()->get_concrete_type();
+				if ((bool) arg_conc != (bool) this_conc) return false;
+				else if (arg_conc)
+				{
+					assert(this_conc);
+					if (!this_conc->is_rep_compatible(arg_conc)) return false;
+				}
+			}
 			
 			// ... and our languages
 			if (nonconst_this->enclosing_compile_unit()->get_language()
@@ -261,7 +274,7 @@ namespace dwarf
 			// ... and our calling conventions
 			if (nonconst_this->get_calling_convention() != subt_arg->get_calling_convention()) return false;
 				
-			return true; // FIXME
+			return true;
 		}
 	}
 }
