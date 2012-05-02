@@ -1557,7 +1557,7 @@ namespace dwarf
 			 * level. */
 
 			auto concrete_t = p_t->get_concrete_type();
-			//clog << "Canonicalising concrete type " << concrete_t->summary() << endl;
+			clog << "Canonicalising concrete type " << concrete_t->summary() << endl;
 			if (!concrete_t) goto return_concrete; // void is already canonicalised
 			else
 			{
@@ -1566,12 +1566,15 @@ namespace dwarf
 				if (!opt_ident_path) clog << "No name path, so cannot canonicalise further." << endl;
 				if (opt_ident_path)
 				{
-					/* Instead of doing resolve_all_visible and then */
+					/* Instead of doing resolve_all_visible and then taking the first,
+					 * we want to  */
 
-					auto resolved_all = this->toplevel()->resolve_all_visible(
-						opt_ident_path->begin(), opt_ident_path->end()
-					);
-					//clog << "Name path: ";
+					//auto resolved_all = this->toplevel()->resolve_all_visible(
+					//	opt_ident_path->begin(), opt_ident_path->end()
+					//);
+					auto p_resolved = this->toplevel()->resolve_visible(
+						opt_ident_path->begin(), opt_ident_path->end());
+					clog << "Name path: ";
 					for (auto i_part = opt_ident_path->begin();
 						 i_part != opt_ident_path->end(); ++i_part)
 					{
@@ -1579,8 +1582,8 @@ namespace dwarf
 						clog << *i_part;
 					}
 					clog << endl;
-					if (resolved_all.size() == 0) clog << "BUG: failed to resolve this name path." << endl;
-					assert(resolved_all.size() > 0);
+					/*if (resolved_all.size() == 0)*/ if(!p_resolved) clog << "BUG: failed to resolve this name path." << endl;
+					//assert(resolved_all.size() > 0);
 
 					/* We choose the first one that is not a declaration
 					 * when we concrete + dedeclify it.
@@ -1590,12 +1593,14 @@ namespace dwarf
 
 					shared_ptr<type_die> first_non_decl;
 					shared_ptr<type_die> first_concrete;
-					for (auto i_resolved = resolved_all.begin();
-						i_resolved != resolved_all.end(); ++i_resolved)
+					//for (auto i_resolved = resolved_all.begin();
+					//	i_resolved != resolved_all.end(); ++i_resolved)
+					//{
+					do
 					{
-						if (dynamic_pointer_cast<type_die>(*i_resolved))
+						if (dynamic_pointer_cast<type_die>(p_resolved))
 						{
-							auto temp_concrete_t = dynamic_pointer_cast<type_die>(*i_resolved)
+							auto temp_concrete_t = dynamic_pointer_cast<type_die>(p_resolved)
 								->get_concrete_type();
 							if (!first_concrete) first_concrete = temp_concrete_t;
 							auto with_data_members
@@ -1611,7 +1616,7 @@ namespace dwarf
 								}
 							}
 						}
-					}
+					} while (0); // FIXME
 					if (first_non_decl) concrete_t = first_non_decl;
 					else concrete_t = first_concrete;
 
