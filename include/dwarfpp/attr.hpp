@@ -155,8 +155,8 @@ namespace dwarf
 				std::vector<unsigned char> *v_block;
 				std::string *v_string;
 				weak_ref *v_ref;
-				loclist *v_loclist;
-                rangelist *v_rangelist;
+				encap::loclist *v_loclist;
+                encap::rangelist *v_rangelist;
 			};
 			// -- the operator<< is a friend
 			friend std::ostream& ::dwarf::lib::operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
@@ -190,8 +190,8 @@ namespace dwarf
  			attribute_value(spec::abstract_dieset& ds, const std::string& s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}				
  			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
  			attribute_value(spec::abstract_dieset& ds, boost::shared_ptr<spec::basic_die> ref_target);
-			attribute_value(spec::abstract_dieset& ds, const loclist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new loclist(l)) {}
-			attribute_value(spec::abstract_dieset& ds, const rangelist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(RANGELIST), v_rangelist(new rangelist(l)) {}
+			attribute_value(spec::abstract_dieset& ds, const encap::loclist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new encap::loclist(l)) {}
+			attribute_value(spec::abstract_dieset& ds, const encap::rangelist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(RANGELIST), v_rangelist(new encap::rangelist(l)) {}
 		public:
 			
 			Dwarf_Bool get_flag() const { assert(f == FLAG); return v_flag; }

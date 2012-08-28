@@ -89,9 +89,9 @@ namespace dwarf
 			s << "loc described by { ";
 			for (std::vector<Dwarf_Loc>::const_iterator i = e./*m_expr.*/begin(); i != e./*m_expr.*/end(); i++)
 			{
-				s << *i;
+				s << *i << " ";
 			}
-			s << " } (for ";
+			s << "} (for ";
 			if (e.lopc == 0 && e.hipc == std::numeric_limits<Dwarf_Addr>::max()) // FIXME
 			{
 				s << "all vaddrs";
@@ -173,5 +173,7 @@ namespace dwarf
 			}
 			return new_ll;
 		}
+		
+		loclist loclist::NO_LOCATION;
 	}
 }

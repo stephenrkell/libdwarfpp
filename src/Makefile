@@ -62,7 +62,7 @@ libdwarfpp.a: $(OBJS)
 
 # use this version when developing (avoid recompiling whole of huge .so file)
 libdwarfpp.so: $(OBJS)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o "$@" $^ -ldwarf -lelf
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o "$@" $^ #-ldwarf -lelf
 
 .PHONY: clean
 clean:

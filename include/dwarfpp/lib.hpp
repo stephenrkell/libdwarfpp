@@ -1636,6 +1636,7 @@ namespace dwarf
 				    locs = 0;
 				    locs_len = 0;
 			    }
+				cerr << "Constructed a lib::loclist at " << this << ", len is " << locs_len << endl;
 			    if (retval == DW_DLV_ERROR) throw Error(*error, attr.p_a->d.f.get_dbg());
 		    }
 		    loclist(const core::Attribute& a, core::Debug::raw_handle_type dbg) : attr(a, dbg)
@@ -1648,6 +1649,7 @@ namespace dwarf
 				    locs = 0;
 				    locs_len = 0;
 			    }
+				cerr << "Constructed a lib::loclist at " << this << ", len is " << locs_len << endl;
 			    if (retval == DW_DLV_ERROR) throw Error(core::current_dwarf_error, 0);
 		    }
 
@@ -1656,12 +1658,20 @@ namespace dwarf
 
 		    virtual ~loclist()
 		    { 
+				cerr << "Destructing a lib::loclist (len " << locs_len << ") at " << this << endl;
 			    for (int i = 0; i < locs_len; ++i) 
 			    {
+					cerr << "dwarf_deallocing " << locs[i]->ld_s << endl;
 				    dwarf_dealloc(attr.p_raw_dbg, locs[i]->ld_s, DW_DLA_LOC_BLOCK);
+					cerr << "dwarf_deallocing " << locs[i] << endl;
 				    dwarf_dealloc(attr.p_raw_dbg, locs[i], DW_DLA_LOCDESC);
 			    }
-			    if (locs != 0) dwarf_dealloc(attr.p_raw_dbg, locs, DW_DLA_LIST);
+			    if (locs != 0) 
+				{
+					cerr << "dwarf_deallocing " << locs << endl;
+					dwarf_dealloc(attr.p_raw_dbg, locs, DW_DLA_LIST);
+				}
+				cerr << "Destructed a lib::loclist (len " << locs_len << ") at " << this << endl;
 		    }
 	    };
 	    ostream& operator<<(std::ostream& s, const loclist& ll);	

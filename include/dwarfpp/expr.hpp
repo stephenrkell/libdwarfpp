@@ -20,6 +20,15 @@ namespace dwarf
         
 		struct loc_expr : public std::vector<expr_instr>
 		{
+			/* We used to have NO_LOCATION here. But we don't need it! Recap: 
+			 * In DWARF, hipc == 0 && lopc == 0 means an "end of list entry".
+			 * BUT libdwarf abstracts this so that we don't see end-of-list
+			 * entries (I *think*). 
+			 * THEN it uses hipc==0 and lopc==0 to mean "all vaddrs"
+			 * (see libdwarf2.1.pdf sec 2.3.2). 
+			 * So we have to interpret it that way. If we want to encode 
+			 * "no location", e.g. in with_dynamic_location_die::get_dynamic_location(),
+			 * we use an empty loclist. */
 	        const dwarf::spec::abstract_def& spec;
 			Dwarf_Addr hipc;
 			Dwarf_Addr lopc;
@@ -38,6 +47,7 @@ namespace dwarf
             : std::vector<expr_instr>(arg.begin(), arg.end()),
               spec(arg.spec), hipc(arg.hipc), lopc(arg.lopc)/*, 
               m_expr(*this)*/ {}
+
             loc_expr piece_for_offset(Dwarf_Off offset) const;
             std::vector<std::pair<loc_expr, Dwarf_Unsigned> > pieces() const;
 			
@@ -162,6 +172,10 @@ namespace dwarf
 		{
 			friend class ::dwarf::lib::evaluator;
 			friend class attribute_value;
+			static loclist NO_LOCATION;
+		private:
+			loclist() {}
+		public:
 			loclist(const dwarf::lib::loclist& dll)
 			{
 				for (int i = 0; i != dll.len(); i++)

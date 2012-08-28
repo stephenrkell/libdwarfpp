@@ -747,6 +747,9 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 		int die::hasattr(Dwarf_Half attr, Dwarf_Bool *return_bool, Dwarf_Error *error /*= 0*/)
 		{
 			if (error == 0) error = p_last_error;
+			if (return_bool) *return_bool = 0; /* to avoid risk of undefinedness 
+			 * from dodgy code like the attr_optional macro in adt.h
+			 * which does not test the return value. */
 			return dwarf_hasattr(my_die, attr, return_bool, error);		
 		} // may allocate **error
 
@@ -1044,10 +1047,21 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 			{
 				switch(i->lr_atom)
 				{
+					case DW_OP_const1u:
+					case DW_OP_const2u:
+					case DW_OP_const4u:
+					case DW_OP_const8u:
 					case DW_OP_constu:
 						m_stack.push(i->lr_number);
 						break;
-                    case DW_OP_plus_uconst: {
+ 					case DW_OP_const1s:
+					case DW_OP_const2s:
+					case DW_OP_const4s:
+					case DW_OP_const8s:
+					case DW_OP_consts:
+						m_stack.push((Dwarf_Signed) i->lr_number);
+						break;
+                   case DW_OP_plus_uconst: {
                     	int tos = m_stack.top();
                         m_stack.pop();
                         m_stack.push(tos + i->lr_number);
@@ -1097,7 +1111,7 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
                     case DW_OP_breg31:
                     {
 						/* the breg family get the contents of a register and add an offset */ 
-                    	if (!p_regs) goto logic_error;
+                    	if (!p_regs) goto no_regs;
                     	int regnum = i->lr_atom - DW_OP_breg0;
                         m_stack.push(p_regs->get(regnum) + i->lr_number);
                     } break;
@@ -1139,14 +1153,58 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 					case DW_OP_reg31:
 					{
 						/* the reg family just get the contents of the register */
-						if (!p_regs) goto logic_error;
+						if (!p_regs) goto no_regs;
 						int regnum = i->lr_atom - DW_OP_reg0;
 						m_stack.push(p_regs->get(regnum));
 					} break;
-					
+					case DW_OP_lit0:
+					case DW_OP_lit1:
+					case DW_OP_lit2:
+					case DW_OP_lit3:
+					case DW_OP_lit4:
+					case DW_OP_lit5:
+					case DW_OP_lit6:
+					case DW_OP_lit7:
+					case DW_OP_lit8:
+					case DW_OP_lit9:
+					case DW_OP_lit10:
+					case DW_OP_lit11:
+					case DW_OP_lit12:
+					case DW_OP_lit13:
+					case DW_OP_lit14:
+					case DW_OP_lit15:
+					case DW_OP_lit16:
+					case DW_OP_lit17:
+					case DW_OP_lit18:
+					case DW_OP_lit19:
+					case DW_OP_lit20:
+					case DW_OP_lit21:
+					case DW_OP_lit22:
+					case DW_OP_lit23:
+					case DW_OP_lit24:
+					case DW_OP_lit25:
+					case DW_OP_lit26:
+					case DW_OP_lit27:
+					case DW_OP_lit28:
+					case DW_OP_lit29:
+					case DW_OP_lit30:
+					case DW_OP_lit31:
+						m_stack.push(i->lr_atom - DW_OP_lit0);
+						break;
+					case DW_OP_stack_value:
+						/* This means that the object has no address, but that the 
+						 * DWARF evaluator has just computed its *value*. We don't
+						 * support this for now, and treat it just like missing regs. */
+						throw No_entry();
+					case DW_OP_deref_size:
+					case DW_OP_deref:
+						/* FIXME: we can do this one if we have p_mem analogous to p_regs. */
+						throw No_entry();
 					default:
 						std::cerr << "Error: unrecognised opcode: " << spec.op_lookup(i->lr_atom) << std::endl;
 						throw Not_supported("unrecognised opcode");
+					no_regs:
+						throw No_entry();
                     logic_error:
                     	std::cerr << "Logic error in DWARF expression evaluator";
                         if (error_detail) std::cerr << ": " << *error_detail;

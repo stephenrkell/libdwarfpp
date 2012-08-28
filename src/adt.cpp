@@ -534,28 +534,39 @@ namespace dwarf
 			}
 			else return opt<Dwarf_Off>();
 		}
-/* helpers */        
-        static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc, Dwarf_Addr high_pc);
-        static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc, Dwarf_Addr high_pc)
-        {
-            Dwarf_Unsigned opcodes[] 
-            = { DW_OP_constu, low_pc, 
-                DW_OP_piece, high_pc - low_pc };
-			/* FIXME: I don't think we should be using the max Dwarf_Addr here -- 
-			 * the libdwarf manual claims we should set them both to zero. */
-            encap::loclist list(encap::loc_expr(opcodes, 0, std::numeric_limits<Dwarf_Addr>::max())); 
-            return list;
-        }
-        static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc);
-        static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc)
-        {
-            Dwarf_Unsigned opcodes[] 
-            = { DW_OP_constu, low_pc };
-			/* FIXME: I don't think we should be using the max Dwarf_Addr here -- 
-			 * the libdwarf manual claims we should set them both to zero. */
-            encap::loclist list(encap::loc_expr(opcodes, 0, std::numeric_limits<Dwarf_Addr>::max())); 
-            return list;
-        }
+/* helpers */		
+// 		static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc, Dwarf_Addr high_pc);
+// 		static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc, Dwarf_Addr high_pc)
+// 		{
+// 			Dwarf_Unsigned opcodes[] 
+// 			= { DW_OP_constu, low_pc, 
+// 				DW_OP_piece, high_pc - low_pc };
+// 
+// 			/* */
+// 			encap::loclist list(
+// 				encap::loc_expr(
+// 					opcodes, 
+// 					low_pc, std::numeric_limits<Dwarf_Addr>::max()
+// 				)
+// 			); 
+//             return list;
+//         }
+//         static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc);
+//         static encap::loclist loclist_from_pc_values(Dwarf_Addr low_pc)
+//         {
+//             Dwarf_Unsigned opcodes[] 
+//             = { DW_OP_constu, low_pc };
+// 			/* FIXME: I don't think we should be using the max Dwarf_Addr here -- 
+// 			 * the libdwarf manual claims we should set them both to zero. */
+//             encap::loclist list(encap::loc_expr(opcodes, 0, std::numeric_limits<Dwarf_Addr>::max())); 
+//             return list;
+// 			
+// 			/* NOTE: libdwarf seems to give us ADDR_MAX as the high_pc 
+// 			 * in the case of single-shot location expressions (i.e. not lists)
+// 			 * encoded as attributes. We don't re-encode them 
+// 			 * when they pass through: see lib::loclist::loclist in lib.hpp 
+// 			 * and the block_as_dwarf_expr case in attr.cpp. */
+//         }
 		encap::loclist with_static_location_die::get_static_location() const
         {
         	auto attrs = const_cast<with_static_location_die *>(this)->get_attrs();
@@ -568,16 +579,40 @@ namespace dwarf
             if (attrs.find(DW_AT_low_pc) != attrs.end() 
             	&& attrs.find(DW_AT_high_pc) != attrs.end())
             {
-            	return loclist_from_pc_values(attrs.find(DW_AT_low_pc)->second.get_address().addr,
-                	attrs.find(DW_AT_high_pc)->second.get_address().addr);
-            }
-            else
-            {
-            	assert(attrs.find(DW_AT_low_pc) != attrs.end());
-        	    return loclist_from_pc_values(
-                	attrs.find(DW_AT_low_pc)->second.get_address().addr);
-            }
-        }
+				auto low_pc = attrs.find(DW_AT_low_pc)->second.get_address().addr;
+				auto high_pc = attrs.find(DW_AT_high_pc)->second.get_address().addr;
+				Dwarf_Unsigned opcodes[] 
+				= { DW_OP_constu, low_pc, 
+					DW_OP_piece, high_pc - low_pc };
+
+				/* If we're a "static" object, what are the validity vaddrs of our 
+				 * loclist entry? It's more than just our own vaddrs. Using the whole
+				 * vaddr range seems sensible. But (FIXME) it's not very DWARF-compliant. */
+				encap::loclist list(
+					encap::loc_expr(
+						opcodes, 
+						0, std::numeric_limits<Dwarf_Addr>::max()
+					)
+				); 
+				return list;
+			}
+			else
+			{
+				assert(attrs.find(DW_AT_low_pc) != attrs.end());
+				auto low_pc = attrs.find(DW_AT_low_pc)->second.get_address().addr;
+				Dwarf_Unsigned opcodes[] 
+				 = { DW_OP_constu, low_pc };
+				/* FIXME: I don't think we should be using the max Dwarf_Addr here -- 
+				 * the libdwarf manual claims we should set them both to zero. */
+				encap::loclist list(
+					encap::loc_expr(
+						opcodes, 
+						0, std::numeric_limits<Dwarf_Addr>::max()
+					)
+				); 
+				return list;
+			}
+		}
 /* from spec::subprogram_die */
 		opt< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >
         subprogram_die::contains_addr_as_frame_local_or_argument( 
@@ -747,12 +782,18 @@ namespace dwarf
 			/* These guys are probably relative to a frame base. 
 			   If they're not, it's an error. So we rewrite the loclist
 			   so that it's relative to a frame base. */
-			absolute_loclist_to_additive_loclist(
+			
+			// see note in expr.hpp
+			if (!this->get_location()) return encap::loclist::NO_LOCATION; //(/*encap::loc_expr::NO_LOCATION*/);
+			return absolute_loclist_to_additive_loclist(
 				*this->get_location());
 		
 		}
 		encap::loclist variable_die::get_dynamic_location() const
 		{
+			// see note in expr.hpp
+			if (!this->get_location()) return encap::loclist::NO_LOCATION; //(/*encap::loc_expr::NO_LOCATION*/);
+			
 			// we need an enclosing subprogram or lexical_block
 			auto p_lexical = this->nearest_enclosing(DW_TAG_lexical_block);
 			auto p_subprogram = this->nearest_enclosing(DW_TAG_subprogram);
@@ -800,11 +841,20 @@ namespace dwarf
 		{
         	auto attrs = const_cast<with_dynamic_location_die *>(this)->get_attrs();
             assert(attrs.find(DW_AT_location) != attrs.end());
+			Dwarf_Addr dieset_relative_cu_base_ip = (this->enclosing_compile_unit()->get_low_pc() ? 
+				    this->enclosing_compile_unit()->get_low_pc()->addr : 0 );
+			if (dieset_relative_ip < dieset_relative_cu_base_ip)
+			{
+				cerr << "Warning: bad relative IP (0x" << std::hex << dieset_relative_ip << std::dec
+					<< ") for stack location of DIE in compile unit "
+					<< *this->enclosing_compile_unit()
+					<< ": " << *this << endl;
+				throw No_entry();
+			}
 			return (Dwarf_Addr) dwarf::lib::evaluator(
 				attrs.find(DW_AT_location)->second.get_loclist(),
 				dieset_relative_ip // needs to be CU-relative
-				 - (this->enclosing_compile_unit()->get_low_pc() ? 
-				    this->enclosing_compile_unit()->get_low_pc()->addr : 0 ),
+				 - dieset_relative_cu_base_ip,
 				this->get_ds().get_spec(),
 				p_regs,
 				frame_base_addr).tos();
