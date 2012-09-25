@@ -14,7 +14,7 @@
 #include "attr.hpp"
 #include "spec_adt.hpp"
 #include <boost/optional.hpp>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 #include <boost/iterator/iterator_adaptor.hpp>
 #include <boost/iterator/filter_iterator.hpp>
 #include <iterator_with_lens.hpp>
@@ -34,8 +34,8 @@ namespace dwarf {
 	namespace encap {
 		using dwarf::spec::opt; // FIXME: should put opt in a different namespace?
 		using namespace dwarf::lib;
-		using boost::dynamic_pointer_cast;
-		using boost::shared_ptr;
+		using std::dynamic_pointer_cast;
+		using std::shared_ptr;
 		using std::make_pair;
 		using std::set;
 		
@@ -62,10 +62,10 @@ namespace dwarf {
 
 		// basic definitions for dealing with encap data
 		class dieset 
-		 : private std::map<Dwarf_Off, boost::shared_ptr<dwarf::encap::die> >,
+		 : private std::map<Dwarf_Off, std::shared_ptr<dwarf::encap::die> >,
 		   public virtual spec::abstract_mutable_dieset
 		{
-			typedef std::map<Dwarf_Off, boost::shared_ptr<dwarf::encap::die> > super;
+			typedef std::map<Dwarf_Off, std::shared_ptr<dwarf::encap::die> > super;
 			friend class file;
 			friend class die;
 			bool destructing;
@@ -103,8 +103,8 @@ namespace dwarf {
 			virtual ~dieset() { destructing = true; }
 			const ::dwarf::spec::abstract_def& spec() const { assert(p_spec); return *p_spec; }
 			const ::dwarf::spec::abstract_def& get_spec() const { assert(p_spec); return *p_spec; }			
-			boost::shared_ptr<file_toplevel_die> all_compile_units();
-			/* boost::shared_ptr<file_toplevel_die> toplevel() { return all_compile_units(); } */
+			std::shared_ptr<file_toplevel_die> all_compile_units();
+			/* std::shared_ptr<file_toplevel_die> toplevel() { return all_compile_units(); } */
 			struct pair_compare_by_key
 			{
 				bool operator()(const value_type& v1, const value_type& v2) const
@@ -133,10 +133,10 @@ namespace dwarf {
 				return this->super::insert(pos, val);
 			}
 			virtual 
-			boost::shared_ptr<dwarf::spec::basic_die> 
+			std::shared_ptr<dwarf::spec::basic_die> 
 			insert(
 				dwarf::lib::Dwarf_Off pos, 
-				boost::shared_ptr<dwarf::spec::basic_die> p_d)
+				std::shared_ptr<dwarf::spec::basic_die> p_d)
 			{
 				/* We assume that the parent of the DIE is correctly set up. */
 				
@@ -146,13 +146,13 @@ namespace dwarf {
 				 * new one, we have to build it from scratch or by cloning
 				 * an existing one. The built DIE only has to implement the
 				 * non-mutable */
-				boost::shared_ptr<dwarf::encap::die> encap_d
-				 = boost::dynamic_pointer_cast<encap::die>(p_d);
-				if (!encap_d) return boost::shared_ptr<dwarf::spec::basic_die>(); // return null
+				std::shared_ptr<dwarf::encap::die> encap_d
+				 = std::dynamic_pointer_cast<encap::die>(p_d);
+				if (!encap_d) return std::shared_ptr<dwarf::spec::basic_die>(); // return null
 				else 
 				{
 					if (super::find(pos) != super::end()) throw Error(0, 0); // FIXME: better error
-					auto ret = super::insert(std::make_pair(pos, boost::dynamic_pointer_cast<encap::die>(p_d)));
+					auto ret = super::insert(std::make_pair(pos, std::dynamic_pointer_cast<encap::die>(p_d)));
 					assert(ret.second);
 					return p_d;
 				}
@@ -211,9 +211,9 @@ namespace dwarf {
 			{ return abstract_dieset::iterator(*this, 
 				std::numeric_limits<Dwarf_Off>::max(),
 				path_type()); }
-			boost::shared_ptr<dwarf::spec::basic_die> 
+			std::shared_ptr<dwarf::spec::basic_die> 
 			operator[](dwarf::lib::Dwarf_Off off) const;
-			boost::shared_ptr<spec::file_toplevel_die> toplevel();
+			std::shared_ptr<spec::file_toplevel_die> toplevel();
 			//std::deque< spec::abstract_dieset::position > path_from_root(Dwarf_Off off);
 
 			bool move_to_first_child(spec::abstract_dieset::iterator_base& arg);
@@ -274,7 +274,7 @@ namespace dwarf {
 		std::pair<
 			dwarf::encap::die_out_edge_iterator<dwarf::encap::attribute_value::weak_ref>, 
 			dwarf::encap::die_out_edge_iterator<dwarf::encap::attribute_value::weak_ref> >
-		out_edges(std::pair<dwarf::lib::Dwarf_Off, boost::shared_ptr<dwarf::encap::die> >, const dwarf::encap::dieset&);	
+		out_edges(std::pair<dwarf::lib::Dwarf_Off, std::shared_ptr<dwarf::encap::die> >, const dwarf::encap::dieset&);	
 	} namespace dwarf { namespace encap {
 
 		// lenses for generating 
@@ -341,7 +341,7 @@ namespace dwarf {
 			friend std::pair<
 				die_out_edge_iterator<attribute_value::weak_ref>, 
 				die_out_edge_iterator<attribute_value::weak_ref> > 
-			boost::out_edges(std::pair<dwarf::lib::Dwarf_Off, boost::shared_ptr<dwarf::encap::die> >, const dwarf::encap::dieset&);
+			boost::out_edges(std::pair<dwarf::lib::Dwarf_Off, std::shared_ptr<dwarf::encap::die> >, const dwarf::encap::dieset&);
 		protected:
 			/* TODO: make this a handle/body implementation, to allow copying of DIEs
 			 * without unnecessarily copying those vectors and maps around. */
@@ -354,7 +354,7 @@ namespace dwarf {
 			std::map<Dwarf_Half, attribute_value> m_attrs;
 		protected:
 			std::set<Dwarf_Off> m_children;
-			void attach_child(boost::shared_ptr<encap::basic_die> p);
+			void attach_child(std::shared_ptr<encap::basic_die> p);
 			
 		public:
 			typedef dwarf::encap::factory factory_type;
@@ -383,9 +383,9 @@ namespace dwarf {
 			 * this will construct two underlying sequence objects without
 			 * any guarantee that they are comparable. The right thing to do
 			 * is to get the sequence object, then use its begin() and end().  */
-			boost::shared_ptr<all_refs_dfs_sequence> all_refs_dfs_seq()
+			std::shared_ptr<all_refs_dfs_sequence> all_refs_dfs_seq()
 			{
-				auto p_seq = boost::make_shared<all_refs_dfs_sequence>();
+				auto p_seq = std::make_shared<all_refs_dfs_sequence>();
 				auto my_path = this->iterator_here().base().path_from_root;
 				
 				// To do a depth-first walk under this DIE, our termination condition is
@@ -470,11 +470,11 @@ namespace dwarf {
 			Dwarf_Half set_tag(Dwarf_Half v) { return m_tag = v; }
 			
 			Dwarf_Off parent_offset() const { return p_parent->get_offset(); }
-			boost::shared_ptr<spec::basic_die> get_parent() { return /*m_ds[m_parent];*/ p_parent; }
+			std::shared_ptr<spec::basic_die> get_parent() { return /*m_ds[m_parent];*/ p_parent; }
 			Dwarf_Off get_first_child_offset() const
 			{ if (m_children.size() > 0) return *m_children.begin();
 			  else throw lib::No_entry(); }
-			boost::shared_ptr<spec::basic_die> get_first_child() 
+			std::shared_ptr<spec::basic_die> get_first_child() 
 			{ return m_ds[get_first_child_offset()]; }
 
 			Dwarf_Off get_next_sibling_offset() const
@@ -486,7 +486,7 @@ namespace dwarf {
 				assert(*found != m_offset);
 				return *found; 
 			}
-			boost::shared_ptr<spec::basic_die> get_next_sibling()
+			std::shared_ptr<spec::basic_die> get_next_sibling()
 			{
 				return m_ds[get_next_sibling_offset()]; 
 			}
@@ -507,7 +507,7 @@ namespace dwarf {
 			//attribute_value& put_attr(Dwarf_Half attr, 
 			//	Die_encap_base& target);
 			attribute_value& put_attr(Dwarf_Half attr, 
-				boost::shared_ptr<basic_die> target);
+				std::shared_ptr<basic_die> target);
 
 			opt<std::string> 
 			get_name() const { 
@@ -576,27 +576,27 @@ namespace dwarf {
 #define stored_type_tag Dwarf_Half
 #define stored_type_loclist dwarf::encap::loclist
 #define stored_type_address dwarf::encap::attribute_value::address
-#define stored_type_refdie boost::shared_ptr<spec::basic_die> 
-#define stored_type_refdie_is_type boost::shared_ptr<spec::type_die> 
+#define stored_type_refdie std::shared_ptr<spec::basic_die> 
+#define stored_type_refdie_is_type std::shared_ptr<spec::type_die> 
 #define stored_type_rangelist dwarf::encap::rangelist
 
 #define attr_optional(name, stored_t) \
 	opt<stored_type_ ## stored_t> get_ ## name() const \
 	{ if (has_attr(DW_AT_ ## name)) return (*this)[DW_AT_ ## name].get_ ## stored_t (); \
 	  else return opt< stored_type_ ## stored_t>(); } \
-	boost::shared_ptr<self_type> set_ ## name(opt<stored_type_ ## stored_t> arg) { \
+	std::shared_ptr<self_type> set_ ## name(opt<stored_type_ ## stored_t> arg) { \
 	if (arg) put_attr(DW_AT_ ## name, encap::attribute_value(this->m_ds, deref_opt(arg))); \
 	else m_attrs.erase(DW_AT_ ## name); \
-	return boost::dynamic_pointer_cast<self_type>(this->shared_from_this()); }
+	return std::dynamic_pointer_cast<self_type>(this->shared_from_this()); }
 
 #define super_attr_optional(name, stored_t) attr_optional(name, stored_t)
 
 #define attr_mandatory(name, stored_t) \
 	stored_type_ ## stored_t get_ ## name() const \
 	{ assert (has_attr(DW_AT_ ## name)); return (*this)[DW_AT_ ## name].get_ ## stored_t (); } \
-	/*boost::shared_ptr<self_type>*/ void set_ ## name(stored_type_ ## stored_t arg) { \
+	/*std::shared_ptr<self_type>*/ void set_ ## name(stored_type_ ## stored_t arg) { \
 	put_attr(DW_AT_ ## name, encap::attribute_value(this->m_ds, arg)); \
-	/* return boost::dynamic_pointer_cast<self_type>(this->shared_from_this());*/ }
+	/* return std::dynamic_pointer_cast<self_type>(this->shared_from_this());*/ }
 // HACK: don't use shared_from_this until its interaction with multiple inheritance
 // is fixed <http://lists.boost.org/Archives/boost/2010/11/173366.php>
 
@@ -679,7 +679,7 @@ namespace dwarf {
 
 			// manually defined because they don't map to DWARF attributes
 			Dwarf_Off get_offset() const { return m_offset; }
-			boost::shared_ptr<self> get_parent() const 
+			std::shared_ptr<self> get_parent() const 
 			{ 
 				//auto found = m_ds.map_find(m_parent); 
 				//assert(found != m_ds.map_end()); 
@@ -776,27 +776,27 @@ namespace dwarf {
 			// convenience forwarder
 			static factory& for_spec(const dwarf::spec::abstract_def& spec); 
 		protected:
-			void attach_to_ds(boost::shared_ptr<basic_die> p) const
+			void attach_to_ds(std::shared_ptr<basic_die> p) const
 			{ 
 				assert(p->get_ds().find(p->parent_offset()) != p->get_ds().end());
 				dynamic_pointer_cast<encap::basic_die>(p->get_ds()[p->parent_offset()])
 					->attach_child(p);
 			}
 			template<typename T, typename... Args > 
-			boost::shared_ptr<encap::basic_die>
+			std::shared_ptr<encap::basic_die>
 			my_make_shared(Args&&... args) const
-			{ boost::shared_ptr<encap::basic_die> p(new T(std::forward<Args>(args)...)); return p; }
-			virtual boost::shared_ptr<die> encapsulate_die(Dwarf_Half tag, 
+			{ std::shared_ptr<encap::basic_die> p(new T(std::forward<Args>(args)...)); return p; }
+			virtual std::shared_ptr<die> encapsulate_die(Dwarf_Half tag, 
 				dieset& ds, lib::die& d, Dwarf_Off parent_off) const = 0;
 		public:
 			virtual 
-			boost::shared_ptr<basic_die> 
+			std::shared_ptr<basic_die> 
 			create_die(Dwarf_Half tag, shared_ptr<basic_die> parent,
 				opt<std::string> name 
 					= opt<std::string>()) const = 0;
 			virtual
-			boost::shared_ptr<basic_die>
-			clone_die(dieset& dest_ds, boost::shared_ptr<basic_die> p_d) const = 0;
+			std::shared_ptr<basic_die>
+			clone_die(dieset& dest_ds, std::shared_ptr<basic_die> p_d) const = 0;
 		};
 	} // end namespace encap
 } // end namespace dwarf

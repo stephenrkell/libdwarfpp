@@ -15,14 +15,15 @@
 #include <srk31/algorithm.hpp>
 #include <srk31/indenting_ostream.hpp>
 #include <gelf.h>
+#include <cstring>
 
 using std::cerr;
 using std::endl;
 using std::make_pair;
 using std::set;
-using boost::dynamic_pointer_cast;
+using std::dynamic_pointer_cast;
 using boost::optional;
-using boost::shared_ptr;
+using std::shared_ptr;
 using srk31::count;
 
 namespace dwarf
@@ -581,7 +582,7 @@ namespace dwarf
 			}
 		}
 		
-		void die::attach_child(boost::shared_ptr<encap::basic_die> p)
+		void die::attach_child(std::shared_ptr<encap::basic_die> p)
 		{ 
 			assert(m_ds.find(p->get_offset()) == m_ds.end());
 			assert(p->parent_offset() == m_offset);

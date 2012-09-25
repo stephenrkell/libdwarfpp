@@ -23,7 +23,7 @@ main(int argc,char*argv[])
     //name_to_resolve.push_back("test-siblings-adt-input.c");
     //auto found = ds.toplevel()->resolve(name_to_resolve.begin(), name_to_resolve.end());
     //assert(found);
-    //auto cu_found = boost::dynamic_pointer_cast<dwarf::spec::compile_unit_die>(found);
+    //auto cu_found = std::dynamic_pointer_cast<dwarf::spec::compile_unit_die>(found);
 
 	//for (auto i = cu_found->subprogram_children_begin(); 
     //    i != cu_found->subprogram_children_end();

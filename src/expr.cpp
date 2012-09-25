@@ -7,6 +7,7 @@
 
 #include <limits>
 
+#include "lib.hpp"
 #include "expr.hpp" 
 
 namespace dwarf
@@ -149,7 +150,29 @@ namespace dwarf
             }
             throw No_entry(); // no piece covers that offset -- likely a bogus offset
         }
-        loc_expr loclist::loc_for_vaddr(Dwarf_Addr vaddr) const
+		loclist::loclist(const dwarf::lib::loclist& dll)
+		{
+			for (int i = 0; i != dll.len(); i++)
+			{
+				push_back(loc_expr(dll[i])); 
+			}
+		}
+		loclist::loclist(const core::LocList& ll)
+		{
+			for (auto i = ll.copied_list.begin(); i != ll.copied_list.end(); ++i)
+			{
+				push_back(*i->get());
+			}
+		}
+		rangelist::rangelist(const core::RangeList& rl)
+		{
+			for (unsigned i = 0; i < rl.handle.get_deleter().len; ++i)
+			{
+				push_back(rl.handle.get()[i]);
+			}
+		}
+		
+		loc_expr loclist::loc_for_vaddr(Dwarf_Addr vaddr) const
         {
         	for (auto i = this->begin(); i != this->end(); i++)
             {

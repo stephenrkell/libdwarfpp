@@ -1,6 +1,7 @@
 #include "attr.hpp"
 #include "encap.hpp"
 #include "spec_adt.hpp" /* for basic_die methods */
+#include "expr.hpp"
 
 #include <utility>
 using std::make_pair;
@@ -9,8 +10,8 @@ namespace dwarf
 {
 	namespace encap
     {
-		boost::shared_ptr<spec::type_die> attribute_value::get_refdie_is_type() const 
-		{ return boost::dynamic_pointer_cast<spec::type_die>(get_refdie()); }
+		std::shared_ptr<spec::type_die> attribute_value::get_refdie_is_type() const 
+		{ return std::dynamic_pointer_cast<spec::type_die>(get_refdie()); }
 		
 		void attribute_value::print_raw(std::ostream& s) const
 		{
@@ -102,7 +103,7 @@ namespace dwarf
 			}	
 		}
 	
-    	boost::shared_ptr<spec::basic_die> attribute_value::get_refdie() const
+    	std::shared_ptr<spec::basic_die> attribute_value::get_refdie() const
         //spec::basic_die& attribute_value::get_refdie() const
 	    { assert(f == REF); 
 		  assert(p_ds);
@@ -272,7 +273,7 @@ namespace dwarf
 		
 		// temporary HACK: copy 
 		attribute_value::attribute_value(const dwarf::core::Attribute& a, 
-			core::Debug::raw_handle_type dbg,
+			const core::Die& d,
 			spec::abstract_def& spec /* = spec::DEFAULT_DWARF_SPEC */)
 		{
 			int retval;
@@ -309,25 +310,24 @@ namespace dwarf
 					this->v_addr.addr = addr;
 					break;
 				case spec::interp::block:
-// 					{
-// 						block b(a);
-// 						this->f = BLOCK;
-// 						this->v_block = new vector<unsigned char>(
-// 							(unsigned char *) b.data(), ((unsigned char *) b.data()) + b.len());
-// 					}
-					assert(false);
-// 					break;
-				case spec::interp::reference:
-// 					this->f = REF;
-// 					Dwarf_Off referencing_off; 
-// 					a.get_containing_array().get_containing_die().offset(&referencing_off);
-// 					Dwarf_Half referencing_attr;
-// 					a.whatattr(&referencing_attr);
-// 					a.formref_global(&o);
-// 					this->v_ref = new weak_ref(*(abstract_dieset*)0), o, 
-// 						true, referencing_off, referencing_attr);
-					assert(false);
-// 					break;
+					{
+						core::Block b(a);
+						this->f = BLOCK;
+						this->v_block = new vector<unsigned char>(
+							(unsigned char *) b.handle->bl_data, 
+							((unsigned char *) b.handle->bl_data) + b.handle->bl_len);
+					}
+					break;
+				case spec::interp::reference: {
+					this->f = REF;
+					Dwarf_Off referencing_off = d.offset_here();
+					Dwarf_Half referencing_attr = a.attr_here();
+					int ret = dwarf_global_formref(a.handle.get(), &o, &core::current_dwarf_error);
+					assert(ret == DW_DLV_OK);
+					this->v_ref = new weak_ref(*((dwarf::spec::abstract_dieset*)0), o, 
+						true, referencing_off, referencing_attr);
+					break;
+				}
 				as_if_unsigned:
 				case spec::interp::constant:
 					if (orig_form == DW_FORM_sdata)
@@ -350,7 +350,10 @@ namespace dwarf
 					try
 					{
 						this->f = LOCLIST;
-						this->v_loclist = new loclist(dwarf::lib::loclist(a, dbg));
+						// replaced lib::loclist with core::LocdescList
+						//this->v_loclist = new loclist(dwarf::lib::loclist(a, a.get_dbg()));
+						core::LocdescList ll(core::LocdescList::try_construct(a));
+						this->v_loclist = new loclist(ll);
 						break;
 					}
 					catch (...)
@@ -360,28 +363,31 @@ namespace dwarf
 						goto fail;
 					}
 				case spec::interp::rangelistptr: {
-//                 	this->f = RANGELIST;
-//                     retval = dwarf_formudata(a.handle, &u, &current_dwarf_error); 
-// 					assert(retval == DW_DLV_OK);
-//                     dwarf::lib::ranges rs(a, u);
-//                     this->v_rangelist = new rangelist(rs.begin(), rs.end());
-					assert(false);
-                } break;
+					this->f = RANGELIST;
+					this->v_rangelist = new rangelist(
+						/* FIXME: to extract Dwarf_Ranges, we should really pass a Die, 
+						 * not just an Attribute. This would let us call dwarf_ranges_s
+						 * and therefore support variable address size. But we have no 
+						 * access to the Die here. We would have to add an extra parameter
+						 * to this function, or create a whole new overload. */
+						/*rs.begin(), rs.end()*/ core::RangeList(a, d)
+					);
+				} break;
 				case spec::interp::lineptr:
 				case spec::interp::macptr:
-					goto as_if_unsigned;		
+					goto as_if_unsigned;
 				fail:
 				default:
 					// FIXME: we failed to case-catch, or handle, the FORM; do something
-					std::cerr << "FIXME: didn't know how to handle an attribute "
-						<< "numbered 0x" << std::hex << attr << std::dec << " of form "
-						<< /*ds.toplevel()->get_spec()*/spec.form_lookup(orig_form) 
-						<< ", skipping." << std::endl;
+					//std::cerr << "FIXME: didn't know how to handle an attribute "
+					//	<< "numbered 0x" << std::hex << attr << std::dec << " of form "
+					//	<< /*ds.toplevel()->get_spec()*/spec.form_lookup(orig_form) 
+					//	<< ", skipping." << std::endl;
 					throw Not_supported("unrecognised attribute");
 					/* NOTE: this Not_supportd doesn't happen in some cases, because often
 					 * we have successfully guessed an interp:: class for the attribute
 					 * anyway. FIXME: remember how this works, and see if we can do better. */
-					break;
+					//break;
 			}
 			
 		}
@@ -506,15 +512,127 @@ namespace dwarf
 					break;
 			}
 		}
- 		
+		
+		/* Constructors we couldn't define inline for dependency reasons. */
 		attribute_value::attribute_value(spec::abstract_dieset& ds, 
-				boost::shared_ptr<spec::basic_die> ref_target)
+				std::shared_ptr<spec::basic_die> ref_target)
 		 : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), 
 		   v_ref(new weak_ref(ref_target->get_ds(), 
 		        ref_target->get_offset(), false,
 				/* HACK! */ std::numeric_limits<lib::Dwarf_Off>::max(),
 						    std::numeric_limits<lib::Dwarf_Half>::max())) {}
+
+		attribute_value::attribute_value(spec::abstract_dieset& ds, const encap::loclist& l) 
+		: p_ds(&ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new encap::loclist(l)) {}
+		attribute_value::attribute_value(spec::abstract_dieset& ds, const encap::rangelist& l)
+		 : p_ds(&ds), orig_form(DW_FORM_data4), f(RANGELIST), v_rangelist(new encap::rangelist(l)) {}
+
+		attribute_value::attribute_value(const attribute_value& av) : p_ds(av.p_ds), f(av.f)
+		{
+			assert(this->p_ds == av.p_ds);
+			this->orig_form = av.orig_form;
+			switch (f)
+			{
+				case FLAG:
+					v_flag = av.v_flag;
+				break;
+				case UNSIGNED:
+					v_u = av.v_u;
+				break;
+				case SIGNED:
+					v_s = av.v_s;
+				break;
+				case BLOCK:
+					//std::cerr << "Copy constructing a block attribute value from vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;
+					v_block = new std::vector<unsigned char>(*av.v_block);
+					//std::cerr << "New block is at " << std::hex << (unsigned) v_block << std::dec << std::endl;						
+				break;
+				case STRING:
+					//std::cerr << "Copy constructing a string attribute value from string at 0x" << std::hex << (unsigned) v_string << std::dec << std::endl;
+					v_string = new std::string(*av.v_string);
+					//std::cerr << "New string is at " << std::hex << (unsigned) v_string << std::dec << std::endl;
+				break;
+				case REF:
+					v_ref = /*new ref(av.v_ref->ds, av.v_ref->off, av.v_ref->abs,
+						av.v_ref->referencing_off, av.v_ref->referencing_attr);*/
+						av.v_ref->clone();
+				break;
+				case ADDR:
+					v_addr = av.v_addr;
+				break;
+				case LOCLIST:
+					v_loclist = new loclist(*av.v_loclist);
+				break;
+				case RANGELIST:
+					v_rangelist = new rangelist(*av.v_rangelist);
+				break;
+				default: 
+					std::cerr << "Warning: copy-constructing a dwarf::encap::attribute_value of unknown form " << f << std::endl;
+					break;
+			} // end switch				
+		}
+
 		
+		/* Ditto operators. */
+		bool attribute_value::operator==(const attribute_value& v) const { 
+			if (this->f != v.f) return false;
+			// else this->f == v.f
+			switch (f)
+			{
+				case NO_ATTR:
+					return true;
+				case FLAG:
+					return this->v_flag == v.v_flag;
+				case UNSIGNED:
+					return this->v_u == v.v_u;
+				case SIGNED:
+					return this->v_s == v.v_s;
+				case BLOCK:
+					return this->v_block == v.v_block;
+				case STRING:
+					return *(this->v_string) == *(v.v_string);
+				case REF:
+					return this->v_ref == v.v_ref;
+				case ADDR:
+					return this->v_addr == v.v_addr;
+				case LOCLIST:
+					return *(this->v_loclist) == *(v.v_loclist);
+                case RANGELIST:
+                    return *(this->v_rangelist) == *(v.v_rangelist);
+				default: 
+					std::cerr << "Warning: comparing a dwarf::encap::attribute_value of unknown form " << v.f << std::endl;
+					return false;
+			} // end switch
+		}
+		attribute_value::~attribute_value() {
+			switch (f)
+			{
+				case FLAG:
+				case UNSIGNED:
+				case SIGNED:
+				case ADDR:
+					// nothing allocated
+				break;
+				case BLOCK:
+					//std::cerr << "Destructing a block attribute_value with vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;
+					delete v_block;
+				break;
+				case STRING:
+					delete v_string;
+				break;
+				case REF:
+					delete v_ref;
+				break;
+				case LOCLIST:
+					delete v_loclist;
+				break;
+				case RANGELIST:
+					delete v_rangelist;
+				break;
+				default: break;
+			} // end switch
+			} // end ~attribute_value
+
 		attribute_value::ref::ref(spec::abstract_dieset& ds, Dwarf_Off off, bool abs, 
 			Dwarf_Off referencing_off, Dwarf_Half referencing_attr)	
 				: weak_ref(ds, off, abs, referencing_off, referencing_attr), 

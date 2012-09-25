@@ -9,13 +9,29 @@
 #define __DWARFPP_EXPR_HPP
 
 #include "spec.hpp"
-#include "lib.hpp"
+#include "private/libdwarf.hpp"
 
 namespace dwarf
 {
+	namespace core { struct LocdescList; struct RangesList; }
 	namespace encap
     {
     	using namespace dwarf::lib;
+		
+		class rangelist : public std::vector<lib::Dwarf_Ranges> 
+		{
+		public:
+			template <class In> rangelist(In first, In last) 
+			: std::vector<lib::Dwarf_Ranges>(first, last) {}
+			rangelist() : std::vector<lib::Dwarf_Ranges>() {}
+			
+			rangelist(const core::RangesList& rl);
+			
+			boost::optional<std::pair<Dwarf_Off, long> >
+			find_addr(Dwarf_Off file_relative_addr);
+		};
+		std::ostream& operator<<(std::ostream& s, const rangelist& rl);
+
 		typedef ::dwarf::lib::Dwarf_Loc expr_instr;
         
 		struct loc_expr : public std::vector<expr_instr>
@@ -176,13 +192,10 @@ namespace dwarf
 		private:
 			loclist() {}
 		public:
-			loclist(const dwarf::lib::loclist& dll)
-			{
-				for (int i = 0; i != dll.len(); i++)
-				{
-					push_back(loc_expr(dll[i])); 
-				}		
-			}
+			loclist(const dwarf::lib::loclist& dll);
+			/* We can construct a loc_expr from a Loc_Desc. 
+			 * So we can construct a loclist from a LocdescList. */
+			loclist(const core::LocdescList& ll); 
 			// would ideally repeat all vector constructors
 			template <class In> loclist(In first, In last) : std::vector<loc_expr>(first, last) {}
 			loclist(const std::vector<loc_expr>& v) : std::vector<loc_expr>(v) {}

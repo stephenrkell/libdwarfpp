@@ -26,12 +26,12 @@ namespace dwarf
 	{
 		using std::unique_ptr;
 		using std::pair;
-		using std::string;		
+		using std::string;
 		using std::map;
 		using std::deque;
 		using boost::optional;
 		using boost::intrusive_ptr;
-		using boost::dynamic_pointer_cast;
+		using std::dynamic_pointer_cast;
 	
 		extern "C"
 		{
@@ -53,12 +53,11 @@ namespace dwarf
 		typedef ::dwarf::spec::abstract_def spec;
 		
 		// forward declarations
-		struct basic_root_die;
-		//struct root_die;
-		typedef basic_root_die root_die;
-		struct basic_die;
-		//template <typename DerefAs = basic_die>
-		struct iterator_base;
+		struct root_die;
+		struct basic_die; // the object that we heap-allocate when we want to share a refcounted DIE
+		
+		// template... typename DerefAs
+		struct iterator_base; // our handle / ptr_type union
 		
 		// more pasted from lib
 		struct No_entry {
@@ -122,20 +121,20 @@ namespace dwarf
 			// to avoid making exception handling compulsory, 
 			// we provide static "maybe" constructor functions...
 			static inline handle_type 
-			try_construct(basic_root_die& r, const iterator_base& die); /* siblingof */
+			try_construct(root_die& r, const iterator_base& die); /* siblingof */
 			static inline handle_type 
-			try_construct(basic_root_die& r); /* siblingof with null die */
+			try_construct(root_die& r); /* siblingof with null die */
 			static inline handle_type 
 			try_construct(const iterator_base& die); /* child */
 			static inline handle_type 
-			try_construct(basic_root_die& r, Dwarf_Off off); /* offdie */
+			try_construct(root_die& r, Dwarf_Off off); /* offdie */
 			// ... and an "upgrade" constructor that is guaranteed not to fail
 			inline Die(handle_type h);
 			// ... then the "normal" constructors, that throw exceptions on failure
-			inline Die(basic_root_die& r, const iterator_base& die); /* siblingof */
-			inline explicit Die(basic_root_die& r); /* siblingof in the root case */
+			inline Die(root_die& r, const iterator_base& die); /* siblingof */
+			inline explicit Die(root_die& r); /* siblingof in the root case */
 			inline explicit Die(const iterator_base& die); /* child */
-			inline explicit Die(basic_root_die& r, Dwarf_Off off); /* offdie */
+			inline explicit Die(root_die& r, Dwarf_Off off); /* offdie */
 		};
 		
 		/* Note: there are two ways of getting attributes out of libdwarf:
@@ -223,8 +222,9 @@ namespace dwarf
 			// we obviously need this
 			Die d;
 			// these are necessary to make an iterator out of a basic_die
+			// -- FIXME: where do we do this? 
 			unsigned depth;
-			basic_root_die *p_root; // FIXME: no! we want to remove this, to allow stacking diesets
+			//root_die *p_root; // FIXME: no! we want to remove this, to allow stacking diesets
 			/* Nothing else! This class is here to act as the base for
 			 * state-holding subclasses that are optimised for particular
 			 * purposes, e.g. fast local/parameter location.  */
@@ -240,8 +240,8 @@ namespace dwarf
 			// Or put those methods on iterator?
 			
 			unsigned get_depth() { return depth; }
-			basic_root_die& get_root() { assert(p_root); return *p_root; }
-			
+			root_die& get_root() { assert(p_root); return *p_root; } // FAILS to compile because we commented out p_root above
+						
 			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
 			friend void intrusive_ptr_add_ref(basic_die *p);
 			friend void intrusive_ptr_release(basic_die *p);
@@ -266,9 +266,13 @@ namespace dwarf
 		// Anyway, they are now one and the same. But 
 		// this is a root_die for libdwarf, not for encap. 
 		// ** Could we use it for encap too, with a null Debug?
-		// ** Is it different from a dieset?
-		// ** Can we abstract out a core base class
-		struct basic_root_die
+		// --- yes, where "Debug" just means "root resource", and encap doesn't have one
+		// --- we are still leaking libdwarf design through our "abstract" interface
+		// ------ can we do anything about this? 
+		// --- what methods do handles provide? 
+		// ** Is it different from a dieset? no, I don't think so
+		// ** Can we abstract out a core base class?
+		struct root_die
 		{
 			friend struct iterator_base;
 			friend struct Die;
@@ -285,7 +289,7 @@ namespace dwarf
 			virtual bool is_sticky(const iterator_base& it)/* = 0*/;
 			
 		public:
-			basic_root_die(int fd) : dbg(fd), current_cu_offset(0UL) {}
+			root_die(int fd) : dbg(fd), current_cu_offset(0UL) {}
 		
 			// HMM -- how to make these policy-agnostic? 
 			// Has to be template <typename Iter = iterator_df<> > Iter begin()
@@ -301,12 +305,12 @@ namespace dwarf
 			pair<Iter, Iter> sequence();
 			
 			template <typename Iter = iterator_df<> >
-			Iter begin() const { return const_cast<basic_root_die*>(this)->begin<Iter>(); } 
+			Iter begin() const { return const_cast<root_die*>(this)->begin<Iter>(); } 
 			template <typename Iter = iterator_df<> >
-			Iter end() const { return const_cast<basic_root_die*>(this)->end<Iter>(); } 
+			Iter end() const { return const_cast<root_die*>(this)->end<Iter>(); } 
 			template <typename Iter = iterator_df<> >
 			pair<Iter, Iter> sequence() const 
-			{ return const_cast<basic_root_die*>(this)->sequence<Iter>(); } 
+			{ return const_cast<root_die*>(this)->sequence<Iter>(); } 
 			
 			/* This is the expensive version. */
 			template <typename Iter = iterator_df<> >
@@ -341,12 +345,9 @@ namespace dwarf
 			friend struct compile_unit_die; // redundant because we're struct, but future hint
 			
 			// print the whole lot
-			friend std::ostream& operator<<(std::ostream& s, const basic_root_die& d);
+			friend std::ostream& operator<<(std::ostream& s, const root_die& d);
 		};	
-		std::ostream& operator<<(std::ostream& s, const basic_root_die& d);
-		
-		// FIXME: please remove
-		typedef basic_root_die root_die;
+		std::ostream& operator<<(std::ostream& s, const root_die& d);
 		
 		struct compile_unit_die : public basic_die
 		{
@@ -439,6 +440,7 @@ namespace dwarf
 			 * we always have payloads and never handles.
 			 * YES. I think so. Please interleave the core:: with lib:: for now, 
 			 * so we can see how it splits.
+			 * i.e. merge this file with lib.hpp!
 			 *  */
 		};
 		
@@ -449,7 +451,7 @@ namespace dwarf
 		{
 			friend class Die;
 			friend class Attribute;
-			friend class basic_root_die;
+			friend class root_die;
 			//friend class root_die;
 		private:
 			/* This stuff is the Rep that can be abstracted out. */
@@ -460,11 +462,12 @@ namespace dwarf
 				 * The abstract value of the iterator isn't changed in such
 				 * operations, but its representation must be. */
 				mutable Die cur_handle; // to copy this, have to upgrade it
-				mutable basic_root_die::ptr_type cur_payload; // payload = handle + shared count + extra state
+				mutable root_die::ptr_type cur_payload; // payload = handle + shared count + extra state
 			// };
 			mutable enum { HANDLE_ONLY, WITH_PAYLOAD } state;
 			/* ^-- this is the absolutely key design point that makes this code fast. 
-			 * An iterator can either be a libdwarf handle, */
+			 * An iterator can either be a libdwarf handle, or a pointer to some
+			 * refcounted state (including such a handle, and maybe other cached stuff). */
 			
 			// normalization function for private use
 			Die::raw_handle_type get_raw_handle() const
@@ -481,7 +484,7 @@ namespace dwarf
 			
 			/* This is more general-purpose stuff. */
 			unsigned short m_depth; // HMM -- good value? does no harm space-wise atm
-			basic_root_die *p_root; // HMM -- necessary? alternative is: caller passes root& to some calls
+			root_die *p_root; // HMM -- necessary? alternative is: caller passes root& to some calls
 			
 		public:
 			// we like to be default-constructible, BUT 
@@ -496,12 +499,12 @@ namespace dwarf
 			bool is_real_die_position() const { return !is_root_position() && !is_end_position(); } 
 			
 			// this constructor sets us up at begin(), i.e. the root DIE position
-			explicit iterator_base(basic_root_die& r)
+			explicit iterator_base(root_die& r)
 			 : cur_handle(nullptr), state(HANDLE_ONLY), m_depth(0), p_root(&r) {}
 			
 			// this constructor sets us up using a handle -- 
 			// this does the exploitation of the sticky set
-			iterator_base(Die::handle_type& h, unsigned depth, basic_root_die& r)
+			iterator_base(Die::handle_type& h, unsigned depth, root_die& r)
 			 : cur_handle(Die(nullptr)) // will be replaced in function body...
 			{
 				Dwarf_Off off; 
@@ -527,7 +530,7 @@ namespace dwarf
 			}
 
 			// this constructor sets us up using a payload ptr
-			explicit iterator_base(basic_root_die::ptr_type p)
+			explicit iterator_base(root_die::ptr_type p)
 			 : cur_handle(nullptr), state(WITH_PAYLOAD), 
 			   m_depth(p->get_depth()), p_root(&p->get_root()) {}
 			
@@ -538,7 +541,9 @@ namespace dwarf
 			   state(WITH_PAYLOAD), 
 			   m_depth(arg.depth()), 
 			   p_root(arg.is_end_position() ? nullptr : &arg.get_root())
-			{ if (arg.is_real_die_position()) assert(false); } // FIXME: make sure root_die does the sticky set
+			// FIXME: make sure root_die does the sticky set, then implement this
+			// -- we assert(false) just because in test cases, we want to *avoid* copying
+			{ if (arg.is_real_die_position()) assert(false); }
 			
 			// ... but we prefer to move them
 			iterator_base(iterator_base&& arg)
@@ -560,10 +565,10 @@ namespace dwarf
 			/*DerefAs&*/ basic_die& dereference() { assert(false); }
 		
 			// convenience
-			basic_root_die& root() { assert(p_root); return *p_root; }
-			basic_root_die& root() const { assert(p_root); return *p_root; }
-			basic_root_die& get_root() { assert(p_root); return *p_root; }
-			basic_root_die& get_root() const { assert(p_root); return *p_root; }
+			root_die& root() { assert(p_root); return *p_root; }
+			root_die& root() const { assert(p_root); return *p_root; }
+			root_die& get_root() { assert(p_root); return *p_root; }
+			root_die& get_root() const { assert(p_root); return *p_root; }
 		
 			Dwarf_Off offset_here() const;
 			Dwarf_Half tag_here() const;
@@ -571,6 +576,7 @@ namespace dwarf
 			spec& spec_here() const
 			{
 				// HACK: avoid creating payload for now
+				// NOTE that the code below only creates payload for CU DIEs, so is mostly harmless
 				return ::dwarf::spec::dwarf3;
 				
 				if (tag_here() == DW_TAG_compile_unit)
@@ -623,6 +629,7 @@ namespace dwarf
 			// or an associative-style operator[] interface?
 			// or both?
 			// make payload include a copy of the attrs state? HMM, yes, this feels correct
+			// -- so just put attribute dictionary into basic_die? seems to work
 			root_die::ptr_type payload_here();
 			
 			template<
@@ -770,8 +777,10 @@ namespace dwarf
 			{ static_cast<iterator_base&>(*this) = arg; }
 		};
 		
+		/* Now define the handle quasi-constructors and Die constructors 
+		 * that we declared earlier. */
 		inline Die::handle_type 
-		Die::try_construct(basic_root_die& r, const iterator_base& die) /* siblingof */
+		Die::try_construct(root_die& r, const iterator_base& die) /* siblingof */
 		{
 			raw_handle_type returned;
 			int ret
@@ -780,7 +789,7 @@ namespace dwarf
 			else return handle_type(nullptr);
 		}
 		inline Die::handle_type 
-		Die::try_construct(basic_root_die& r) /* siblingof in root case */
+		Die::try_construct(root_die& r) /* siblingof in root case */
 		{
 			raw_handle_type returned;
 			int ret
@@ -798,7 +807,7 @@ namespace dwarf
 
 		}
 		inline Die::handle_type 
-		Die::try_construct(basic_root_die& r, Dwarf_Off off) /* offdie */
+		Die::try_construct(root_die& r, Dwarf_Off off) /* offdie */
 		{
 			raw_handle_type returned;
 			int ret = dwarf_offdie(r.dbg.handle.get(), off, &returned, &current_dwarf_error);
@@ -807,17 +816,17 @@ namespace dwarf
 		}
 
 		inline Die::Die(handle_type h) { this->handle = std::move(h); }
-		inline Die::Die(basic_root_die& r, const iterator_base& die) /* siblingof */
+		inline Die::Die(root_die& r, const iterator_base& die) /* siblingof */
 		 : handle(try_construct(r, die))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		} 
-		inline Die::Die(basic_root_die& r) /* siblingof */
+		inline Die::Die(root_die& r) /* siblingof */
 		 : handle(try_construct(r))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		} 
-		inline Die::Die(basic_root_die& r, Dwarf_Off off) /* siblingof */
+		inline Die::Die(root_die& r, Dwarf_Off off) /* siblingof */
 		 : handle(try_construct(r, off))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
@@ -828,6 +837,7 @@ namespace dwarf
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		}
 		
+		/* Same for attribute. */
 		inline Attribute::handle_type 
 		Attribute::try_construct(const iterator_base& it, Dwarf_Half attr)
 		{
@@ -853,10 +863,12 @@ namespace dwarf
 
 		/* What about libdwarf API functions? How do we methodify them?
 		 * Can they all go on the iterator?
+		 * I think so. There are not many of them. 
 		 * 
 		 * What about expanded-ADT functions? 
 		 * Do we still split them into per-DIE navigation-free methods
 		 * and navigation-needing functions that should be toplevel? 
+		 * Yes.
 		 *
 		 * What about stackable DIEsets? Do we need dynamic dispatch?
 		 * Can we support it?

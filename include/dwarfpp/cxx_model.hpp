@@ -14,7 +14,7 @@
 #include <string>
 #include <algorithm>
 #include <sstream>
-#include <boost/regex.hpp>
+#include <regex>
 #include <srk31/algorithm.hpp>
 #include <srk31/indenting_ostream.hpp>
 
@@ -31,7 +31,7 @@ using std::pair;
 using std::map;
 using std::string;
 using boost::optional;
-using boost::shared_ptr;
+using std::shared_ptr;
 using dwarf::spec::basic_die;
 using srk31::indenting_ostream;
 using dwarf::spec::abstract_dieset;

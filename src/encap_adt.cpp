@@ -12,13 +12,13 @@ namespace dwarf
 {
 	namespace encap
     {
-		using boost::shared_ptr;
+		using std::shared_ptr;
 		
         //factory& factory::get_factory(const dwarf::spec::abstract_def& spec)
         //{ return abstract::factory::get_factory<die>(spec); }
         class dwarf3_factory_t : public factory
         {
-            boost::shared_ptr<die> encapsulate_die(Dwarf_Half tag, 
+            std::shared_ptr<die> encapsulate_die(Dwarf_Half tag, 
 	            dieset& ds, lib::die& d, Dwarf_Off parent_off) const 
             {
                 switch(tag)

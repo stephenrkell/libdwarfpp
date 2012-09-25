@@ -26,6 +26,8 @@ namespace dwarf
 	}
 }
 
+/* FIXME: clean up the giant mess that is this file. */
+
 #define DECLARE_STD \
 		/* name--value mappings and basic functions/predicates */ \
 		extern std::map<const char *, int> tag_forward_map; \

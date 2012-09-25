@@ -8,7 +8,7 @@ using std::endl;
 using namespace dwarf;
 
 /* instantiate the following template, for some reason. */
-//dwarf::core::basic_die::basic_die<dwarf::core::iterator_df<dwarf::core::basic_die> >(dwarf::core::basic_root_die&, dwarf::core::iterator_df<dwarf::core::basic_die> const&);
+//dwarf::core::basic_die::basic_die<dwarf::core::iterator_df<dwarf::core::basic_die> >(dwarf::core::root_die&, dwarf::core::iterator_df<dwarf::core::basic_die> const&);
 
 int static_we_should_find;
 
@@ -16,7 +16,7 @@ int main(int argc, char **argv)
 {
 	cout << "Opening " << argv[0] << "..." << endl;
 	std::ifstream in(argv[0]);
-	core::basic_root_die root(fileno(in));
+	core::root_die root(fileno(in));
 	cout << root;
 
 	cout << "Searching for variables..." << endl;
@@ -28,8 +28,8 @@ int main(int argc, char **argv)
 			/* DWARF doesn't tell us whether a variable is static or not. 
 			 * We want to rule out non-static variables. To do this, we
 			 * rely on our existing lib:: infrastructure. */
-			core::Attribute a(i, DW_AT_location);
-			encap::attribute_value val(a, root.get_dbg());
+			core::Attribute a(i.get_handle(), DW_AT_location);
+			encap::attribute_value val(a, i.get_handle());
 			auto loclist = val.get_loclist();
 			bool reads_register = false;
 			for (auto i_loc_expr = loclist.begin(); 

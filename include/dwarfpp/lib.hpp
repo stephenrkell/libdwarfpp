@@ -2,11 +2,11 @@
  * 
  * lib.hpp: basic C++ wrapping of libdwarf C API.
  *
- * Copyright (c) 2008--9, Stephen Kell.
+ * Copyright (c) 2008--12, Stephen Kell.
  */
 
-#ifndef __DWARFPP_LIB_HPP
-#define __DWARFPP_LIB_HPP
+#ifndef DWARFPP_LIB_HPP_
+#define DWARFPP_LIB_HPP_
 
 #include <iostream>
 #include <utility>
@@ -18,8 +18,13 @@
 #include <boost/optional.hpp>
 #include <boost/smart_ptr/intrusive_ptr.hpp>
 #include <boost/iterator/iterator_facade.hpp>
-#include <libelf.h>
+#include <boost/iterator/filter_iterator.hpp>
+#include <srk31/selective_iterator.hpp>
+#include <boost/iterator/transform_iterator.hpp>
 #include "spec.hpp"
+#include "opt.hpp"
+#include "attr.hpp"
+#include "expr.hpp"
 
 namespace dwarf
 {
@@ -34,35 +39,29 @@ namespace dwarf
 	namespace encap
 	{
 		class die;
-        class dieset;
-        struct loclist;
+		class dieset;
+		struct loclist;
 	}
-	namespace lib
-	{
-		//using namespace ::dwarf::spec;
-		extern "C"
-		{
-			// HACK: libdwarf.h declares struct Elf opaquely, and we don't
-			// want it in the dwarf::lib namespace, so preprocess this.
-			#define Elf Elf_opaque_in_libdwarf
-			#include <libdwarf.h>
-			#undef Elf
-		}
-	}
-	
+}
+
+#include "private/libdwarf.hpp"
+
+namespace dwarf
+{
 	namespace core
 	{
 		using std::unique_ptr;
 		using std::pair;
-		using std::string;		
+		using std::make_pair;
+		using std::string;
 		using std::map;
 		using std::deque;
 		using boost::optional;
 		using boost::intrusive_ptr;
-		using boost::dynamic_pointer_cast;
+		using std::dynamic_pointer_cast;
 		
+		using dwarf::spec::opt;
 		using namespace dwarf::lib;
-		
 		
 #ifndef NO_TLS
 		extern __thread Dwarf_Error current_dwarf_error;
@@ -75,220 +74,47 @@ namespace dwarf
 		typedef ::dwarf::spec::abstract_def spec;
 		
 		// forward declarations
-		struct basic_root_die;
-		//struct root_die;
-		typedef basic_root_die root_die;
+		struct root_die;
 		struct basic_die;
+		struct compile_unit_die;
 		//template <typename DerefAs = basic_die>
 		struct iterator_base;
-		
-		// more pasted from lib
-		struct No_entry {
-			No_entry() {}
-		};	
-		
-		/* FIXME: clean up errors properly. It's complicated. A Dwarf_Error is a handle
-		 * that needs to be dwarf_dealloc'd, but there are two exceptions:
-		 * errors returned by dwarf_init() and dwarf_elf_init() need to be free()d. 
-		 * In other words, these errors need different deleters. 
-		 * We should unique_ptr'ify each Dwarf_Error at the point where it arises,
-		 * so that we can specify this alternate handling. */
-		 
-		/* The point of this class is to make a self-contained throwable object
-		 * out of a Dwarf_Error handle. FIXME: why do we bundle the Ptr but not the
-		 * error function? */
-		struct Error {
-			Dwarf_Error e;
-			Dwarf_Ptr arg;
-			Error(Dwarf_Error e, Dwarf_Ptr arg) : e(e), arg(arg) {}
-			virtual ~Error() 
-			{ /*dwarf_dealloc((Dwarf_Debug) arg, e, DW_DLA_ERROR); */ /* TODO: Fix segfault here */	}
-		};
-		
-		/* What follows is a mechanical translation of libdwarf,
-		 * plus destruction logic from the docs. */
-		typedef struct Dwarf_Debug_s*      Dwarf_Debug;
-		
-		struct Debug
-		{
-			typedef Dwarf_Debug raw_handle_type;
-			typedef Dwarf_Debug_s opaque_type;
-			struct deleter
-			{
-				void operator ()(raw_handle_type arg) const;
-			};
-			typedef unique_ptr<opaque_type, deleter> handle_type;
-			
-			handle_type handle;
-			
-			// define constructors analogous to the libdwarf resource-acquisition functions
-			Debug(int fd); /* FIXME: release Elf handle implicitly left open after dwarf_finish(). */
-			Debug(Elf *elf);
-			
-			operator raw_handle_type() { return handle.get(); }
-		};
+		struct factory;
+		struct dwarf3_factory_t;
 
-		void exception_error_handler(Dwarf_Error error, Dwarf_Ptr errarg);
-		
-		typedef struct Dwarf_Die_s*        Dwarf_Die;
-		struct Die
-		{
-			typedef Dwarf_Die raw_handle_type;
-			typedef Dwarf_Die_s opaque_type;
-			struct deleter
-			{
-				void operator ()(raw_handle_type arg) const { /* nothing needed for DIE deletion? */ }
-			};
-			typedef unique_ptr<opaque_type, deleter> handle_type;
-			
-			handle_type handle;
-			
-			// to avoid making exception handling compulsory, 
-			// we provide static "maybe" constructor functions...
-			static inline handle_type 
-			try_construct(basic_root_die& r, const iterator_base& die); /* siblingof */
-			static inline handle_type 
-			try_construct(basic_root_die& r); /* siblingof with null die */
-			static inline handle_type 
-			try_construct(const iterator_base& die); /* child */
-			static inline handle_type 
-			try_construct(basic_root_die& r, Dwarf_Off off); /* offdie */
-			
-			// ... and an "upgrade" constructor that is guaranteed not to fail
-			inline Die(handle_type h);
-			
-			// ... then the "normal" constructors, that throw exceptions on failure
-			inline Die(basic_root_die& r, const iterator_base& die); /* siblingof */
-			inline explicit Die(basic_root_die& r); /* siblingof in the root case */
-			inline explicit Die(const iterator_base& die); /* child */
-			inline explicit Die(basic_root_die& r, Dwarf_Off off); /* offdie */
-			
-			// move constructor
-			inline Die(Die&& d) { handle = std::move(d.handle); }
-			// move assignment
-			inline Die& operator=(Die&& d) { handle = std::move(d.handle); return *this; }
-		};
-		
-		/* Note: there are two ways of getting attributes out of libdwarf:
-		 * dwarf_attr and dwarf_attrlist. The former returns individual attributes
-		 * and is the one we tackle here.
-		 * 
-		 * It's problematic that we need dbg in order to do the dealloc.
-		 * We justify copying the raw handle because Attributes are supposed to
-		 * be transient. So there is not much point doing reference counting
-		 * on the dbg -- the copy of the handle returned by dwarf_init
-		 * should outlive this one. */
-		 
-		/* callign dwarf_attrlist, libdwarf allocates for us a block
-		 * of Dwarf_Attributes. 
-		 *
-		 * This is problematic because we
-		 * need to remember the length somewhere. Wherever the unique_ptr
-		 * goes, its associated length needs to go too. This is handled by
-		 * unique_ptr because deleters are allowed to have state. So we just
-		 * put the count into the deleter and manually construct the deleter
-		 * when constructing the unique_ptr. */
+#include "private/libdwarf-handles.hpp"
 
-		typedef struct Dwarf_Attribute_s*  Dwarf_Attribute;
-		struct Attribute
-		{
-			typedef Dwarf_Attribute raw_handle_type;
-			typedef Dwarf_Attribute_s opaque_type;
-			struct deleter
-			{
-				Debug::raw_handle_type dbg;
-				deleter(Debug::raw_handle_type dbg) : dbg(dbg) {}
-				void operator()(raw_handle_type arg) const
-				{
-					dwarf_dealloc(dbg, arg, DW_DLA_ATTR);
-				}
-			};
-			typedef unique_ptr<opaque_type, deleter> handle_type;
-			
-			handle_type handle;
-
-			static inline handle_type 
-
-			try_construct(const iterator_base& it, Dwarf_Half attr);
-			inline explicit Attribute(const iterator_base& it, Dwarf_Half attr);
-		};
-		
-		/* NOTE: the "block" of attribute descriptors that libdwarf creates 
-		 * is another kind of resource that needs the unique_ptr treatment.
-		 * We save this (for now) until iterator_base::attributes_here. */
-		
-		/* FIXME: sim. for the other handle types:
-		typedef struct Dwarf_Line_s*       Dwarf_Line;
-		typedef struct Dwarf_Global_s*     Dwarf_Global;
-		typedef struct Dwarf_Func_s*       Dwarf_Func;
-		typedef struct Dwarf_Type_s*       Dwarf_Type;
-		typedef struct Dwarf_Var_s*        Dwarf_Var;
-		typedef struct Dwarf_Weak_s*       Dwarf_Weak;
-		typedef struct Dwarf_Error_s*      Dwarf_Error;
-		typedef struct Dwarf_Attribute_s*  Dwarf_Attribute;
-		typedef struct Dwarf_Abbrev_s*       Dwarf_Abbrev;
-		typedef struct Dwarf_Fde_s*         Dwarf_Fde;
-		typedef struct Dwarf_Cie_s*         Dwarf_Cie;
-		typedef struct Dwarf_Arange_s*       Dwarf_Arange;
-		*/
-		// Also there are some other kinds of libdwarf resource.
-		struct string_deleter
-		{
-			Debug::raw_handle_type dbg; 
-			string_deleter(Debug::raw_handle_type dbg) : dbg(dbg) {}
-			// we supply a default constructor, creating a deleter
-			// that can only "deallocate" null pointers (noop)
-			string_deleter() : dbg(nullptr) {}
-			
-			void operator()(const char *arg)
-			{ if (dbg) dwarf_dealloc(dbg, const_cast<void*>(static_cast<const void *>(arg)), DW_DLA_STRING);
-			  else assert(!arg); }
-		};
-		
-		
 		// placeholder until we retrofit all this onto adt
 		class dummy_adt_basic_die
 		{
-			virtual const char *get_name() const { return nullptr; }
+			virtual opt<string> get_name() const { return opt<string>(); }
 		};
 		
 		class basic_die : public virtual dummy_adt_basic_die
 		{
 			friend struct iterator_base;
-			friend class basic_root_die;
+			friend class root_die;
 		protected:
 			// we need to embed a refcount
 			unsigned refcount;
 			
 			// we obviously need this
 			Die d;
-			// these are necessary to make an iterator out of a basic_die
-			unsigned depth;
-			basic_root_die *p_root; // FIXME: no! we want to remove this, to allow stacking diesets
+			// we need this because it's a property of the CU, which we can't navigate to
+			spec& s;
+
 			/* Nothing else! This class is here to act as the base for
 			 * state-holding subclasses that are optimised for particular
 			 * purposes, e.g. fast local/parameter location.  */
 			
 			// remember! payload = handle + shared count + extra state
 			
+			// protected constructor constructing dummy instances only
+			inline basic_die(spec& s): d(nullptr), s(s) {}
+			friend struct dwarf3_factory_t;
 		public:
-			// FIXME: this is wrong
-			// somebody needs to do the heap allocation / factory logic
-			// Rather than this constructor trying to copy the handle itself
-			// we need the copy to be passed in by iterator_base
-			// with the count already set up (using intrusive_ptr utility functions?)
-			//template <typename Iter = iterator_df>
-			//inline basic_die(root_die& r, const Iter& i);
-			// : d(i.copy_handle()), p_root(&r), depth(i.get_depth()) {} 
-			//template <typename Iter>
-			inline basic_die(root_die& r/*, const Iter& i*/);
-			
-			// begin() / end() / sequence() here?
-			// to mean "sequence of DIEs under here"?
-			// Or put those methods on iterator?
-			
-			unsigned get_depth() { return depth; }
-			basic_root_die& get_root() { assert(p_root); return *p_root; }
+			inline basic_die(spec& s, Die&& h)
+			 : d(std::move(h)), s(s) {}
 			
 			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
 			friend void intrusive_ptr_add_ref(basic_die *p);
@@ -311,14 +137,33 @@ namespace dwarf
 		template <typename DerefAs = basic_die> struct iterator_bf;
 		template <typename DerefAs = basic_die> struct iterator_sibs;
 		
+		//template <typename Pred, typename DerefAs = basic_die> 
+		//using iterator_sibs_where
+		// = boost::filter_iterator< Pred, iterator_sibs<DerefAs> >;
+		
 		// FIXME: this is not libdwarf-agnostic! 
-		// Why did we separate root_die and basic_root_die?
-		struct basic_root_die
+		// ** Could we use it for encap too, with a null Debug?
+		// ** Can we abstract out a core base class
+		// --- yes, where "Debug" just means "root resource", and encap doesn't have one
+		// --- we are still leaking libdwarf design through our "abstract" interface
+		// ------ can we do anything about this? 
+		// --- what methods do handles provide? 
+		struct root_die
 		{
+			/* Everything that calls a libdwarf constructor-style (resource-allocating)
+			 * function needs to be our friend, so that it can get our raw
+			 * Dwarf_Debug ptr. */
 			friend struct iterator_base;
 			friend struct Die;
 			friend struct Attribute; // so it can get the raw Dwarf_Debug for its deleter
-		protected:
+			friend struct AttributeList;
+			friend struct Line;
+			friend struct LineList;
+			friend struct Global;
+			friend struct GlobalList;
+			friend struct Arange;
+			friend struct ArangeList;
+		public: // was protected -- consider changing back
 			typedef intrusive_ptr<basic_die> ptr_type;
 
 			map<Dwarf_Off, Dwarf_Off> parent_of;
@@ -330,37 +175,40 @@ namespace dwarf
 			virtual bool is_sticky(const iterator_base& it)/* = 0*/;
 			
 		public:
-			basic_root_die(int fd) : dbg(fd), current_cu_offset(0UL) {}
+			root_die(int fd) : dbg(fd), current_cu_offset(0UL) {}
 			// we don't provide this constructor because sharing the CU state is a bad idea
-			//basic_root_die(lib::file& f) : dbg(f.dbg), current_cu_offset
+			//root_die(lib::file& f) : dbg(f.dbg), current_cu_offset
 		
-			// HMM: want to avoid virtual dispatch on these
-			//bool move_to_parent(iterator_base& it);
-			//bool move_to_first_child(iterator_base& it);
-			//bool move_to_next_sibling(iterator_base& it);
-			
-			// HMM -- how to make these policy-agnostic? 
-			// Has to be template <typename Iter = iterator_df<> > Iter begin()
-			// because we return an instance of the named type. 
-			// OR we could go back to the policy-is-separate design.
-			// That has the problem that we don't know where to store copied policies.
-			// And that inlining is less likely to happen.
+			/* To make these policy-agnostic, we go with each policy being
+			 * a separate iterator class.  The old policy-is-separate design
+			 * has the problems that we don't know where to store copied 
+			 * policies,  and that inlining is less likely to happen. */
 			template <typename Iter = iterator_df<> >
 			inline Iter begin(); 
-			
 			template <typename Iter = iterator_df<> >
 			inline Iter end();
-			
 			template <typename Iter = iterator_df<> >
 			inline pair<Iter, Iter> sequence();
+			
+			/* FIXME: instead of templating, maybe just return
+			 * iterator_bases, and if you want a different iterator, use
+			 * my_iter i = r.begin(); 
+			 * ?
+			 * (Just make sure my_iter has a move constructor!) */
+			
+			/* The implicit-conversion approach doesn't work so well for pairs, 
+			 * because */
+			inline pair<iterator_sibs<compile_unit_die>, iterator_sibs<compile_unit_die> >
+			children_here();
 
+			// const versions... nothing interesting here
 			template <typename Iter = iterator_df<> >
-			Iter begin() const { return const_cast<basic_root_die*>(this)->begin<Iter>(); } 
+			Iter begin() const { return const_cast<root_die*>(this)->begin<Iter>(); } 
 			template <typename Iter = iterator_df<> >
-			Iter end() const { return const_cast<basic_root_die*>(this)->end<Iter>(); } 
+			Iter end() const { return const_cast<root_die*>(this)->end<Iter>(); } 
 			template <typename Iter = iterator_df<> >
 			pair<Iter, Iter> sequence() const 
-			{ return const_cast<basic_root_die*>(this)->sequence<Iter>(); } 
+			{ return const_cast<root_die*>(this)->sequence<Iter>(); }
 			
 			/* This is the expensive version. */
 			template <typename Iter = iterator_df<> >
@@ -369,13 +217,23 @@ namespace dwarf
 			template <typename Iter = iterator_df<> >
 			Iter pos(Dwarf_Off off, unsigned depth, 
 				optional<Dwarf_Off> parent_off = optional<Dwarf_Off>() );
+			/* This is a synonym for "pos()". */
+			template <typename Iter = iterator_df<> >
+			Iter at(Dwarf_Off off, unsigned depth, 
+				optional<Dwarf_Off> parent_off = optional<Dwarf_Off>() )
+			{ return pos<Iter>(off, depth, parent_off); }
 			
 			::Elf *get_elf(); // hmm: lib-only?
 			Debug& get_dbg() { return dbg; }
-		// -- begin pasted from root_die
+
+			// iterator navigation primitives
+			// note: want to avoid virtual dispatch on these
 			bool move_to_parent(iterator_base& it);
 			bool move_to_first_child(iterator_base& it);
 			bool move_to_next_sibling(iterator_base& it);
+			iterator_base parent(const iterator_base& it);
+			iterator_base first_child(const iterator_base& it);
+			iterator_base next_sibling(const iterator_base& it);
 			
 			// libdwarf has this weird stateful CU API
 			optional<Dwarf_Off> first_cu_offset;
@@ -394,120 +252,57 @@ namespace dwarf
 			bool set_cu_context(Dwarf_Off off);
 			
 			friend struct compile_unit_die; // redundant because we're struct, but future hint
-			
-		// --- end pasted from root_die
+
 			// print the whole lot
-			friend std::ostream& operator<<(std::ostream& s, const basic_root_die& d);
+			friend std::ostream& operator<<(std::ostream& s, const root_die& d);
 		};	
-		std::ostream& operator<<(std::ostream& s, const basic_root_die& d);
-		
-// 		struct root_die : public basic_root_die
-// 		{
-// 			ptr_type make_payload(const iterator_base& it); // override;
-// 			bool is_sticky(const iterator_base& it); // override;
-// 
-// 			bool move_to_parent(iterator_base& it);
-// 			bool move_to_first_child(iterator_base& it);
-// 			bool move_to_next_sibling(iterator_base& it);
-// 			
-// 			// libdwarf has this weird stateful CU API
-// 			optional<Dwarf_Unsigned> last_seen_cu_header_length;
-// 			optional<Dwarf_Half> last_seen_version_stamp;
-// 			optional<Dwarf_Unsigned> last_seen_abbrev_offset;
-// 			optional<Dwarf_Half> last_seen_address_size;
-// 			optional<Dwarf_Half> last_seen_offset_size;
-// 			optional<Dwarf_Half> last_seen_extension_size;
-// 			optional<Dwarf_Unsigned> last_seen_next_cu_header;
-// 			bool advance_cu_context();
-// 			bool clear_cu_context();
-// 		protected:
-// 			bool set_subsequent_cu_context(Dwarf_Off off); // helper
-// 		public:
-// 			bool set_cu_context(Dwarf_Off off);
-// 			
-// 			friend struct compile_unit_die; // redundant because we're struct, but future hint
-// 
-// 		};
-		typedef basic_root_die root_die;
-		
-		struct compile_unit_die : public basic_die
-		{
-			/* Like all payload types, we are constructed from an iterator.
-			 * At the point when we are called, 
-			 * the Die handle in i is the result of a call to first_die, 
-			 * made when the CU state is pointing at the relevant CU.  */
-			compile_unit_die(root_die& r) : basic_die(r/*, i*/)
-			{
-				cu_header_length = *r.last_seen_cu_header_length;
-				version_stamp = *r.last_seen_version_stamp;
-				abbrev_offset = *r.last_seen_abbrev_offset;
-				address_size = *r.last_seen_address_size;
-				offset_size = *r.last_seen_offset_size;
-				extension_size = *r.last_seen_extension_size;
-				next_cu_header = *r.last_seen_next_cu_header;
-			}
+		std::ostream& operator<<(std::ostream& s, const root_die& d);
 			
-			/* We define fields and getters for the per-CU info (NOT attributes) 
-			 * available from libdwarf. */
-			Dwarf_Unsigned cu_header_length;
-			Dwarf_Half version_stamp;
-			Dwarf_Unsigned abbrev_offset;
-			Dwarf_Half address_size;
-			Dwarf_Half offset_size;
-			Dwarf_Half extension_size;
-			Dwarf_Unsigned next_cu_header;
-			
-			Dwarf_Unsigned get_cu_header_length() const { return cu_header_length; }
-			Dwarf_Half get_version_stamp() const { return version_stamp; }
-			Dwarf_Unsigned get_abbrev_offset() const { return abbrev_offset; }
-			Dwarf_Half get_address_size() const { return address_size; }
-			Dwarf_Half get_offset_size() const { return offset_size; }
-			Dwarf_Half get_extension_size() const { return extension_size; }
-			Dwarf_Unsigned get_next_cu_header() const { return next_cu_header; }
-			
-			/* We *could* define ADT getters too. Just remember that
-			 * these are different from the CU info.
-			 * ADT attrs are more friendly than the basic attribute
-			 * because the ADT defines a friendly representation for
-			 * each attribute.*/
-			
-			/* Integrating with ADT: now we have two kinds of iterators.
-			 * Core iterators, defined here, are fast, and when dereferenced
-			 * yield references to reference-counted instances. 
-			 * ADT iterators are slow, and yield shared_ptrs to instances. 
-			 * Q. When is it okay to save these pointers? 
-			 * A. Only when they are sticky! This is true in both ADT and
-			 *    core cases. If we save a ptr/ref to a non-sticky DIE, 
-			 *    in the core case it might go dangly, and in the ADT case
-			 *    it might become disconnected (i.e. next time we get the 
-			 *    same DIE, we will get a different instance, and if we make
-			 *    changes, they needn't be reflected).
-			 * To integrate these, is it as simple as
-			 * - s/shared_ptr/intrusive_ptr/ in ADT;
-			 * - include a refcount in every basic_die (basic_die_core?);
-			 * - redefine abstract_dieset::iterator to be like core, but
-			 *   returning the intrusive_ptr (not raw ref) on dereference? 
-			 * Ideally I would separate out the namespaces so that
-			 * - lib contains only libdwarf definitions
-			 * - spec contains only spec-related things
-			 * - "core" to contain the stuff in here
-			 *   ... even though it is libdwarf-specific? HMM. 
-			 *   ... perhaps reflect commonality by core::root_die, lib::root_die etc.?
-			 *   ... here lib::root_die is : public core::root_die, but not polymorphic.
-			 * - "adt" to contain spec:: ADT stuff
-			 * - encap can stay as it is
-			 * - lib ADT stuff should be migrated to core? 
-			 * - encap ADT stuff should become an always-sticky variant?
-			 * ... This involves unifying dieset/file_toplevel_die with root_die.
-			 *  */
-		};
-		
-		//template <typename DerefAs /* = basic_die */>
+		/* Integrating with ADT: now we have two kinds of iterators.
+		 * Core iterators, defined here, are fast, and when dereferenced
+		 * yield references to reference-counted instances. 
+		 * ADT iterators are slow, and yield shared_ptrs to instances. 
+		 * Q. When is it okay to save these pointers? 
+		 * A. Only when they are sticky! This is true in both ADT and
+		 *    core cases. If we save a ptr/ref to a non-sticky DIE, 
+		 *    in the core case it might go dangly, and in the ADT case
+		 *    it might become disconnected (i.e. next time we get the 
+		 *    same DIE, we will get a different instance, and if we make
+		 *    changes, they needn't be reflected).
+		 * To integrate these, is it as simple as
+		 * - s/shared_ptr/intrusive_ptr/ in ADT;
+		 * - include a refcount in every basic_die (basic_die_core?);
+		 * - redefine abstract_dieset::iterator to be like core, but
+		 *   returning the intrusive_ptr (not raw ref) on dereference? 
+		 * Ideally I would separate out the namespaces so that
+		 * - lib contains only libdwarf definitions
+		 * - spec contains only spec-related things
+		 * - "core" to contain the stuff in here
+		 *   ... even though it is libdwarf-specific? HMM. 
+		 *   ... perhaps reflect commonality by core::root_die, lib::root_die etc.?
+		 *   ... here lib::root_die is : public core::root_die, but not polymorphic.
+		 * - "adt" to contain spec:: ADT stuff
+		 * - encap can stay as it is
+		 * - lib ADT stuff should be migrated to core? 
+		 * - encap ADT stuff should become an always-sticky variant?
+		 * ... This involves unifying dieset/file_toplevel_die with root_die.
+		 *  */
 		struct iterator_base
 		{
-			friend class Die;
-			friend class Attribute;
-			friend class basic_root_die;
+			/* Everything that calls a libdwarf constructor-style function
+			 * needs to be a friend, so that it can get_raw_handle() to supply
+			 * the argument to libdwarf.  */
+			friend struct Die;
+			friend struct Attribute;
+			friend struct AttributeList;
+			friend struct Arange;
+			friend struct ArangeList;
+			friend struct Line;
+			friend struct LineList;
+			friend struct Global;
+			friend struct GlobalList;
+			
+			friend class root_die;
 			//friend class root_die;
 		private:
 			/* This stuff is the Rep that can be abstracted out. */
@@ -518,26 +313,38 @@ namespace dwarf
 				 * The abstract value of the iterator isn't changed in such
 				 * operations, but its representation must be. */
 				mutable Die cur_handle; // to copy this, have to upgrade it
-				mutable basic_root_die::ptr_type cur_payload; // payload = handle + shared count + extra state
+				mutable root_die::ptr_type cur_payload; // payload = handle + shared count + extra state
 			// };
 			mutable enum { HANDLE_ONLY, WITH_PAYLOAD } state;
+			/* ^-- this is the absolutely key design point that makes this code fast. 
+			 * An iterator can either be a libdwarf handle, or a pointer to some
+			 * refcounted state (including such a handle, and maybe other cached stuff). */
 			
-			// normalization function for private use
-			Die::raw_handle_type get_raw_handle() const
+			// normalization functions
+			// this one is okay for public use,
+			// *as long as* clients know that the handle might be null!
+		public:
+			Die& get_handle() const
 			{
-				if (!is_real_die_position()) return Die::raw_handle_type(nullptr);
+				if (!is_real_die_position()) 
+				{ assert(!cur_handle.handle && !cur_payload); return cur_handle; }
 				switch (state)
 				{
-					case HANDLE_ONLY: return cur_handle.handle.get();
-					case WITH_PAYLOAD: return cur_payload->d.handle.get();
+					case HANDLE_ONLY: return cur_handle;
+					case WITH_PAYLOAD: return cur_payload->d;
 					default: assert(false);
 				}
+			}
+		private:
+			Die::raw_handle_type get_raw_handle() const
+			{
+				return get_handle().raw_handle();
 			}
 			// converse is iterator_base(handle) constructor (see below)
 			
 			/* This is more general-purpose stuff. */
 			unsigned short m_depth; // HMM -- good value? does no harm space-wise atm
-			basic_root_die *p_root; // HMM -- necessary? alternative is: caller passes root& to some calls
+			root_die *p_root; // HMM -- necessary? alternative is: caller passes root& to some calls
 			
 		public:
 			// we like to be default-constructible, BUT 
@@ -552,12 +359,12 @@ namespace dwarf
 			bool is_real_die_position() const { return !is_root_position() && !is_end_position(); } 
 			
 			// this constructor sets us up at begin(), i.e. the root DIE position
-			explicit iterator_base(basic_root_die& r)
+			explicit iterator_base(root_die& r)
 			 : cur_handle(nullptr), state(HANDLE_ONLY), m_depth(0), p_root(&r) {}
 			
 			// this constructor sets us up using a handle -- 
 			// this does the exploitation of the sticky set
-			iterator_base(Die::handle_type&& h, unsigned depth, basic_root_die& r)
+			iterator_base(Die::handle_type&& h, unsigned depth, root_die& r)
 			 : cur_handle(Die(nullptr)) // will be replaced in function body...
 			{
 				Dwarf_Off off; 
@@ -569,23 +376,24 @@ namespace dwarf
 					cur_handle = Die(nullptr);
 					state = WITH_PAYLOAD;
 					cur_payload = found->second;
-					m_depth = found->second->get_depth(); assert(depth == m_depth);
-					p_root = &found->second->get_root();
+					//m_depth = found->second->get_depth(); assert(depth == m_depth);
+					//p_root = &found->second->get_root();
 				}
 				else
 				{
 					// not sticky
 					cur_handle = std::move(h);
 					state = HANDLE_ONLY;
-					m_depth = depth;
-					p_root = &r;
 				}
+				m_depth = depth; // now shared yb both cases
+				p_root = &r;
 			}
 
 			// this constructor sets us up using a payload ptr
-			explicit iterator_base(basic_root_die::ptr_type p)
-			 : cur_handle(nullptr), state(WITH_PAYLOAD), 
-			   m_depth(p->get_depth()), p_root(&p->get_root()) {}
+			// NO! can't go from payload to iterator, only other way
+			//explicit iterator_base(root_die::ptr_type p)
+			// : cur_handle(nullptr), state(WITH_PAYLOAD), 
+			//   m_depth(p->get_depth()), p_root(&p->get_root()) {}
 			
 			// iterators must be copyable
 			iterator_base(const iterator_base& arg)
@@ -616,43 +424,39 @@ namespace dwarf
 			 * users to construct raw handles, the user has no nice way of constructing
 			 * a new iterator that is a sibling/child of an existing one. Note that
 			 * this doesn't imply copying... we might want to create a new handle. */
-			
-			/*DerefAs&*/ basic_die& dereference() { assert(false); }
 		
 			// convenience
-			basic_root_die& root() { assert(p_root); return *p_root; }
-			basic_root_die& root() const { assert(p_root); return *p_root; }
-			basic_root_die& get_root() { assert(p_root); return *p_root; }
-			basic_root_die& get_root() const { assert(p_root); return *p_root; }
+			root_die& root() { assert(p_root); return *p_root; }
+			root_die& root() const { assert(p_root); return *p_root; }
+			root_die& get_root() { assert(p_root); return *p_root; }
+			root_die& get_root() const { assert(p_root); return *p_root; }
 		
-			Dwarf_Off offset_here() const;
+			Dwarf_Off offset_here() const; 
 			Dwarf_Half tag_here() const;
 			
 			std::unique_ptr<const char, string_deleter>
 			name_here() const;
 			
-			spec& spec_here() const
-			{
-				// HACK: avoid creating payload for now
-				return ::dwarf::spec::dwarf3;
-				
-				if (tag_here() == DW_TAG_compile_unit)
-				{
-					if (state == HANDLE_ONLY)
-					{
-						p_root->make_payload(*this);
-					}
-					assert(cur_payload && state == WITH_PAYLOAD);
-					auto p_cu = dynamic_pointer_cast<compile_unit_die>(cur_payload);
-					assert(p_cu);
-					switch(p_cu->version_stamp)
-					{
-						case 2: return ::dwarf::spec::dwarf3;
-						default: assert(false);
-					}
-				}
-				else return nearest_enclosing(DW_TAG_compile_unit).spec_here();
-			}
+			inline spec& spec_here() const;
+			
+			// getting all attributes -- exposed how? 
+			// AttributeList is not very useful because each Attribute has no methods
+			// Do we want to forward all (non-resource-allocating) "method"-like
+			// libdwarf functions onto the raw handle type?
+			// No.
+			// But then we have to define an AttributeIterator?
+			// + same for any other stuff (Line? Fde? Cie? etc.) 
+			// that has method-like calls in the API.
+			// How many of these are there?
+			// Dwarf_Type is like this.
+			// Probably lots of others too.
+			// We should really port the methods over from lib::{die,attribute,...}.
+			// What does that mean for iterator_base::offset_here(), ...?
+			// They use get_raw_handle()
+			// to destruct the handle_only-versus-with_payload abstraction
+			// but otherwise could be on the handle class
+			// HMM -- meaning we have to repeat these definitions for the iterator.
+			// We can't just say "delegate all these to what's returned by get_handle()"
 			
 			// getting _all_ attributes
 // 					Dwarf_Unsigned atcnt;
@@ -670,22 +474,34 @@ namespace dwarf
 			
 			Attribute::handle_type attribute_here(Dwarf_Half attr)
 			{
-				return Attribute::try_construct(*this, attr);
+				return Attribute::try_construct(get_handle(), attr);
 			}
-			Attribute::handle_type attr_here(Dwarf_Half attr) { return attribute_here(attr); }
+			Attribute::handle_type attr_here(Dwarf_Half attr) 
+			{ return attribute_here(attr); }
 			
-			bool has_attribute_here(Dwarf_Half attr)
-			{
-				Dwarf_Bool returned;
-				int ret = dwarf_hasattr(get_raw_handle(), attr, &returned, &current_dwarf_error);
-				assert(ret == DW_DLV_OK);
-				return returned;
-			}
+			bool has_attr_here(Dwarf_Half attr);
+			bool has_attribute_here(Dwarf_Half attr) { return has_attr_here(attr); }
+			
+			/* FIXME: why not return an AttributeList rvalue? 
+			 * This would avoid explicit constructor in iterator_base's operator<< (in lib.cpp).
+			 * Possible answer: want a "maybe"/"optional" return value? BUT
+			 * hmm, AttributeList should always be constructable, just empty if no attrs. */
+			AttributeList::handle_type attributes_here()
+			{ return AttributeList::try_construct(get_handle()); }
+			AttributeList::handle_type attrs_here() { return attributes_here(); }
+			AttributeList::handle_type attributes_here() const 
+			{ return AttributeList::try_construct(get_handle()); }
+			AttributeList::handle_type attrs_here() const { return attributes_here(); }
 			
 			// want an iterators-style interface?
 			// or an associative-style operator[] interface?
 			// or both?
-			// make payload include a copy of the attrs state? HMM, yes, this feels correct
+			// make payload include a deep copy of the attrs state? 
+			// HMM, yes, this feels correct. 
+			// Clients that want to scan attributes in a lightweight libdwarf way
+			// (i.e. not benefiting from caching/ custom representations / 
+			// utility methods implemented using payload state) can use 
+			// the AttributeList interface.
 			root_die::ptr_type payload_here();
 			
 			template<
@@ -695,20 +511,173 @@ namespace dwarf
 			root_die::ptr_type 
 			payload_here_as(); // SPECIALIZE THIS?
 			
-			typedef Dwarf_Signed difference_type;
+			//typedef Dwarf_Signed difference_type; // -- we put this in the iterators only
 			
-			iterator_base nearest_enclosing(Dwarf_Half tag) const;
-			Dwarf_Off enclosing_cu_offset_here() const;
-			
+			// some fast topological queries
+			Dwarf_Off enclosing_cu_offset_here() const
+			{ return get_handle().enclosing_cu_offset_here(); }
 			unsigned depth() const { return m_depth; }
 			unsigned get_depth() const { return m_depth; }
 			
+			// access to children, siblings, parent, ancestors
+			// -- these wrap the various Die constructors
+			iterator_base nearest_enclosing(Dwarf_Half tag) const;
+			iterator_base parent() const;
+			iterator_base first_child() const;
+			iterator_base next_sibling() const;			
 			iterator_base named_child(const string& name) const;
-			// + resolve, children<>()?
+			// + resolve
 			
-			// we're just the base, so we don't have dereference(), increment(), decrement()
-			//virtual void increment() = 0; // needs root reference -- one reason for retaining p_root
-			//virtual void decrement() = 0;
+			// children
+			// so how do we iterate over "children satisfying predicate, derefAs'd X"? 
+			//pair< 
+			//    filter_iterator< predicate_t, iterator_sibs< X > >,
+			//    filter_iterator< predicate_t, iterator_sibs< X > >
+			template <typename Payload>
+			struct is_a
+			{
+				inline bool operator()(const iterator_base& it) const;
+			}; // defined below, once we have factory
+			
+			// we want to partially specialize a function template.
+			// so use a class template internally
+			template <typename Pred, typename Iter>
+			struct subseq_t
+			{
+				typedef srk31::selective_iterator<Pred, Iter> filtered_iterator;
+				
+				pair<filtered_iterator, filtered_iterator> 
+				operator()(const pair<Iter, Iter>& in_seq)
+				{ 
+					return make_pair(
+						filtered_iterator(in_seq.first, in_seq.second),
+						filtered_iterator(in_seq.second, in_seq.second)
+					);
+				}
+
+				pair<filtered_iterator, filtered_iterator> 
+				operator()(pair<Iter, Iter>&& in_seq)
+				{ 
+					/* GAH. We can only move if .second == iterator_base::END, because 
+					 * otherwise we have to duplicate the end sentinel into both 
+					 * filter iterators. */
+					assert(in_seq.second == iterator_base::END);
+					return make_pair(
+						filtered_iterator(std::move(in_seq.first), iterator_base::END),
+						filtered_iterator(std::move(in_seq.second), iterator_base::END)
+					);
+				}			
+			};
+			// specialization
+			template <typename Iter, typename Payload>
+			struct subseq_t<Iter, is_a<Payload> >
+			{
+				typedef srk31::selective_iterator< is_a<Payload>, Iter> filtered_iterator;
+
+				typedef boost::intrusive_ptr<Payload> derived_ptr; // FIXME: reference via ptr_type?
+				typedef root_die::ptr_type base_ptr;
+				typedef derived_ptr (*transformer)(const base_ptr&);
+
+				typedef boost::transform_iterator<transformer, filtered_iterator >
+					transformed_iterator;
+				
+				pair<transformed_iterator, transformed_iterator> 
+				operator()(const pair<Iter, Iter>& in_seq)
+				{
+					auto filtered_first = filtered_iterator(in_seq.first, in_seq.second);
+					auto filtered_second = filtered_iterator(in_seq.second, in_seq.second);
+					transformer transf = &boost::dynamic_pointer_cast<Payload, core::basic_die>;
+					return make_pair(
+						transformed_iterator(
+							filtered_first,
+							transf
+						),
+						transformed_iterator(
+							filtered_second,
+							transf
+						)
+					);
+				}
+				pair<transformed_iterator, transformed_iterator> 
+				operator()(pair<Iter, Iter>&& in_seq)
+				{
+					/* GAH. We can only move if .second == iterator_base::END, because 
+					 * otherwise we have to duplicate the end sentinel into both 
+					 * filter iterators. */
+					if (in_seq.second == iterator_base::END)
+					{
+						// NOTE: this std::move is all for nothing at the moment because 
+						// transform_iterator doesn't implement move constuctor/assignment.
+						
+						auto filtered_first = filtered_iterator(std::move(in_seq.first), iterator_base::END);
+						auto filtered_second = filtered_iterator(std::move(in_seq.second), iterator_base::END);
+						transformer transf = &boost::dynamic_pointer_cast<Payload, core::basic_die>;
+						return make_pair(
+							std::move(transformed_iterator(
+								std::move(filtered_first),
+								transf
+							)),
+							std::move(transformed_iterator(
+								std::move(filtered_second),
+								transf
+							))
+						);
+					} else { auto tmp = in_seq; return operator()(tmp); } // copying version
+				}
+			};
+			
+			// function template: NO! the return types of the 
+			// two specializations is different.
+// 			template <typename Pred, typename Iter> 
+// 			static inline 
+// 			pair< 
+// 				srk31::selective_iterator<Pred, Iter>, 
+// 				srk31::selective_iterator<Pred, Iter>
+// 			>
+// 			subseq(const pair<Iter, Iter>& in_seq)
+// 			{
+// 				return subseq_t<Pred, Iter>().operator()(in_seq);
+// 			}
+			
+			// Now we should be able to write
+			// auto subps = iterator_base::subseq< is_a<subprogram_die> >(i_cu.children_here());
+			// Let's go one better:
+			// auto subps = i_cu.children_here().subseq_of<subprogram_die>();
+					
+			template <typename Iter> 
+			struct sequence : public pair<Iter, Iter>
+			{
+				typedef pair<Iter, Iter> base; 
+				sequence(pair<Iter, Iter>&& arg) : base(std::move(arg)) {}
+				
+				template <typename Pred>
+				sequence<
+					srk31::selective_iterator<Pred, Iter>
+				> subseq_with(Pred pred = Pred()) 
+				{ return iterator_base::subseq_t<Pred, Iter>().operator()(std::move(*this)); }
+				
+				template <typename D>
+				sequence<
+					typename subseq_t<Iter, is_a<D> >::transformed_iterator
+				> subseq_of() 
+				{ 
+					return iterator_base::subseq_t< 
+						Iter, 
+						iterator_base::is_a<D> 
+					>().operator()(std::move(*this)); 
+				}
+			};
+
+			inline sequence<iterator_sibs<> >
+			children_here();
+			inline sequence<iterator_sibs<> >
+			children_here() const;
+			// synonyms
+			inline sequence<iterator_sibs<> > children();
+			inline sequence<iterator_sibs<> > children() const;
+			
+			// we're just the base, not the iterator proper, 
+			// so we don't have increment(), decrement()
 			
 			bool operator==(const iterator_base& arg) const
 			{
@@ -733,8 +702,198 @@ namespace dwarf
 			{
 				return *get_root().make_payload(*this);
 			}
-		};
+			
+			friend std::ostream& operator<<(std::ostream& s, const iterator_base& it);
+			
+		}; /* end class iterator_base */
+		std::ostream& operator<<(std::ostream& s, const iterator_base& it);
+		std::ostream& operator<<(std::ostream& s, const AttributeList& attrs);
 		
+		struct factory
+		{
+			virtual basic_die *make_payload(const iterator_base& it) = 0;
+			static inline factory& for_spec(dwarf::spec::abstract_def& def);
+			virtual basic_die *dummy_for_tag(Dwarf_Half tag) = 0;
+		};
+		struct dwarf3_factory_t : public factory
+		{
+			basic_die *make_payload(const iterator_base& it);
+			basic_die *dummy_for_tag(Dwarf_Half tag);
+		};
+		extern dwarf3_factory_t dwarf3_factory;
+		inline factory& factory::for_spec(dwarf::spec::abstract_def& def)
+		{
+			if (&def == &dwarf::spec::dwarf3_def::inst) return dwarf3_factory;
+			assert(false); // FIXME support more specs
+		}
+		template <typename Payload>
+		inline bool iterator_base::is_a<Payload>::operator()(const iterator_base& it) const
+		{
+			return dynamic_cast<Payload *>(
+				factory::for_spec(it.spec_here()).dummy_for_tag(it.tag_here())
+			) ? true : false;
+		}
+		
+/****************************************************************/
+/* begin generated ADT includes                                 */
+/****************************************************************/
+#define forward_decl(t) class t ## _die;
+//#define declare_base(base) base ## _die
+//#define base_fragment(base) base ## _die(ds, p_d) {}
+//#define initialize_base(fragment) virtual spec:: fragment ## _die(ds, p_d)
+#define constructor(fragment) \
+		fragment ## _die(spec& s, Die&& h) \
+		 : basic_die(s, std::move(h)) {}
+#define begin_class(fragment, base_inits, ...) \
+	struct fragment ## _die : public basic_die { \
+	friend struct dwarf3_factory_t; \
+	private: /* dummy constructor used to only construct dummy instances */\
+		fragment ## _die(spec& s) : basic_die(s, Die(nullptr)) {} \
+	public: \
+		constructor(fragment)
+/* #define base_initializations(...) __VA_ARGS__ */
+#define end_class(fragment) \
+	};
+
+#define stored_type_string std::string
+#define stored_type_flag bool
+#define stored_type_unsigned Dwarf_Unsigned
+#define stored_type_signed Dwarf_Signed
+#define stored_type_offset Dwarf_Off
+#define stored_type_half Dwarf_Half
+#define stored_type_ref Dwarf_Off
+#define stored_type_tag Dwarf_Half
+#define stored_type_loclist dwarf::encap::loclist
+#define stored_type_address dwarf::encap::attribute_value::address
+#define stored_type_refoff Dwarf_Off//iterator_base // FIXME
+#define stored_type_refoff_is_type Dwarf_Off//iterator_base // FIXME: iterator_df<spec::type_die> 
+#define stored_type_rangelist dwarf::encap::rangelist
+
+#define attr_optional(name, stored_t) \
+	opt<stored_type_ ## stored_t> get_ ## name() const \
+    { if (d.has_attr_here(DW_AT_ ## name)) { \
+    Attribute a(d, DW_AT_ ## name); \
+    return encap::attribute_value(a, d, s).get_ ## stored_t (); } \
+    else return opt<stored_type_ ## stored_t>(); }
+
+#define super_attr_optional(name, stored_t) attr_optional(name, stored_t)
+
+#define attr_mandatory(name, stored_t) \
+	stored_type_ ## stored_t get_ ## name() const \
+    { assert (d.has_attr_here(DW_AT_ ## name)); \
+    Attribute a(d, DW_AT_ ## name);\
+    return encap::attribute_value(a, d, s).get_ ## stored_t (); \
+    }
+#define super_attr_mandatory(name, stored_t) attr_mandatory(name, stored_t)
+#define child_tag(arg) 
+
+// FIXME: compile_unit_die should provide source_file_{name,count}
+//#define extra_decls_compile_unit \
+//		std::string source_file_name(unsigned o) const; \
+//		unsigned source_file_count() const;
+/* We define fields and getters for the per-CU info (NOT attributes) 
+ * available from libdwarf. These will be filled in by root_die::make_payload(). */
+#define extra_decls_compile_unit \
+Dwarf_Unsigned cu_header_length; \
+Dwarf_Half version_stamp; \
+Dwarf_Unsigned abbrev_offset; \
+Dwarf_Half address_size; \
+Dwarf_Half offset_size; \
+Dwarf_Half extension_size; \
+Dwarf_Unsigned next_cu_header; \
+Dwarf_Unsigned get_cu_header_length() const { return cu_header_length; } \
+Dwarf_Half get_version_stamp() const { return version_stamp; } \
+Dwarf_Unsigned get_abbrev_offset() const { return abbrev_offset; } \
+Dwarf_Half get_address_size() const { return address_size; } \
+Dwarf_Half get_offset_size() const { return offset_size; } \
+Dwarf_Half get_extension_size() const { return extension_size; } \
+Dwarf_Unsigned get_next_cu_header() const { return next_cu_header; }
+/* The generated compile_unit_die will define ADT getters too.
+ * Just remember that  these are different from the CU info. */
+
+#define stored_type_refdie stored_type_refoff
+#define stored_type_refdie_is_type stored_type_refoff
+#define get_refdie get_refoff
+#define get_refdie_is_type get_refoff_is_type
+#include "dwarf3-adt.h"
+#undef get_refdie_is_type
+#undef get_refdie
+#undef stored_type_refdie_is_type
+#undef stored_type_refdie
+
+#undef extra_decls_subprogram
+#undef extra_decls_compile_unit
+
+#undef forward_decl
+#undef declare_base
+#undef base_fragment
+#undef initialize_base
+#undef constructor
+#undef begin_class
+#undef base_initializations
+#undef end_class
+#undef stored_type
+#undef stored_type_string
+#undef stored_type_flag
+#undef stored_type_unsigned
+#undef stored_type_signed
+#undef stored_type_offset
+#undef stored_type_half
+#undef stored_type_ref
+#undef stored_type_tag
+#undef stored_type_loclist
+#undef stored_type_address
+#undef stored_type_refdie
+#undef stored_type_refdie_is_type
+#undef stored_type_rangelist
+#undef attr_optional
+#undef attr_mandatory
+#undef super_attr_optional
+#undef super_attr_mandatory
+#undef child_tag
+
+/****************************************************************/
+/* end generated ADT includes                                   */
+/****************************************************************/
+
+		// now compile_unit_die is complete...
+		inline spec& iterator_base::spec_here() const
+		{
+			// HACK: avoid creating any payload for now, for speed-testing
+			return ::dwarf::spec::dwarf3;
+
+			if (tag_here() == DW_TAG_compile_unit)
+			{
+				if (state == HANDLE_ONLY)
+				{
+					p_root->make_payload(*this);
+				}
+				assert(cur_payload && state == WITH_PAYLOAD);
+				auto p_cu = dynamic_pointer_cast<compile_unit_die>(cur_payload);
+				assert(p_cu);
+				switch(p_cu->version_stamp)
+				{
+					case 2: return ::dwarf::spec::dwarf3;
+					default: assert(false);
+				}
+			}
+			else return nearest_enclosing(DW_TAG_compile_unit).spec_here();
+		}	
+				
+		// make a typedef template to help the client
+// 		template <typename Pred, typename DerefAs = basic_die> 
+// 		using children_sequence_t
+// 		 = pair<
+// 			iterator_sibs_where< Pred, DerefAs >,
+// 			iterator_sibs_where< Pred, DerefAs >
+// 		   >;
+// 		template <typename Iter, Dwarf_Half Tag>
+// 		struct with_tag
+// 		{
+// 			bool operator()(const Iter& i) const
+// 			{ return i.tag_here() == Tag; }
+// 		};		
+
 		/* Make sure we can construct any iterator from an iterator_base. 
 		 * In the case of BFS it may be expensive. */
 		template <typename DerefAs /* = basic_die */>
@@ -743,6 +902,8 @@ namespace dwarf
 		                       iterator_df<DerefAs>
 		                     , basic_die
 		                     , boost::forward_traversal_tag
+		                     , basic_die& //boost::use_default /* Reference */
+		                     , Dwarf_Signed /* difference */
 		                     >
 		{
 			typedef iterator_df<DerefAs> self;
@@ -753,16 +914,12 @@ namespace dwarf
 			const iterator_base& base() const
 			{ return static_cast<const iterator_base&>(*this); }
 			
-			iterator_df() : iterator_base()
-			{}
-
+			iterator_df() : iterator_base() {}
 			iterator_df(const iterator_base& arg)
-			 : iterator_base(arg) // this COPIES so avoid
-			{}
+			 : iterator_base(arg) {}// this COPIES so avoid
 
 			iterator_df(iterator_base&& arg)
-			 : iterator_base(arg) 
-			{}
+			 : iterator_base(arg) {}
 			
 			iterator_df& operator=(const iterator_base& arg) 
 			{ this->base_reference() = arg; }
@@ -772,42 +929,35 @@ namespace dwarf
 			
 			void increment()
 			{
-				if (this->base_reference().get_root().move_to_first_child(this->base_reference())) return;
+				if (get_root().move_to_first_child(base_reference())) return;
 				do
 				{
-					if (this->base_reference().get_root().move_to_next_sibling(this->base_reference())) return;
-				} while (this->base_reference().get_root().move_to_parent(this->base_reference()));
+					if (get_root().move_to_next_sibling(base_reference())) return;
+				} while (get_root().move_to_parent(base_reference()));
 
 				// if we got here, there is nothing left in the tree...
 				// ... so set us to the end sentinel
-				this->base_reference() = this->base_reference().get_root().end/*<self>*/();
+				base_reference() = base_reference().get_root().end/*<self>*/();
 			}
-			
 			void decrement()
 			{
-				assert(false);
+				assert(false); // FIXME
 			}
-
-			//Value dereference() 
-			//{
-			//	return base_ref().get_root().make_payload(*this)
-			//}
-			
 			bool equal(const self& arg) const { return this->base() == arg.base(); }
 			
-			// HACK: forward stuff from iterator_base
-			// FIXME: avoid this somehow
-// 			Dwarf_Off offset_here() const { return this->base().offset_here(); }
-// 			Dwarf_Half tag_here() const { return this->base().tag_here(); }
-// 			dwarf::spec::abstract_def& spec_here() const { return this->base().spec_here(); }
-// 			// HACK: iterator_base
-// 			operator iterator_base() { return this->base_reference(); }
-// 			operator iterator_base() const { return this->base(); }
-
+			DerefAs& dereference() const
+			{ return dynamic_cast<DerefAs&>(base_reference().dereference()); }
 		};
 		
 		template <typename DerefAs /* = basic_die */>
-		struct iterator_bf : public iterator_base
+		struct iterator_bf : public iterator_base,
+		                     public boost::iterator_facade<
+		                       iterator_bf<DerefAs>
+		                     , basic_die
+		                     , boost::forward_traversal_tag
+		                     , basic_die& // boost::use_default /* Reference */
+		                     , Dwarf_Signed /* difference */
+		                     >
 		{
 			// extra state needed!
 			deque< Dwarf_Off > m_queue;
@@ -834,7 +984,14 @@ namespace dwarf
 		};
 		
 		template <typename DerefAs /* = basic_die*/>
-		struct iterator_sibs : public iterator_base
+		struct iterator_sibs : public iterator_base,
+		                       public boost::iterator_facade<
+		                       iterator_sibs<DerefAs>
+		                     , basic_die
+		                     , boost::forward_traversal_tag
+		                     , basic_die& //boost::use_default /* Reference */
+		                     , Dwarf_Signed /* difference */
+		                     >
 		{
 			typedef iterator_sibs<DerefAs> self;
 			friend class boost::iterator_core_access;
@@ -873,6 +1030,9 @@ namespace dwarf
 			
 			bool equal(const self& arg) const { return this->base() == arg.base(); }
 		};
+		
+		//template <typename Pred, typename DerefAs = basic_die> 
+		//using iterator_sibs_where = boost::filter_iterator< Pred, iterator_sibs<DerefAs> >;
 
 		#define GET_HANDLE_OFFSET \
 		Dwarf_Off off; \
@@ -880,26 +1040,27 @@ namespace dwarf
 			assert(ret == DW_DLV_OK)
 		
 		inline Die::handle_type 
-		Die::try_construct(basic_root_die& r, const iterator_base& die) /* siblingof */
+		Die::try_construct(root_die& r, const iterator_base& it) /* siblingof */
 		{
 			raw_handle_type returned;
 			int ret
-			 = dwarf_siblingof(r.dbg.handle.get(), die.get_raw_handle(), &returned, &current_dwarf_error);
+			 = dwarf_siblingof(r.dbg.handle.get(), it.get_raw_handle(), &returned, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
 			{	
 				// also update the parent cache
 				GET_HANDLE_OFFSET;
-				auto found = r.parent_of.find(die.offset_here());
+				auto found = r.parent_of.find(it.offset_here());
 				if (found != r.parent_of.end())
 				{
+					// parent of the sibling is the same as parent of "it"
 					r.parent_of[off] = found->second;
-				} else cerr << "Warning: parent cache did not know 0x" << std::hex << die.offset_here() << std::dec << endl;
-				return handle_type(returned);
+				} else cerr << "Warning: parent cache did not know 0x" << std::hex << it.offset_here() << std::dec << endl;
+				return handle_type(returned, deleter(r.dbg.handle.get()));
 			}
-			else return handle_type(nullptr);
+			else return handle_type(nullptr, deleter(nullptr));
 		}
 		inline Die::handle_type 
-		Die::try_construct(basic_root_die& r) /* siblingof in root case */
+		Die::try_construct(root_die& r) /* siblingof in root case */
 		{
 			raw_handle_type returned;
 			int ret
@@ -909,49 +1070,49 @@ namespace dwarf
 				// update parent cache
 				GET_HANDLE_OFFSET;
 				r.parent_of[off] = 0UL;
-				return handle_type(returned);
+				return handle_type(returned, deleter(r.dbg.handle.get()));
 			}
-			else return handle_type(nullptr);
+			else return handle_type(nullptr, deleter(nullptr));
 		}
 		inline Die::handle_type 
-		Die::try_construct(const iterator_base& die) /* child */
+		Die::try_construct(const iterator_base& it) /* child */
 		{
 			raw_handle_type returned;
-			int ret = dwarf_child(die.get_raw_handle(), &returned, &current_dwarf_error);
+			int ret = dwarf_child(it.get_raw_handle(), &returned, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
 			{
 				GET_HANDLE_OFFSET;
-				die.get_root().parent_of[off] = die.offset_here();
-				return handle_type(returned);
+				it.get_root().parent_of[off] = it.offset_here();
+				return handle_type(returned, deleter(it.get_root().dbg.handle.get()));
 			}
-			else return handle_type(nullptr);
+			else return handle_type(nullptr, deleter(nullptr));
 
 		}
 		inline Die::handle_type 
-		Die::try_construct(basic_root_die& r, Dwarf_Off off) /* offdie */
+		Die::try_construct(root_die& r, Dwarf_Off off) /* offdie */
 		{
 			raw_handle_type returned;
 			int ret = dwarf_offdie(r.dbg.handle.get(), off, &returned, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
 			{
 				// can't update parent cache
-				return handle_type(returned);
+				return handle_type(returned, deleter(r.dbg.handle.get()));
 			}
-			else return handle_type(nullptr);
+			else return handle_type(nullptr, deleter(nullptr));
 		}
 			
-		inline Die::Die(handle_type h) { this->handle = std::move(h); }
-		inline Die::Die(basic_root_die& r, const iterator_base& die) /* siblingof */
+		inline Die::Die(handle_type h) : handle(std::move(h)) {}
+		inline Die::Die(root_die& r, const iterator_base& die) /* siblingof */
 		 : handle(try_construct(r, die))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		} 
-		inline Die::Die(basic_root_die& r) /* siblingof in "first die of CU" case */
+		inline Die::Die(root_die& r) /* siblingof in "first die of CU" case */
 		 : handle(try_construct(r))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		} 
-		inline Die::Die(basic_root_die& r, Dwarf_Off off) /* offdie */
+		inline Die::Die(root_die& r, Dwarf_Off off) /* offdie */
 		 : handle(try_construct(r, off))
 		{ 
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
@@ -961,12 +1122,11 @@ namespace dwarf
 		{
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		}
-		
 		/* NOTE: pos() is incompatible with a strict parent cache.
 		 * But it is necessary to support following references.
 		 * We fill in the parent if depth <= 2, or if the user can tell us. */
 		template <typename Iter /* = iterator_df<> */ >
-		inline Iter basic_root_die::pos(Dwarf_Off off, unsigned depth,
+		inline Iter root_die::pos(Dwarf_Off off, unsigned depth,
 			optional<Dwarf_Off> parent_off /* = optional<Dwarf_Off>() */ )
 		{
 			if (depth == 0) { assert(off == 0UL); return Iter(begin()); }
@@ -978,32 +1138,146 @@ namespace dwarf
 			else if (parent_off) parent_of[off] = *parent_off;
 			
 			return Iter(std::move(base));
-		}		
+		}	
+		
 		inline Attribute::handle_type 
-		Attribute::try_construct(const iterator_base& it, Dwarf_Half attr)
+		Attribute::try_construct(const Die& h, Dwarf_Half attr)
 		{
 			raw_handle_type returned;
-			int ret = dwarf_attr(it.get_raw_handle(), attr, &returned, &current_dwarf_error);
-			if (ret == DW_DLV_OK) return handle_type(returned, deleter(it.root().dbg.handle.get()));
+			int ret = dwarf_attr(h.raw_handle(), attr, &returned, &current_dwarf_error);
+			if (ret == DW_DLV_OK) return handle_type(returned, deleter(h.get_dbg()));
 			else return handle_type(nullptr, deleter(nullptr)); // could be ERROR or NO_ENTRY
 		}
-		inline Attribute::Attribute(const iterator_base& it, Dwarf_Half attr)
-		 : handle(try_construct(it, attr))
+		inline Attribute::Attribute(const Die& h, Dwarf_Half attr)
+		 : handle(try_construct(h, attr))
 		{
 			if (!this->handle) throw Error(current_dwarf_error, 0);
 		}
+		inline AttributeList::handle_type
+		AttributeList::try_construct(const Die& h)
+		{
+			Dwarf_Attribute *block_start;
+			Dwarf_Signed count;
+			int ret = dwarf_attrlist(h.raw_handle(), &block_start, &count, &current_dwarf_error);
+			if (ret == DW_DLV_OK)
+			{
+				/* Since we are try_construct, the most we can do is 
+				 * pass a unique_ptr to the allocated block, where that
+				 * unique_ptr's deleter includes the length of the block. */
+				return handle_type(block_start, deleter(h.get_dbg(), count));
+			}
+			else
+			{
+				return handle_type(nullptr, deleter(nullptr, 0));
+			}
+		}
+		inline AttributeList::AttributeList(const Die& d)
+		 : handle(try_construct(d)), d(d)
+		{
+			if (!handle) throw Error(current_dwarf_error, 0);
+			/* Create a unique_ptr to each attribute in the block.
+			 * Note: the block contains Dwarf_Attributes, i.e. 
+			 * Dwarf_Attribute_s pointers.
+			 * We have to take each block element in turn
+			 * and make it into an Attribute::handle. */
+			copy_list();
+		}
 		
-		// FIXME: this is wrong
-		// somebody needs to do the heap allocation / factory logic
-		// Rather than this constructor trying to copy the handle itself
-		// we need the copy to be passed in by iterator_base
-		// with the count already set up (using intrusive_ptr utility functions?)
-		//template <typename Iter>
-		inline basic_die::basic_die(root_die& r/*, const Iter& i*/)
-		: d(Die::handle_type(nullptr)), p_root(&r) {}
+		inline LocdescList::handle_type 
+		LocdescList::try_construct(const Attribute& a)
+		{
+			/* dwarf_loclist_n returns us
+			 * a pointer 
+			 *   to an array 
+			 *      of pointers 
+			 *        to Locdescs.
+			 * We will copy each pointer in the array into our vector of Locdesc handles. */
+			Dwarf_Locdesc **block_start;
+			Dwarf_Signed count = 0;
+			int ret = dwarf_loclist_n(a.raw_handle(), &block_start, &count, &current_dwarf_error);
+			if (ret == DW_DLV_OK)
+			{
+				assert(count > 0);
+				/* Now what? handle_type is a unique_ptr<Dwarf_Locdesc*>
+				 * pointing at an array of Dwarf_Locdesc*s . 
+				 * We will make unique_ptrs out of each of them, but only when
+				 * we upgrade this handle and copy the array. */
+				return handle_type(block_start, deleter(a.get_dbg(), count));
+			}
+			else return handle_type(nullptr, deleter(nullptr, 0));
+		}
+		inline RangesList::handle_type 
+		RangesList::try_construct(const Attribute& a)
+		{
+			Dwarf_Unsigned ranges_off;
+			int ret = dwarf_formudata(a.handle.get(), &ranges_off, &core::current_dwarf_error); 
+			if (ret == DW_DLV_OK)
+			{
+				Dwarf_Ranges *block_start;
+				Dwarf_Signed count = 0;
+				Dwarf_Unsigned bytes = 0;
+				int ret2 = dwarf_get_ranges(a.get_dbg(), ranges_off, &block_start, &count, &bytes, &current_dwarf_error);
+				if (ret2 == DW_DLV_OK)
+				{
+					assert(count > 0);
+					/* Now what? handle_type is a unique_ptr<Dwarf_Locdesc*>
+					 * pointing at an array of Dwarf_Locdesc*s . 
+					 * We will make unique_ptrs out of each of them, but only when
+					 * we upgrade this handle and copy the array. */
+					return handle_type(block_start, deleter(a.get_dbg(), count));
+				}
+			}
+			
+			return handle_type(nullptr, deleter(nullptr, 0));
+		}
+		inline RangesList::handle_type 
+		RangesList::try_construct(const Attribute& a, const Die& d)
+		{
+			Dwarf_Unsigned ranges_off;
+			int ret = dwarf_formudata(a.handle.get(), &ranges_off, &core::current_dwarf_error); 
+			if (ret == DW_DLV_OK)
+			{
+				Dwarf_Ranges *block_start;
+				Dwarf_Signed count = 0;
+				Dwarf_Unsigned bytes = 0;
+				int ret2 = dwarf_get_ranges_a(a.get_dbg(), ranges_off, d.raw_handle(), 
+					&block_start, &count, &bytes, &current_dwarf_error);
+				if (ret2 == DW_DLV_OK)
+				{
+					assert(count > 0);
+					/* Now what? handle_type is a unique_ptr<Dwarf_Locdesc*>
+					 * pointing at an array of Dwarf_Locdesc*s . 
+					 * We will make unique_ptrs out of each of them, but only when
+					 * we upgrade this handle and copy the array. */
+					return handle_type(block_start, deleter(a.get_dbg(), count));
+				}
+			}
+			
+			return handle_type(nullptr, deleter(nullptr, 0));
+		}		
+		inline Block::handle_type
+		Block::try_construct(const Attribute& a)
+		{
+			Dwarf_Block *returned;
+			int ret = dwarf_formblock(a.raw_handle(), &returned, &current_dwarf_error);
+			if (ret == DW_DLV_OK)
+			{
+				return handle_type(returned, deleter(a.get_dbg()));
+			} else return handle_type(nullptr, deleter(nullptr));
+		}
+		
+		inline Block::Block(const Attribute& a) : handle(try_construct(a)) 
+		{ 
+			if (!handle) throw Error(current_dwarf_error, 0);
+		}
+
+		// FIXME: what does this constructor do? Can we get rid of it?
+		// It seems to be used only for the compile_unit_die constructor.
+		//inline basic_die::basic_die(root_die& r/*, const Iter& i*/)
+		//: d(Die::handle_type(nullptr)), p_root(&r) {}
 
 		template <typename Iter /* = iterator_df<> */ >
-		inline Iter basic_root_die::begin()
+		inline Iter root_die::begin()
 		{
 			/* The first DIE is always the root.
 			 * We denote an iterator pointing at the root by
@@ -1012,18 +1286,45 @@ namespace dwarf
 		}
 
 		template <typename Iter /* = iterator_df<> */ >
-		inline Iter basic_root_die::end()
+		inline Iter root_die::end()
 		{
 			return Iter(iterator_base::END);
 		}
 
 		template <typename Iter /* = iterator_df<> */ >
-		inline pair<Iter, Iter> basic_root_die::sequence()
+		inline pair<Iter, Iter> root_die::sequence()
 		{
 			return std::make_pair(begin(), end());
 		}
+		
+		inline iterator_base::sequence< iterator_sibs<> >
+		iterator_base::children_here()
+		{
+			return std::make_pair<iterator_sibs<>, iterator_sibs<> >(
+				p_root->first_child(*this), 
+				iterator_base::END
+			);
+		}
+		inline iterator_base::sequence< iterator_sibs<> >
+		iterator_base::children_here() const
+		{ return const_cast<iterator_base*>(this)->children(); }
+		// synonyms
+		inline iterator_base::sequence< iterator_sibs<> >
+		iterator_base::children() { return children_here(); }
+		inline iterator_base::sequence< iterator_sibs<> >
+		iterator_base::children() const { return children_here(); }
 
-
+		// We don't want this because it's putting knowledge of topology
+		// into the DIE and not the iterator. 
+		// Instead, use r.begin()->children();
+// 		inline iterator_sibs<compile_unit_die> root_die::cu_children_begin()
+// 		{
+// 			return iterator_sibs<compile_unit_die>(first_child(begin()));
+// 		}
+// 		inline iterator_sibs<compile_unit_die> root_die::cu_children_end()
+// 		{
+// 			return iterator_base::END;
+// 		}
 	}
 	
 	namespace lib
@@ -1047,14 +1348,6 @@ namespace dwarf
 		struct No_entry {
 			No_entry() {}
 		};	
-		
-		struct Error {
-			Dwarf_Error e;
-			Dwarf_Ptr arg;
-			Error(Dwarf_Error e, Dwarf_Ptr arg) : e(e), arg(arg) {}
-			virtual ~Error() 
-			{ /*dwarf_dealloc((Dwarf_Debug) arg, e, DW_DLA_ERROR); */ /* TODO: Fix segfault here */	}
-		};
 
 		void default_error_handler(Dwarf_Error error, Dwarf_Ptr errarg); 
 		class file {
@@ -1552,129 +1845,133 @@ namespace dwarf
 		class evaluator {
 			std::stack<Dwarf_Unsigned> m_stack;
 			vector<Dwarf_Loc> expr;
-            const ::dwarf::spec::abstract_def& spec;
-            regs *p_regs; // optional set of register values, for DW_OP_breg*
-            boost::optional<Dwarf_Signed> frame_base;
+			const ::dwarf::spec::abstract_def& spec;
+			regs *p_regs; // optional set of register values, for DW_OP_breg*
+			boost::optional<Dwarf_Signed> frame_base;
 			vector<Dwarf_Loc>::iterator i;
 			void eval();
 		public:
 			evaluator(const vector<unsigned char> expr, 
-            	const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0)
+				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0)
 			{
-            	//i = expr.begin();
+				//i = expr.begin();
 				assert(false);
 			}
 			evaluator(const encap::loclist& loclist,
-            	Dwarf_Addr vaddr,
-	            const ::dwarf::spec::abstract_def& spec = spec::DEFAULT_DWARF_SPEC,
-                regs *p_regs = 0,
-                boost::optional<Dwarf_Signed> frame_base = boost::optional<Dwarf_Signed>(),
-                const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()); 
+				Dwarf_Addr vaddr,
+				const ::dwarf::spec::abstract_def& spec = spec::DEFAULT_DWARF_SPEC,
+				regs *p_regs = 0,
+				boost::optional<Dwarf_Signed> frame_base = boost::optional<Dwarf_Signed>(),
+				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()); 
 			
-            evaluator(const vector<Dwarf_Loc>& loc_desc,
-	            const ::dwarf::spec::abstract_def& spec,
-                const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-                : m_stack(initial_stack), spec(spec), p_regs(0)
-			{
-				expr = loc_desc;
-                i = expr.begin();
-				eval();
-			} 
 			evaluator(const vector<Dwarf_Loc>& loc_desc,
-	            const ::dwarf::spec::abstract_def& spec,
-                regs& regs,
-                Dwarf_Signed frame_base,
-                const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-                : m_stack(initial_stack), spec(spec), p_regs(&regs)
+				const ::dwarf::spec::abstract_def& spec,
+				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+				: m_stack(initial_stack), spec(spec), p_regs(0)
 			{
 				expr = loc_desc;
-                i = expr.begin();
-                this->frame_base = frame_base;
+				i = expr.begin();
 				eval();
-			} 
+			}
+			evaluator(const vector<Dwarf_Loc>& loc_desc,
+				const ::dwarf::spec::abstract_def& spec,
+				regs& regs,
+				Dwarf_Signed frame_base,
+				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+				: m_stack(initial_stack), spec(spec), p_regs(&regs)
+			{
+				expr = loc_desc;
+				i = expr.begin();
+				this->frame_base = frame_base;
+				eval();
+			}
 
 			evaluator(const vector<Dwarf_Loc>& loc_desc,
-	            const ::dwarf::spec::abstract_def& spec,
-                Dwarf_Signed frame_base,
-                const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-                : m_stack(initial_stack), spec(spec), p_regs(0)
+				const ::dwarf::spec::abstract_def& spec,
+				Dwarf_Signed frame_base,
+				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+				: m_stack(initial_stack), spec(spec), p_regs(0)
 			{
 				//if (av.get_form() != dwarf::encap::attribute_value::LOCLIST) throw "not a DWARF expression";
 				//if (av.get_loclist().size() != 1) throw "only support singleton loclists for now";			
 				//expr = *(av.get_loclist().begin());
 				expr = loc_desc;
-                i = expr.begin();
-                this->frame_base = frame_base;
+				i = expr.begin();
+				this->frame_base = frame_base;
 				eval();
-			} 
-            
-            Dwarf_Unsigned tos() const { return m_stack.top(); }
-            bool finished() const { return i == expr.end(); }
-            Dwarf_Loc current() const { return *i; }
+			}
+			
+			Dwarf_Unsigned tos() const { return m_stack.top(); }
+			bool finished() const { return i == expr.end(); }
+			Dwarf_Loc current() const { return *i; }
 		};
-        Dwarf_Unsigned eval(const encap::loclist& loclist,
-        	Dwarf_Addr vaddr,
-            Dwarf_Signed frame_base,
-            boost::optional<regs&> rs,
-	        const ::dwarf::spec::abstract_def& spec,
-            const stack<Dwarf_Unsigned>& initial_stack);
-        
-        class loclist {
-		    attribute attr;
-		    Dwarf_Locdesc **locs;
-		    Dwarf_Signed locs_len;
-		    friend ostream& operator<<(ostream&, const loclist&);
-		    friend struct ::dwarf::encap::loclist;
-	    public:
-		    loclist(attribute a, Dwarf_Error *error = 0) : attr(a)
-		    {
-			    if (error == 0) error = attr.p_a->p_last_error;
-			    int retval = a.loclist_n(&locs, &locs_len);
-			    if (retval == DW_DLV_NO_ENTRY)
-			    {
-				    // this means two things -- locs_len is zero, and nothing is allocated
-				    locs = 0;
-				    locs_len = 0;
-			    }
-				cerr << "Constructed a lib::loclist at " << this << ", len is " << locs_len << endl;
-			    if (retval == DW_DLV_ERROR) throw Error(*error, attr.p_a->d.f.get_dbg());
-		    }
-		    loclist(const core::Attribute& a, core::Debug::raw_handle_type dbg) : attr(a, dbg)
-		    {
-			    //if (error == 0) error = attr.a.p_last_error;
-			    int retval = dwarf_loclist_n(a.handle.get(), &locs, &locs_len, &core::current_dwarf_error);
-			    if (retval == DW_DLV_NO_ENTRY)
-			    {
-				    // this means two things -- locs_len is zero, and nothing is allocated
-				    locs = 0;
-				    locs_len = 0;
-			    }
-				cerr << "Constructed a lib::loclist at " << this << ", len is " << locs_len << endl;
-			    if (retval == DW_DLV_ERROR) throw Error(core::current_dwarf_error, 0);
-		    }
-
-		    Dwarf_Signed len() const { return locs_len; }
-		    const Dwarf_Locdesc& operator[] (size_t off) const { return *locs[off]; }
-
-		    virtual ~loclist()
-		    { 
-				cerr << "Destructing a lib::loclist (len " << locs_len << ") at " << this << endl;
-			    for (int i = 0; i < locs_len; ++i) 
-			    {
-					cerr << "dwarf_deallocing " << locs[i]->ld_s << endl;
-				    dwarf_dealloc(attr.p_raw_dbg, locs[i]->ld_s, DW_DLA_LOC_BLOCK);
-					cerr << "dwarf_deallocing " << locs[i] << endl;
-				    dwarf_dealloc(attr.p_raw_dbg, locs[i], DW_DLA_LOCDESC);
-			    }
-			    if (locs != 0) 
+		Dwarf_Unsigned eval(const encap::loclist& loclist,
+			Dwarf_Addr vaddr,
+			Dwarf_Signed frame_base,
+			boost::optional<regs&> rs,
+			const ::dwarf::spec::abstract_def& spec,
+			const stack<Dwarf_Unsigned>& initial_stack);
+		
+		class loclist {
+			attribute attr;
+			Dwarf_Locdesc **locs;
+			Dwarf_Signed locs_len;
+			friend ostream& operator<<(ostream&, const loclist&);
+			friend struct ::dwarf::encap::loclist;
+		public:
+			loclist(attribute a, Dwarf_Error *error = 0) : attr(a)
+			{
+				if (error == 0) error = attr.p_a->p_last_error;
+				
+				int retval = a.loclist_n(&locs, &locs_len);
+				if (retval == DW_DLV_NO_ENTRY)
 				{
-					cerr << "dwarf_deallocing " << locs << endl;
+					// this means two things -- locs_len is zero, and nothing is allocated
+					locs = 0;
+					locs_len = 0;
+					
+				}
+				else if (retval == DW_DLV_ERROR) throw Error(*error, attr.p_a->d.f.get_dbg());
+				else assert(retval == DW_DLV_OK);
+				//cerr << "Constructed a lib::loclist at " << this << ", len is " << locs_len << endl;
+			}
+			loclist(const core::Attribute& a, core::Debug::raw_handle_type dbg) : attr(a, dbg)
+			{
+				//if (error == 0) error = attr.a.p_last_error;
+				int retval = dwarf_loclist_n(a.handle.get(), &locs, &locs_len, &core::current_dwarf_error);
+				if (retval == DW_DLV_NO_ENTRY)
+				{
+					// this means two things -- locs_len is zero, and nothing is allocated
+					locs = 0;
+					locs_len = 0;
+				}
+				else if (retval == DW_DLV_ERROR) throw Error(core::current_dwarf_error, 0);
+				else assert(retval == DW_DLV_OK);
+				//cerr << "Constructed a lib::loclist at " << this << ", len is " << locs_len << endl;
+			}
+
+			Dwarf_Signed len() const { return locs_len; }
+			const Dwarf_Locdesc& operator[] (size_t off) const { return *locs[off]; }
+
+			virtual ~loclist()
+			{
+				//cerr << "Destructing a lib::loclist (len " << locs_len << ") at " << this << endl;
+				for (int i = 0; i < locs_len; ++i) 
+				{
+					//cerr << "dwarf_deallocing " << locs[i]->ld_s << endl;
+					dwarf_dealloc(attr.p_raw_dbg, locs[i]->ld_s, DW_DLA_LOC_BLOCK);
+					//cerr << "dwarf_deallocing " << locs[i] << endl;
+					dwarf_dealloc(attr.p_raw_dbg, locs[i], DW_DLA_LOCDESC);
+				}
+				if (locs != 0) 
+				{
+					//cerr << "dwarf_deallocing " << locs << endl;
 					dwarf_dealloc(attr.p_raw_dbg, locs, DW_DLA_LIST);
 				}
-				cerr << "Destructed a lib::loclist (len " << locs_len << ") at " << this << endl;
-		    }
-	    };
-	    ostream& operator<<(std::ostream& s, const loclist& ll);	
+				//cerr << "Destructed a lib::loclist (len " << locs_len << ") at " << this << endl;
+			}
+		};
+		ostream& operator<<(std::ostream& s, const loclist& ll);	
 
 		bool operator==(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
 		bool operator!=(const Dwarf_Loc& e1, const Dwarf_Loc& e2);

@@ -12,7 +12,7 @@ using namespace dwarf;
 using namespace dwarf::lib;
 using std::pair;
 using std::make_pair;
-using boost::dynamic_pointer_cast;
+using std::dynamic_pointer_cast;
 using std::set;
 using std::map;
 
@@ -27,7 +27,7 @@ int main(int argc, char **argv)
 	cerr << "Opening " << argv[1] << "..." << endl;
 	std::ifstream in(argv[1]);
 	assert(in);
-	core::basic_root_die root(fileno(in));
+	core::root_die root(fileno(in));
 	dwarf::lib::file df(fileno(in));
 	dwarf::lib::dieset ds(df);
 

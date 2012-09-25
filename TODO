@@ -1,23 +1,17 @@
+*** core integration: 
+make a public-worthy API based on core, but including adt/factory functionality
+--- start with lib.hpp
+reintroduce DerefAs? or some better _nonnull mechanism? or just use filter_iterator?
+move all the crufty old stuff into compat/*
+add compat.hpp and include compat/*
+
+
 optimisation:
 make dwarfpplibdump comparable to dwarfdump
 consider avoiding some shared_ptr copies by using const... & ?
 
-What was my rationale for using shared_ptr in the first place?
-- did it make the depthfirst stuff easier?
-Can we model the libdwarf approach closer?
-- i.e. copying Dwarf_Dies around is presumably possible
-- BUT they include no bookkeeping (shared count)...
-- ... so the programmer must track copies (not what we want)
-- intrusive_ptr might therefore be the best we can do?
-
 API changes: 
-remove boost::optional from shared_ptr 
 change "contains_addr_" wording
-replace dfs iterator use of conjoining_sequence with shared_from_this
-iterator_here, get_this -- both necessary?
-
-code changes:
-fix performance of iteration
 
 API completion:
 more const+nonconst completeness (accessors, iterators)
@@ -45,15 +39,11 @@ add support for guessing vendor extensions using compile unit string
 semantics:
 testing equality on p_ds meaning "is this the same DIE?" should be defined (by position()?)
 
-performance:
-slow start-up in dwarfppdump
-iterators should cache parent info in their owning dieset
-
 other bits of DWARF:
 line number program
-source file identifiers
 
 possible future stuff:
+-------------------------ARCHIVE interest only
 make operator* on iterators dereference pointers too? arguments...
  -- YES. analogue with  containers
  -- NO. analogue with containers-of-pointers

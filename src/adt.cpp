@@ -2,7 +2,7 @@
 #include <utility>
 #include <sstream>
 #include <algorithm>
-#include <boost/make_shared.hpp>
+#include <memory>
 
 #include "spec_adt.hpp"
 #include "adt.hpp"
@@ -14,9 +14,9 @@
 
 namespace dwarf
 {
-	using boost::dynamic_pointer_cast;
+	using std::dynamic_pointer_cast;
 	using boost::optional;
-	using boost::shared_ptr;
+	using std::shared_ptr;
 	using std::string;
 	using std::ostringstream;
 	using std::pair;
@@ -48,9 +48,9 @@ namespace dwarf
 		{
 			cerr << *this;
 		}
-        boost::shared_ptr<basic_die> basic_die::get_this()
+        std::shared_ptr<basic_die> basic_die::get_this()
         { return this->get_ds()[this->get_offset()]; }
-        boost::shared_ptr<basic_die> basic_die::get_this() const
+        std::shared_ptr<basic_die> basic_die::get_this() const
         { return this->get_ds()[this->get_offset()]; }
 
         opt<std::vector<std::string> >
@@ -131,12 +131,12 @@ namespace dwarf
 				return built;
 			}
 		}
-		boost::shared_ptr<spec::basic_die> 
+		std::shared_ptr<spec::basic_die> 
 		basic_die::nearest_enclosing(Dwarf_Half tag) const
 		{
 			return const_cast<basic_die *>(this)->nearest_enclosing(tag);
 		}
-		boost::shared_ptr<spec::basic_die> 
+		std::shared_ptr<spec::basic_die> 
 		basic_die::nearest_enclosing(Dwarf_Half tag) 
 		{
 			// instead use more efficient (and hopefully correct!) iterative approach
@@ -152,10 +152,10 @@ namespace dwarf
 					return this->get_ds()[*path_iter];
 				}
 			}
-			return boost::shared_ptr<spec::basic_die>();
+			return std::shared_ptr<spec::basic_die>();
 		}
 
-		boost::shared_ptr<compile_unit_die> 
+		std::shared_ptr<compile_unit_die> 
 		basic_die::enclosing_compile_unit()
 		{
 			// HACK: special case: compile units enclose themselves (others don't)
@@ -169,7 +169,7 @@ namespace dwarf
 			 * this faster than the more general nearest_enclosing(tag). */
 			
 			
-			return boost::dynamic_pointer_cast<compile_unit_die>(
+			return std::dynamic_pointer_cast<compile_unit_die>(
 				nearest_enclosing(DW_TAG_compile_unit)
 			);
 		}
@@ -201,7 +201,7 @@ namespace dwarf
 	}
 	namespace lib 
 	{
-		boost::shared_ptr<spec::compile_unit_die> 
+		std::shared_ptr<spec::compile_unit_die> 
 		basic_die::enclosing_compile_unit() 
 		{
 			Dwarf_Off my_offset = get_offset();
@@ -234,8 +234,8 @@ namespace dwarf
 	}
 	namespace spec
 	{
-        boost::shared_ptr<spec::basic_die>
-        basic_die::find_sibling_ancestor_of(boost::shared_ptr<spec::basic_die> p_d) 
+        std::shared_ptr<spec::basic_die>
+        basic_die::find_sibling_ancestor_of(std::shared_ptr<spec::basic_die> p_d) 
         {
             // search upward from the argument die to find a sibling of us
             if (p_d.get() == dynamic_cast<spec::basic_die*>(this)) return p_d;
@@ -614,7 +614,7 @@ namespace dwarf
 			}
 		}
 /* from spec::subprogram_die */
-		opt< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >
+		opt< std::pair<Dwarf_Off, std::shared_ptr<with_dynamic_location_die> > >
         subprogram_die::contains_addr_as_frame_local_or_argument( 
             	    Dwarf_Addr absolute_addr, 
                     Dwarf_Off dieset_relative_ip, 
@@ -687,7 +687,7 @@ namespace dwarf
                     ++i_bfs)
             {
             	std::cerr << "Considering whether DIE has stack location: " << (*i_bfs)->summary() << std::endl;
-            	auto with_stack_loc = boost::dynamic_pointer_cast<spec::with_dynamic_location_die>(
+            	auto with_stack_loc = std::dynamic_pointer_cast<spec::with_dynamic_location_die>(
                 	*i_bfs);
                 if (!with_stack_loc) continue;
                 
@@ -697,7 +697,7 @@ namespace dwarf
                     p_regs);
                 if (result) return std::make_pair(*result, with_stack_loc);
             }
-            return opt< std::pair<Dwarf_Off, boost::shared_ptr<with_dynamic_location_die> > >();
+            return opt< std::pair<Dwarf_Off, std::shared_ptr<with_dynamic_location_die> > >();
         }
         bool subprogram_die::is_variadic() const
         {
@@ -716,7 +716,7 @@ namespace dwarf
             return false;
         }
 /* from spec::with_dynamic_location_die */
-		boost::shared_ptr<spec::program_element_die> 
+		std::shared_ptr<spec::program_element_die> 
 		with_dynamic_location_die::get_instantiating_definition() const
 		{
 			/* We want to return a parent DIE describing the thing whose instances
@@ -729,18 +729,18 @@ namespace dwarf
 			if (this->get_tag() == DW_TAG_formal_parameter
 			||  this->get_tag() == DW_TAG_variable) 
 			{
-				return boost::dynamic_pointer_cast<dwarf::spec::program_element_die>(
+				return std::dynamic_pointer_cast<dwarf::spec::program_element_die>(
 					nearest_enclosing(DW_TAG_subprogram));
 			}
 			else
 			{
-				boost::shared_ptr<dwarf::spec::basic_die> candidate = this->get_parent();
+				std::shared_ptr<dwarf::spec::basic_die> candidate = this->get_parent();
 				while (candidate 
-					&& !boost::dynamic_pointer_cast<dwarf::spec::type_die>(candidate))
+					&& !std::dynamic_pointer_cast<dwarf::spec::type_die>(candidate))
 				{
 					candidate = candidate->get_parent();
 				}
-				return boost::dynamic_pointer_cast<dwarf::spec::program_element_die>(candidate);
+				return std::dynamic_pointer_cast<dwarf::spec::program_element_die>(candidate);
 			}
 		}
 
@@ -878,7 +878,7 @@ namespace dwarf
 				std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, object_base_addr))).tos();
 		}
 /* from spec::with_named_children_die */
-        boost::shared_ptr<spec::basic_die>
+        std::shared_ptr<spec::basic_die>
         with_named_children_die::named_child(const std::string& name) 
         { 
 			try
@@ -894,7 +894,7 @@ namespace dwarf
             catch (No_entry) { return shared_ptr<spec::basic_die>(); }
         }
 
-        boost::shared_ptr<spec::basic_die> 
+        std::shared_ptr<spec::basic_die> 
         with_named_children_die::resolve(const std::string& name) 
         {
             std::vector<std::string> multipart_name;
@@ -902,7 +902,7 @@ namespace dwarf
             return resolve(multipart_name.begin(), multipart_name.end());
         }
 
-        boost::shared_ptr<spec::basic_die> 
+        std::shared_ptr<spec::basic_die> 
         with_named_children_die::scoped_resolve(const std::string& name) 
         {
             std::vector<std::string> multipart_name;
@@ -1016,30 +1016,30 @@ namespace dwarf
 			if (this->get_byte_size()) return *this->get_byte_size();
 			else return opt<Dwarf_Unsigned>();
 		}
-		boost::shared_ptr<type_die> type_die::get_concrete_type() const
+		std::shared_ptr<type_die> type_die::get_concrete_type() const
 		{
 			// by default, our concrete self is our self
-			return boost::dynamic_pointer_cast<type_die>(
+			return std::dynamic_pointer_cast<type_die>(
 				const_cast<type_die*>(this)->shared_from_this());
 		} 
-		boost::shared_ptr<type_die> type_die::get_concrete_type()
+		std::shared_ptr<type_die> type_die::get_concrete_type()
 		{
 			return const_cast<const type_die *>(this)->get_concrete_type();
 		}
-		boost::shared_ptr<type_die> type_die::get_unqualified_type() const
+		std::shared_ptr<type_die> type_die::get_unqualified_type() const
 		{
 			// by default, our unqualified self is our self
-			return boost::dynamic_pointer_cast<type_die>(
+			return std::dynamic_pointer_cast<type_die>(
 				const_cast<type_die*>(this)->shared_from_this());
 		} 
 /* from spec::qualified_type_die */
-		boost::shared_ptr<type_die> qualified_type_die::get_unqualified_type() const
+		std::shared_ptr<type_die> qualified_type_die::get_unqualified_type() const
 		{
 			// for qualified types, our unqualified self is our get_type, recursively unqualified
 			if (!this->get_type()) return shared_ptr<type_die>();
 			return this->get_type()->get_unqualified_type();
 		} 
-		boost::shared_ptr<type_die> qualified_type_die::get_unqualified_type()
+		std::shared_ptr<type_die> qualified_type_die::get_unqualified_type()
 		{
 			return const_cast<const qualified_type_die *>(this)->get_unqualified_type();
 		}
@@ -1064,7 +1064,7 @@ namespace dwarf
 				return opt<Dwarf_Unsigned>();
 			}
 		}
-        boost::shared_ptr<type_die> type_chain_die::get_concrete_type() const
+        std::shared_ptr<type_die> type_chain_die::get_concrete_type() const
         {
         	// pointer and reference *must* override us -- they do not follow chain
         	assert(this->get_tag() != DW_TAG_pointer_type
@@ -1072,15 +1072,15 @@ namespace dwarf
 
             if (!this->get_type()) 
             {
-            	return //boost::dynamic_pointer_cast<type_die>(get_this()); // broken chain
-					boost::shared_ptr<type_die>();
+            	return //std::dynamic_pointer_cast<type_die>(get_this()); // broken chain
+					std::shared_ptr<type_die>();
             }
             else return const_cast<type_chain_die*>(this)->get_type()->get_concrete_type();
         }
 /* from spec::pointer_type_die */  
-        boost::shared_ptr<type_die> pointer_type_die::get_concrete_type() const 
+        std::shared_ptr<type_die> pointer_type_die::get_concrete_type() const 
         {
-        	return boost::dynamic_pointer_cast<pointer_type_die>(get_this()); 
+        	return std::dynamic_pointer_cast<pointer_type_die>(get_this()); 
         }
         opt<Dwarf_Unsigned> pointer_type_die::calculate_byte_size() const 
         {
@@ -1088,9 +1088,9 @@ namespace dwarf
 			else return this->enclosing_compile_unit()->get_address_size();
         }
 /* from spec::reference_type_die */  
-        boost::shared_ptr<type_die> reference_type_die::get_concrete_type() const 
+        std::shared_ptr<type_die> reference_type_die::get_concrete_type() const 
         {
-        	return boost::dynamic_pointer_cast<reference_type_die>(get_this()); 
+        	return std::dynamic_pointer_cast<reference_type_die>(get_this()); 
         }
         opt<Dwarf_Unsigned> reference_type_die::calculate_byte_size() const 
         {
@@ -1109,7 +1109,7 @@ namespace dwarf
                 {
                 	if (child->get_tag() == DW_TAG_subrange_type)
                     {
-            	        auto subrange = boost::dynamic_pointer_cast<subrange_type_die>(child);
+            	        auto subrange = std::dynamic_pointer_cast<subrange_type_die>(child);
                         if (subrange->get_count()) 
                         {
                         	count = *subrange->get_count();
@@ -1296,7 +1296,7 @@ namespace dwarf
         {
         	auto nonconst_this = const_cast<member_die *>(this); // HACK: eliminate
         
-        	auto enclosing_type_die = boost::dynamic_pointer_cast<type_die>(
+        	auto enclosing_type_die = std::dynamic_pointer_cast<type_die>(
             	this->get_parent());
             if (!enclosing_type_die) return opt<Dwarf_Unsigned>();
             
@@ -1311,7 +1311,7 @@ namespace dwarf
 					enclosing_type_die->get_tag() == DW_TAG_class_type)
                  && /*static_cast<abstract_dieset::position>(*/nonconst_this->iterator_here().base()/*)*/ == 
                  	/*static_cast<abstract_dieset::position>(*/
-                    	boost::dynamic_pointer_cast<structure_type_die>(enclosing_type_die)
+                    	std::dynamic_pointer_cast<structure_type_die>(enclosing_type_die)
                  			->member_children_begin().base().base().base()/*)*/
 				) || enclosing_type_die->get_tag() == DW_TAG_union_type)
 				
@@ -1352,7 +1352,7 @@ namespace dwarf
     namespace lib
     {
 /* from lib::basic_die */
-//         basic_die::basic_die(dieset& ds, boost::shared_ptr<lib::die> p_d)
+//         basic_die::basic_die(dieset& ds, std::shared_ptr<lib::die> p_d)
 //          : p_d(p_d), p_ds(&ds)
 //         {
 //         	/*if (p_d)
@@ -1400,7 +1400,7 @@ namespace dwarf
         	Dwarf_Half ret; this->tag(&ret); return ret;
         }
         
-		boost::shared_ptr<spec::basic_die> 
+		std::shared_ptr<spec::basic_die> 
 		basic_die::get_parent() 
 		{
 			// if we're toplevel, we have no parent
@@ -1432,20 +1432,20 @@ namespace dwarf
 		 * constructed as a temporary, and uses that. 
 		 * Ideally we would handle/body-ify lib::die to avoid this
 		 * allocation/deallocation overhead. */
-        boost::shared_ptr<spec::basic_die> 
+        std::shared_ptr<spec::basic_die> 
         basic_die::get_first_child() 
         {
 			return p_ds->get(lib::die(*this));
         }
 
-        boost::shared_ptr<spec::basic_die> 
+        std::shared_ptr<spec::basic_die> 
         basic_die::get_next_sibling() 
         {
             return p_ds->get(lib::die(*p_ds->p_f, *this));
         }
         
         Dwarf_Off basic_die::get_first_child_offset() const
-        //{ Dwarf_Off off; boost::make_shared<die>(*p_d)->offset(&off); return off; }
+        //{ Dwarf_Off off; std::make_shared<die>(*p_d)->offset(&off); return off; }
         //{ return const_cast<basic_die *>(this)->get_first_child()->get_offset(); }
 		{ 
 			Dwarf_Off off; 
@@ -1454,7 +1454,7 @@ namespace dwarf
 		}
 
         Dwarf_Off basic_die::get_next_sibling_offset() const
-        //{ Dwarf_Off off; boost::make_shared<die>(*p_ds->p_f, *p_d)->offset(&off); return off; }
+        //{ Dwarf_Off off; std::make_shared<die>(*p_ds->p_f, *p_d)->offset(&off); return off; }
         //{ return const_cast<basic_die *>(this)->get_next_sibling()->get_offset(); }
 		{
 			Dwarf_Off off;
@@ -1520,10 +1520,10 @@ namespace dwarf
 			 * So instead, ask the file_toplevel_die. */
 			//auto parent = const_cast<const compile_unit_die *>(this)->get_parent();
 			// HACK: why can't I use get_parent() const ?
-			auto parent_toplevel = boost::dynamic_pointer_cast<file_toplevel_die>(
+			auto parent_toplevel = std::dynamic_pointer_cast<file_toplevel_die>(
 				const_cast<compile_unit_die*>(this)->get_parent());
 			return parent_toplevel->get_address_size_for_cu(
-				boost::const_pointer_cast<compile_unit_die>(
+				std::const_pointer_cast<compile_unit_die>(
 					dynamic_pointer_cast<const compile_unit_die>(
 						shared_from_this())));
 		}
@@ -1730,9 +1730,9 @@ namespace dwarf
 
         bool 
 		file_toplevel_die::is_visible::operator()(
-			boost::shared_ptr<spec::basic_die> p) const
+			std::shared_ptr<spec::basic_die> p) const
         {
-            auto p_el = boost::dynamic_pointer_cast<program_element_die>(p);
+            auto p_el = std::dynamic_pointer_cast<program_element_die>(p);
             if (!p_el) return true;
             return !p_el->get_visibility() 
                 || *p_el->get_visibility() != DW_VIS_local;
@@ -2015,11 +2015,11 @@ namespace dwarf
 			 * and make a core:: siblings iterator out of it. */
 			Dwarf_Off cur_off = begin.base().base().base().off;
 			/* Create an iterator_sibs<> at this offset. */
-			auto i = std::move(this->root.pos<core::iterator_base>(cur_off, 2));
+			auto i = std::move(get_root().pos<core::iterator_base>(cur_off, 2));
 			/* Also create an iterator for the current CU. */
 			Dwarf_Off enclosing_cu_off = i.enclosing_cu_offset_here();
 			assert(enclosing_cu_off > 0);
-			auto cu_iter = this->root.pos<core::iterator_sibs<> >(
+			auto cu_iter = get_root().pos<core::iterator_sibs<> >(
 				enclosing_cu_off, 1);
 			assert(cu_iter.offset_here() == enclosing_cu_off);
 			/* Keep track of how many CUs we've skipped forwards. */
@@ -2041,8 +2041,8 @@ namespace dwarf
 					if (!i.has_attribute_here(DW_AT_visibility)) visible = true;
 					else
 					{
-						core::Attribute a(i, DW_AT_visibility);
-						encap::attribute_value val(a, root.get_dbg());
+						core::Attribute a(i.get_handle(), DW_AT_visibility);
+						encap::attribute_value val(a, i.get_handle(), i.spec_here());
 						visible = (val.get_unsigned() != DW_VIS_local);
 					}
 
@@ -2057,7 +2057,7 @@ namespace dwarf
 							goto result;
 						}
 					}
-				} while (root.move_to_next_sibling(i));
+				} while (get_root().move_to_next_sibling(i));
 				
 // 				cerr << "Trying next CU...";
 // 				
@@ -2067,8 +2067,8 @@ namespace dwarf
 // 				if (!next_cu_handle) cerr << " seems not to exist." << endl;
 // 				else cerr << endl;
 				
-			} while (root.move_to_next_sibling(cu_iter) 
-				&& ((i = core::iterator_base(core::Die::try_construct(cu_iter), 2, root)), 
+			} while (get_root().move_to_next_sibling(cu_iter) 
+				&& ((i = core::iterator_base(core::Die::try_construct(cu_iter), 2, get_root())), 
 				     ++cus_moved, true));
 			
 			// if we got here, we really hit the end
@@ -2098,10 +2098,10 @@ namespace dwarf
 	}
 	namespace spec {
 		
-		boost::shared_ptr<file_toplevel_die::grandchildren_sequence_t>
+		std::shared_ptr<file_toplevel_die::grandchildren_sequence_t>
 		file_toplevel_die::grandchildren_sequence()
 		{
-			auto seq = boost::make_shared<grandchildren_sequence_t>();
+			auto seq = std::make_shared<grandchildren_sequence_t>();
 			for (auto i_cu = this->compile_unit_children_begin();	
 				i_cu != this->compile_unit_children_end();
 				++i_cu)
@@ -2119,7 +2119,7 @@ namespace dwarf
 		shared_ptr<file_toplevel_die::visible_grandchildren_sequence_t> 
 		file_toplevel_die::visible_grandchildren_sequence()
 		{
-			return boost::shared_ptr<visible_grandchildren_sequence_t>(
+			return std::shared_ptr<visible_grandchildren_sequence_t>(
 				new visible_grandchildren_sequence_t(
 					*grandchildren_sequence()
 				)
@@ -2140,7 +2140,7 @@ namespace dwarf
 			
 			/* We can do better than linear search, using the properties of
 			 * DWARF offsets.  */
-			boost::shared_ptr<spec::basic_die> current = this->toplevel();
+			std::shared_ptr<spec::basic_die> current = this->toplevel();
 			spec::abstract_dieset::path_type path_from_root(1, 0UL); // start with root node only
 			/* We do this because iterators can point at the root, and all iterators should 
 			 * have the property that the last element in the path is their current node. */
@@ -2151,7 +2151,7 @@ namespace dwarf
 				auto child = current->get_first_child(); // index for loop below
 				/* Note that we may throw No_entry here ^^^ -- this happens
 				 * if and only if our search has failed, which is what we want. */
-				boost::shared_ptr<spec::basic_die> prev_child; // starts at 0
+				std::shared_ptr<spec::basic_die> prev_child; // starts at 0
 				
 				// ...linear search for the child we should accept or descend to
 				// (NOTE: if they first child is the one we want, we'll go round once,
@@ -2167,7 +2167,7 @@ namespace dwarf
 					catch (No_entry)
 					{
 						// reached the last sibling
-						child = boost::shared_ptr<spec::basic_die>();
+						child = std::shared_ptr<spec::basic_die>();
 					}
 				}
 				// on terminating this loop: child is *after* the one we want, or null
@@ -2226,21 +2226,21 @@ namespace dwarf
 			else throw lib::No_entry();
 		}
 
-		boost::shared_ptr<basic_die> 
+		std::shared_ptr<basic_die> 
 		dieset::find_parent_of(Dwarf_Off off)
 		{
 			return get(find_parent_offset_of(off));
 		}
 
-		boost::shared_ptr<lib::basic_die> 
+		std::shared_ptr<lib::basic_die> 
 		dieset::get(Dwarf_Off off)
 		{
-			if (off == 0UL) return boost::dynamic_pointer_cast<lib::basic_die>(toplevel());
+			if (off == 0UL) return std::dynamic_pointer_cast<lib::basic_die>(toplevel());
 			return get(lib::die(*p_f, off)); // "offdie" constructor
 		}
 			
 		/* factory method -- this is private */
-		boost::shared_ptr<lib::basic_die>
+		std::shared_ptr<lib::basic_die>
 		dieset::get(const lib::die& d)
 		{
 			Dwarf_Half tag;
@@ -2262,15 +2262,15 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 		
 		}
 	
-		boost::shared_ptr<spec::basic_die> dieset::operator[](Dwarf_Off off) const
+		std::shared_ptr<spec::basic_die> dieset::operator[](Dwarf_Off off) const
 		{
-			if (off == 0UL) return boost::shared_ptr<spec::basic_die>(m_toplevel);
+			if (off == 0UL) return std::shared_ptr<spec::basic_die>(m_toplevel);
 			return const_cast<dieset *>(this)->get(off);
 		}
 		
-		boost::shared_ptr<spec::file_toplevel_die> dieset::toplevel()
+		std::shared_ptr<spec::file_toplevel_die> dieset::toplevel()
 		{
-			return boost::dynamic_pointer_cast<spec::file_toplevel_die>(m_toplevel);
+			return std::dynamic_pointer_cast<spec::file_toplevel_die>(m_toplevel);
 		}
 		
 	}
@@ -2585,7 +2585,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			assert(cu_info.find(off) != cu_info.end());
 			if (!cu_info[off].source_files) 
 			{
-				cu_info[off].source_files = boost::make_shared<lib::srcfiles>(
+				cu_info[off].source_files = std::make_shared<lib::srcfiles>(
 					*cu);
 			}
 			assert(cu_info[off].source_files);
@@ -2601,7 +2601,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			assert(cu_info.find(off) != cu_info.end());
 			if (!cu_info[off].source_files) 
 			{
-				cu_info[off].source_files = boost::make_shared<lib::srcfiles>(
+				cu_info[off].source_files = std::make_shared<lib::srcfiles>(
 					*cu);
 			}
 			assert(cu_info[off].source_files);
@@ -2647,7 +2647,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 		}
 
 		// deprecated
-		boost::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
+		std::shared_ptr<spec::basic_die> file_toplevel_die::get_first_child()
 		{
 			// We have to explicitly loop through CU headers, 
 			// to set the CU context when getting dies.
@@ -2680,7 +2680,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			return p_ds->get(lib::die(*p_ds->p_f));
 				
 			//	, 
-			//	boost::make_shared<dwarf::lib::die>(*p_ds->p_f) /*,
+			//	std::make_shared<dwarf::lib::die>(*p_ds->p_f) /*,
 			//	version_stamp, address_size*/);
 		}
 
@@ -2722,16 +2722,16 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			else return found->first;
 		}
 		// deprecated
-		boost::shared_ptr<spec::basic_die> compile_unit_die::get_next_sibling()
+		std::shared_ptr<spec::basic_die> compile_unit_die::get_next_sibling()
 		{
 			int retval;
 			Dwarf_Half prev_version_stamp 
-				= boost::dynamic_pointer_cast<file_toplevel_die>(p_ds->toplevel())
+				= std::dynamic_pointer_cast<file_toplevel_die>(p_ds->toplevel())
 					->prev_version_stamp;
 			Dwarf_Half version_stamp = prev_version_stamp;
 			Dwarf_Off next_cu_offset;
 
-			using boost::dynamic_pointer_cast;
+			using std::dynamic_pointer_cast;
 
 			// first reset the CU context (pesky stateful API)
 			retval = p_ds->p_f->clear_cu_context();
@@ -2753,7 +2753,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 				// only support like-versioned CUs for now
 				assert(prev_version_stamp == version_stamp);
 				// now we can access the CU by constructing a lib::die under the current CU state
-				auto p_cu = boost::make_shared<die>(*p_ds->p_f);
+				auto p_cu = std::make_shared<die>(*p_ds->p_f);
 				Dwarf_Off off;
 				p_cu->offset(&off); // retrieve the offset
 				// store the data for later
@@ -2797,8 +2797,8 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 				return p_cu;
 			}
 			
-			//	boost::make_shared<compile_unit_die>(*p_ds, 
-			//boost::make_shared<dwarf::lib::die>(*p_ds->p_f));
+			//	std::make_shared<compile_unit_die>(*p_ds, 
+			//std::make_shared<dwarf::lib::die>(*p_ds->p_f));
 		} // end get_next_sibling()
 	} // end namespace lib
 } // end namespace dwarf

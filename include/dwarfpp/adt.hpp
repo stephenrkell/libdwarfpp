@@ -16,9 +16,8 @@
 #include <functional>
 #include <iterator>
 #include <limits>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 #include <boost/iterator_adaptors.hpp>
-#include <boost/make_shared.hpp>
 #include "lib.hpp"
 #include "expr.hpp"
 #include "spec_adt.hpp"
@@ -30,8 +29,8 @@ namespace dwarf
 	{
 		using std::pair;
 		using std::make_pair;
-		using boost::dynamic_pointer_cast;
-		using boost::shared_ptr;
+		using std::dynamic_pointer_cast;
+		using std::shared_ptr;
 		using dwarf::spec::opt; // FIXME: put this in a different namespace
 	
 		typedef spec::abstract_dieset abstract_dieset;
@@ -45,7 +44,7 @@ namespace dwarf
 			friend class compile_unit_die;
 			
         /*protected:*/ public: // FIXME: this is a temporary hack!
-        	//boost::shared_ptr<lib::die> p_d;
+        	//std::shared_ptr<lib::die> p_d;
         protected:
             dieset *p_ds;
             Dwarf_Off m_parent_offset; // FIXME: change to path?
@@ -75,10 +74,10 @@ namespace dwarf
 			
 		    Dwarf_Off get_offset() const;
             Dwarf_Half get_tag() const;
-            boost::shared_ptr<spec::basic_die> get_parent();
-            boost::shared_ptr<spec::basic_die> get_first_child();
+            std::shared_ptr<spec::basic_die> get_parent();
+            std::shared_ptr<spec::basic_die> get_first_child();
             Dwarf_Off get_first_child_offset() const;
-            boost::shared_ptr<spec::basic_die> get_next_sibling();
+            std::shared_ptr<spec::basic_die> get_next_sibling();
             Dwarf_Off get_next_sibling_offset() const;
             opt<std::string> get_name() const;
             const spec::abstract_def& get_spec() const;
@@ -88,7 +87,7 @@ namespace dwarf
             // ^^^ not a const function, because may create backrefs
 			
 			// override
-			boost::shared_ptr<spec::compile_unit_die> 
+			std::shared_ptr<spec::compile_unit_die> 
 			enclosing_compile_unit() __attribute__((deprecated));
 			
 		};
@@ -132,18 +131,18 @@ namespace dwarf
             friend class compile_unit_die;
 
 			file *p_f; // optional
-			boost::shared_ptr<lib::file_toplevel_die> m_toplevel;
+			std::shared_ptr<lib::file_toplevel_die> m_toplevel;
 			std::map<Dwarf_Off, Dwarf_Off> parent_cache; // HACK: doesn't evict
 
 			/* factory methods */
-			boost::shared_ptr<basic_die> get(Dwarf_Off off); // shortcut
-			boost::shared_ptr<basic_die> get(const lib::die& d); // the main factory method
+			std::shared_ptr<basic_die> get(Dwarf_Off off); // shortcut
+			std::shared_ptr<basic_die> get(const lib::die& d); // the main factory method
 
 			// factory uses the usual HACK for make_shared calling private constructors! 
 			template<typename T, typename... Args > 
-			static boost::shared_ptr<basic_die>
+			static std::shared_ptr<basic_die>
 			my_make_shared(Args&&... args) 
-			{ boost::shared_ptr<basic_die> p(new T(std::forward<Args>(args)...)); return p; }
+			{ std::shared_ptr<basic_die> p(new T(std::forward<Args>(args)...)); return p; }
 
 
 
@@ -151,7 +150,7 @@ namespace dwarf
 
 			// construct from a file
 			dieset(file& f); //: p_f(&f), 
-				//m_toplevel(boost::make_shared<file_toplevel_die>(*this)) {}
+				//m_toplevel(std::make_shared<file_toplevel_die>(*this)) {}
 
 			iterator find(Dwarf_Off off);
 			iterator begin();
@@ -170,11 +169,11 @@ namespace dwarf
 			//path_from_root(Dwarf_Off off);
 
 			// support associative indexing
-			boost::shared_ptr<spec::basic_die> 
+			std::shared_ptr<spec::basic_die> 
 			operator[](Dwarf_Off off) const;
 
 			// backlinks aren't necessarily stored, so support search for parent
-			boost::shared_ptr<basic_die> find_parent_of(Dwarf_Off off);
+			std::shared_ptr<basic_die> find_parent_of(Dwarf_Off off);
 			Dwarf_Off find_parent_offset_of(Dwarf_Off off);
 
 			// navigation API
@@ -236,7 +235,7 @@ namespace dwarf
 			bool move_to_next_cu(spec::abstract_dieset::iterator_base& base);
 
 			// get the toplevel die
-			boost::shared_ptr<spec::file_toplevel_die> toplevel(); /* NOT const */
+			std::shared_ptr<spec::file_toplevel_die> toplevel(); /* NOT const */
 			
 			// get the DWARF spec
 			const spec::abstract_def& get_spec() const { return spec::DEFAULT_DWARF_SPEC; } // FIXME
@@ -255,7 +254,10 @@ namespace dwarf
 // 			}
 		};
 		
-		struct file_toplevel_die : public lib::basic_die, public virtual spec::file_toplevel_die
+		struct file_toplevel_die
+		 : public core::root_die, // bit of a HACK: we open *two* libdwarf handles
+		   public lib::basic_die, 
+		   public virtual spec::file_toplevel_die
 		{
 			int prev_version_stamp;
 			const spec::abstract_def *p_spec;
@@ -282,8 +284,12 @@ namespace dwarf
 			lib::dieset& ds;
 			// let's construct a core:: root_die too!
 			// SUPER HACK: do it by reopening the underlying file
-			int dup_fd;
-			core::basic_root_die root;
+			// FIXME: remind me where we use this root_die? 
+			// answer: in next_visible_grandchild_with_name! Because we optimised this
+			//int dup_fd;
+			//core::root_die root;
+		public: // HACK: for uniqtypes, at least to begin with
+			core::root_die& get_root() { return *static_cast<core::root_die*>(this); }
 		protected: // override
 			pair<Dwarf_Off, visible_grandchildren_iterator>
 			next_visible_grandchild_with_name(
@@ -294,8 +300,8 @@ namespace dwarf
 					
 		public:
 			file_toplevel_die(dieset& ds)
-			 : basic_die(ds, 0), prev_version_stamp(-1), p_spec(0), ds(ds), 
-			   dup_fd(dup(ds.p_f->get_fd())), root(dup_fd)
+			 : core::root_die(dup(ds.p_f->get_fd())), 
+			   basic_die(ds, 0), prev_version_stamp(-1), p_spec(0), ds(ds)
 			{
 				add_all_cu_info();
 			}
@@ -303,8 +309,8 @@ namespace dwarf
 			lib::dieset& get_ds() { return ds; }
 			Dwarf_Off get_offset() const { return 0UL; }
 			Dwarf_Half get_tag() const { return 0UL; }
-			boost::shared_ptr<spec::basic_die> get_parent() { return boost::shared_ptr<spec::basic_die>(); }
-			boost::shared_ptr<spec::basic_die> get_first_child(); 
+			std::shared_ptr<spec::basic_die> get_parent() { return std::shared_ptr<spec::basic_die>(); }
+			std::shared_ptr<spec::basic_die> get_first_child(); 
 			Dwarf_Off get_first_child_offset() const;
 			Dwarf_Off get_next_sibling_offset() const;
 			opt<std::string> get_name() const { return 0; }
@@ -352,7 +358,7 @@ namespace dwarf
 		};
 		
 		inline dieset::dieset(file& f)
-		 : p_f(&f), m_toplevel(boost::make_shared<file_toplevel_die>(*this)) 
+		 : p_f(&f), m_toplevel(std::make_shared<file_toplevel_die>(*this)) 
 		{ m_toplevel->add_cu_intervals(); }
 		
 		inline	Dwarf_Half dieset::get_address_size() const
@@ -406,8 +412,8 @@ namespace dwarf
 #define stored_type_tag Dwarf_Half
 #define stored_type_loclist dwarf::encap::loclist
 #define stored_type_address dwarf::encap::attribute_value::address
-#define stored_type_refdie boost::shared_ptr<spec::basic_die> 
-#define stored_type_refdie_is_type boost::shared_ptr<spec::type_die> 
+#define stored_type_refdie std::shared_ptr<spec::basic_die> 
+#define stored_type_refdie_is_type std::shared_ptr<spec::type_die> 
 #define stored_type_rangelist dwarf::encap::rangelist
 
 #define attr_optional(name, stored_t) \
@@ -439,7 +445,7 @@ namespace dwarf
 
 // compile_unit_die has an override for get_next_sibling()
 #define extra_decls_compile_unit \
-		boost::shared_ptr<spec::basic_die> get_next_sibling(); \
+		std::shared_ptr<spec::basic_die> get_next_sibling(); \
 		Dwarf_Off get_next_sibling_offset() const; \
 		Dwarf_Half get_address_size() const; \
 		std::string source_file_name(unsigned o) const; \

@@ -30,8 +30,8 @@ using std::istringstream;
 using std::stack;
 using std::deque;
 using boost::optional;
-using boost::shared_ptr;
-using boost::dynamic_pointer_cast;
+using std::shared_ptr;
+using std::dynamic_pointer_cast;
 using namespace dwarf::lib;
 
 namespace dwarf { namespace tool {
@@ -269,13 +269,13 @@ void cycle_handler::print_edge(Edge e, Graph& g)
 	assert(e.p_ds != 0);
 
 	shared_ptr<encap::die> from_die = 
-		boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off]);
+		std::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.referencing_off]);
 	shared_ptr<encap::die> from_projected_die = 
-		boost::dynamic_pointer_cast<encap::die>(source(e, g)->shared_from_this());
+		std::dynamic_pointer_cast<encap::die>(source(e, g)->shared_from_this());
 	shared_ptr<encap::die> to_die = 
-		boost::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off]);
+		std::dynamic_pointer_cast<encap::die>((*e.p_ds)[e.off]);
 	shared_ptr<encap::die> to_projected_die = 
-		boost::dynamic_pointer_cast<encap::die>(target(e, g)->shared_from_this());
+		std::dynamic_pointer_cast<encap::die>(target(e, g)->shared_from_this());
 
 	std::cerr << "@0x" << std::hex << e.referencing_off 
 					<< " " << from_die->get_spec().tag_lookup(from_die->get_tag())
@@ -348,7 +348,7 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 		// PathMap::mapped_type::iterator i_path = paths_found->second.begin();
 
 		auto remove_edge_if_fwddeclable
-		 = [g, &new_forward_decls, &new_skipped_edges]
+		 = [g, this]
 		 (Edge candidate_e)
 		{
 			auto e_source_projected = source(candidate_e, g);
@@ -381,8 +381,8 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 				//		<< std::endl;
 				//	return true;
 				//}
-				/*else*/ if (std::find(new_forward_decls.begin(), new_forward_decls.end(),
-					e_target_projected) != new_forward_decls.end())
+				/*else*/ if (std::find(this->new_forward_decls.begin(), this->new_forward_decls.end(),
+					e_target_projected) != this->new_forward_decls.end())
 				{
 					std::cerr << "Cycle already broken in this round by removing this edge; can continue."
 						<< std::endl;
@@ -392,10 +392,10 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 				{
 					std::cerr << "Breaking cycle by skipping this edge." << std::endl;
 					// remove the edge
-					new_skipped_edges.push_back(candidate_e);
+					this->new_skipped_edges.push_back(candidate_e);
 
 					// add the target to the forward-declare list
-					new_forward_decls.insert(
+					this->new_forward_decls.insert(
 						use_projected_target ? e_target_projected : e_target_ultimate);
 
 					// we can now exit the loop

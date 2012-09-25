@@ -26,10 +26,10 @@ namespace dwarf { namespace encap {
         	// we want the *next* attribute, in attribute_map order,
             // which is a reference.
         	dwarf::encap::die::attribute_map::iterator search = 
-            	boost::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
+            	std::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
                 	e->second.get_ref().referencing_off
                 ])->m_attrs.find(e->second.get_ref().referencing_attr);
-            while (++search != boost::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
+            while (++search != std::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
             	e->second.get_ref().referencing_off
             ])->m_attrs.end())
             {
@@ -41,7 +41,7 @@ namespace dwarf { namespace encap {
 			}
             
             // FAIL: what to do? FIXME
-            e = boost::dynamic_pointer_cast<encap::die>(
+            e = std::dynamic_pointer_cast<encap::die>(
             	(*e->second.get_ref().p_ds)[e->second.get_ref().referencing_off])->m_attrs.end();
         }
         void increment() { increment(this->base_reference()); }
@@ -51,14 +51,14 @@ namespace dwarf { namespace encap {
         	// we want the *previous* attribute, in attribute_map order,
             // which is a reference.
         	dwarf::encap::die::attribute_map::iterator begin = 
-            	boost::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
+            	std::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
                 	e->second.get_ref().referencing_off
                 ])->m_attrs.begin();
         	dwarf::encap::die::attribute_map::iterator search = 
-            	boost::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
+            	std::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
                 	e->second.get_ref().referencing_off
                 ])->m_attrs.find(e->second.get_ref().referencing_attr);
-            while (search-- != boost::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
+            while (search-- != std::dynamic_pointer_cast<encap::die>((*e->second.get_ref().p_ds)[
             	e->second.get_ref().referencing_off
             ])->m_attrs.begin()) 
             {
@@ -83,7 +83,7 @@ namespace boost
 	// specialise the boost graph_traits class for encap::dieset
     template <>
     struct graph_traits<dwarf::encap::dieset> {
-        typedef std::pair<dwarf::lib::Dwarf_Off, boost::shared_ptr<dwarf::encap::die> > 
+        typedef std::pair<dwarf::lib::Dwarf_Off, std::shared_ptr<dwarf::encap::die> > 
         	vertex_descriptor;
         typedef dwarf::encap::attribute_value::weak_ref edge_descriptor;
           

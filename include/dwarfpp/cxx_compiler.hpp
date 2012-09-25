@@ -9,9 +9,9 @@ namespace dwarf
 	namespace tool
 	{
 		using namespace dwarf::lib;
-		using boost::dynamic_pointer_cast;
+		using std::dynamic_pointer_cast;
 		using boost::optional;
-		using boost::shared_ptr;
+		using std::shared_ptr;
 		using std::string;
 		using std::vector;
 		using std::pair;

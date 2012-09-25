@@ -2,7 +2,7 @@
 #define DWARFPP_OPT_HPP_
 
 #include <boost/optional.hpp>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 namespace dwarf
 {
@@ -14,14 +14,15 @@ namespace dwarf
 		 * arguably, although at least some of those correspond directly to
 		 * libdwarf errors, so should perhaps go/stay in lib::. */
 	
+		using std::shared_ptr; 
 		using namespace boost; // makes life easier while we have these pasted constructors
 		//using boost::optional;
-		//using boost::shared_ptr;
+		//using std::shared_ptr;
 		
 		/* We use this to encode optional attributes. It's like boost::optional,
 		 * but since pointers already model the optional concept, we avoid a double-
 		 * indirection (**attr) to get the value of a pointer-valued attribute. */
-		// FIXME: don't hardcode boost::shared_ptr here
+		// FIXME: don't hardcode std::shared_ptr here
 		template <typename T>
 		struct opt : optional<T>
 		{
@@ -165,7 +166,7 @@ namespace dwarf
 		 * that want to do attribute_value(*a) for any argument a. Normally the caller
 		 * would know not to do *a, but in that macroised generic code, we can't know. */
 		template <typename T>
-		boost::shared_ptr<T> deref_opt(const opt<shared_ptr<T> >& arg)
+		std::shared_ptr<T> deref_opt(const opt<shared_ptr<T> >& arg)
 		{ return arg; }
 		
 		template <typename T>

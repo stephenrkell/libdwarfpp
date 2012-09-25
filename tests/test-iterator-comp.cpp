@@ -5,8 +5,8 @@
 #include <cassert>
 #include <set>
 
-using boost::shared_ptr;
-using boost::dynamic_pointer_cast;
+using std::shared_ptr;
+using std::dynamic_pointer_cast;
 using dwarf::spec::subprogram_die;
 
 int

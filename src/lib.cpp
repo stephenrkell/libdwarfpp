@@ -70,15 +70,40 @@ namespace dwarf
 			return s;
 		}
 		/* print a whole tree of DIEs */
-		std::ostream& operator<<(std::ostream& s, const basic_root_die& d)
+		std::ostream& operator<<(std::ostream& s, const root_die& d)
 		{
 			for (auto i = d.begin(); i != d.end(); ++i)
 			{
-				s << "At 0x" << std::hex << i.offset_here() << std::dec
-					<< ", depth " << i.depth()
-					<< ", tag " << i.spec_here().tag_lookup(i.tag_here()) 
-					/*<< ", " << *i*/
-					<< endl;
+				for (unsigned u = 0u; u < i.depth(); ++u) s << '\t';
+				s << i;
+			}
+			return s;
+		}
+		
+		std::ostream& operator<<(std::ostream& s, const iterator_base& i)
+		{
+			s << "At 0x" << std::hex << i.offset_here() << std::dec
+						<< ", depth " << i.depth()
+						<< ", tag " << i.spec_here().tag_lookup(i.tag_here()) 
+						<< ", attributes: " << core::AttributeList(i.attributes_here(), i.get_handle())
+						<< endl;
+			return s;
+		}
+		std::ostream& operator<<(std::ostream& s, const AttributeList& attrs)
+		{
+			for (int i = 0; i < attrs.get_len(); ++i)
+			{
+				s << dwarf::spec::DEFAULT_DWARF_SPEC.attr_lookup(attrs[i].attr_here());
+				try
+				{
+					encap::attribute_value v(attrs[i], attrs.d);
+					s << ": " << v;
+				} catch (Not_supported)
+				{
+					//s << "(unknown attribute 0x" << std::hex << attrs[i].attr_here() 
+					//	<< std::dec << ")";
+				}
+				s << endl;
 			}
 			return s;
 		}
@@ -93,31 +118,37 @@ namespace dwarf
 		 *
 		 * We deal with the first four here. 
 		 * Sticky set exploitation is done in iterator_base::iterator_base(handle).
-		 * Sticky set maintenance is done in iterator_base's copy constructor / root_die::make_payload. */
-		bool 
-		root_die::move_to_parent(iterator_base& it)
+		 * Sticky set maintenance is done in iterator_base's copy constructor 
+		 * ... and root_die::make_payload. */
+		iterator_base 
+		root_die::parent(const iterator_base& it)
 		{
 			assert(&it.get_root() == this);
 			if (it.tag_here() == DW_TAG_compile_unit) 
 			{
-				it = it.get_root().begin();
-				return true;
+				assert(it.get_depth() == 1);
+				return it.get_root().begin();
 			}
-			else if (it.offset_here() == 0UL) return false;
+			else if (it.offset_here() == 0UL) return iterator_base::END;
 			else
 			{
+				assert(it.get_depth() > 0);
 				auto found = parent_of.find(it.offset_here());
 				// if we issued `it', we should have recorded its parent
 				// FIXME: relax this policy perhaps, to allow soft cache?
 				assert(found != parent_of.end());
+				assert(found->first == it.offset_here());
+				assert(found->second < it.offset_here());
+				//cerr << "Parent cache says parent of 0x" << std::hex << found->first
+				// << " is 0x" << std::hex << found->second << std::dec << endl;
+				auto maybe_handle = Die::try_construct(*this, found->second);
 				
-				auto maybe_handle = Die::try_construct(*this,
-					found->second);
 				if (maybe_handle)
 				{
 					// update it
-					it = std::move(iterator_base(std::move(maybe_handle), it.get_depth() - 1, *this));
-					return true;
+					iterator_base new_it(std::move(maybe_handle), it.get_depth() - 1, *this);
+					assert(new_it.offset_here() == found->second);
+					return new_it;
 				}
 				else
 				{
@@ -128,18 +159,39 @@ namespace dwarf
 		}
 		
 		bool 
-		root_die::move_to_first_child(iterator_base& it)
+		root_die::move_to_parent(iterator_base& it)
+		{
+			auto maybe_parent = parent(it); 
+			if (maybe_parent != iterator_base::END) 
+			{
+				/* check we really got the parent! */
+				assert(parent_of.find(it.offset_here()) != parent_of.end());
+				assert(maybe_parent.offset_here() == parent_of[it.offset_here()]);
+				it = std::move(maybe_parent); 
+				return true; 
+			}
+			else return false;
+		}
+		
+		/* These move_to functions are great for implementing ++ and -- on iterators. 
+		 * But sometimes we want to spawn one iterator from another, e.g. to iterate
+		 * over children of an interesting DIE encountered during an enclosing iteration.
+		 * So our root_die needs the ability to create fresh libdwarf handles without 
+		 * overwriting the one we started with. */
+		
+		iterator_base
+		root_die::first_child(const iterator_base& it)
 		{
 			assert(&it.get_root() == this);
 			Dwarf_Off start_offset = it.offset_here();
-			Die::handle_type maybe_handle;
+			Die::handle_type maybe_handle(nullptr, Die::deleter(nullptr)); // TODO: reenable deleter's default constructor
 			if (start_offset == 0UL) 
 			{
 				// do the CU thing
 				bool ret1 = clear_cu_context();
 				assert(ret1);
 				bool ret2 = advance_cu_context(); 
-				if (!ret2) return false;
+				if (!ret2) return iterator_base::END;
 				maybe_handle = std::move(Die::try_construct(*this));
 			}
 			else
@@ -147,16 +199,24 @@ namespace dwarf
 				// do the non-CU thing
 				maybe_handle = std::move(Die::try_construct(it));
 			}
-			
 			// shared parent cache logic
 			if (maybe_handle)
 			{
-				// update it
-				it = std::move(iterator_base(std::move(maybe_handle), it.get_depth() + 1, it.get_root()));
+				iterator_base new_it(std::move(maybe_handle), it.get_depth() + 1, it.get_root());
 				// install in parent cache
-				parent_of[it.offset_here()] = start_offset;
-				return true;
-			}
+				parent_of[new_it.offset_here()] = start_offset;
+				return new_it;
+			} else return iterator_base::END;
+		}
+		
+
+		bool 
+		root_die::move_to_first_child(iterator_base& it)
+		{
+			unsigned start_depth = it.get_depth();
+			auto maybe_child = first_child(it); 
+			if (maybe_child != iterator_base::END) 
+			{ it = std::move(maybe_child); assert(it.depth() == start_depth + 1); return true; }
 			else return false;
 		}
 		
@@ -278,12 +338,11 @@ namespace dwarf
 			}
 			else return true;
 		}
-		
-		bool 
-		root_die::move_to_next_sibling(iterator_base& it)
+		iterator_base
+		root_die::next_sibling(const iterator_base& it)
 		{
 			assert(&it.get_root() == this);
-			if (!it.is_real_die_position()) return false;
+			if (!it.is_real_die_position()) return iterator_base::END;
 
 			Dwarf_Off offset_here = it.offset_here();
 			auto found = parent_of.find(offset_here);
@@ -291,7 +350,7 @@ namespace dwarf
 			// FIXME: relax this policy perhaps, to allow soft cache?
 			assert(found != parent_of.end());
 			Dwarf_Off common_parent_offset = found->second;
-			Die::handle_type maybe_handle;
+			Die::handle_type maybe_handle(nullptr, Die::deleter(nullptr)); // TODO: reenable deleter default constructor
 			
 			if (it.tag_here() == DW_TAG_compile_unit)
 			{
@@ -299,28 +358,43 @@ namespace dwarf
 				bool ret = set_cu_context(it.offset_here());
 				assert(ret);
 				ret = advance_cu_context();
-				if (!ret) return false;
-				maybe_handle = std::move(Die::try_construct(*this));
+				if (!ret) return iterator_base::END;
+				maybe_handle = Die::try_construct(*this);
 			}
 			else
 			{
 				// do the non-CU thing
-				maybe_handle = std::move(Die::try_construct(*this, it));
+				maybe_handle = Die::try_construct(*this, it);
 			}
 			
 			// shared parent cache logic
 			if (maybe_handle)
 			{
+				auto new_it = iterator_base(std::move(maybe_handle), it.get_depth(), *this);
 				// install in parent cache
-				it = std::move(iterator_base(std::move(maybe_handle), it.get_depth(), *this));
-				parent_of[it.offset_here()] = common_parent_offset;
-				return true;
+				parent_of[new_it.offset_here()] = common_parent_offset;
+				return new_it;
+			} else return iterator_base::END;
+		}
+		
+		bool 
+		root_die::move_to_next_sibling(iterator_base& it)
+		{
+			Dwarf_Off start_off = it.offset_here();
+			unsigned start_depth = it.depth();
+			auto maybe_sibling = next_sibling(it); 
+			if (maybe_sibling != iterator_base::END) 
+			{
+				//cerr << "Think we found a later sibling of 0x" << std::hex << start_off
+				//	<< " at 0x" << std::hex << maybe_sibling.offset_here() << std::dec << endl;
+				it = std::move(maybe_sibling); assert(it.depth() == start_depth); return true; 
 			}
 			else return false;
 		}
 		
-		basic_root_die::ptr_type 
-		root_die::make_payload(const iterator_base& it)
+/* Here comes the factory. */
+		root_die::ptr_type 
+		root_die::make_payload(const iterator_base& it) // note: we update *mutable* fields
 		{
 			/* This call is asking us to heap-allocate the state of the iterator
 			 * and upgrade the iterator so that it is copyable. There are some exceptions:
@@ -330,20 +404,74 @@ namespace dwarf
 			else
 			{
 				// heap-allocate the right kind of basic_die
+				
+				/* creates the intrusive ptr, hence bumping the refcount */
+				it.cur_payload = core::factory::for_spec(it.spec_here()).make_payload(it);
+				it.state = iterator_base::WITH_PAYLOAD;
+				
+				/* fill in the CU fields -- this code would be shared by all 
+				 * factories, so we put it here (but HMM, if our factories were
+				 * a delegation chain, we could just put it in the root). */
+				if (it.tag_here() == DW_TAG_compile_unit)
+				{
+					bool ret = set_cu_context(it.offset_here());
+					assert(ret);
+					auto cu = dynamic_pointer_cast<compile_unit_die>(it.cur_payload);
+					cu->cu_header_length = *last_seen_cu_header_length;
+					cu->version_stamp = *last_seen_version_stamp;
+					cu->abbrev_offset = *last_seen_abbrev_offset;
+					cu->address_size = *last_seen_address_size;
+					cu->offset_size = *last_seen_offset_size;
+					cu->extension_size = *last_seen_extension_size;
+					cu->next_cu_header = *last_seen_next_cu_header;
+				}
+				else
+				{
+					cerr << "Warning: made payload for non-CU " << endl;
+				}
+				
+				return it.cur_payload;
+			}
+		}
+		/* NOTE: I was thinking to put all factory code in namespace spec, 
+		 * so that we can do 
+		 * get_spec().factory(), 
+		 * requiring all sub-namespace factories (lib::, encap::, core::)
+		 * are centralised in spec
+		 * (rather than trying to do core::factory<dwarf3_def::inst>.make_payload(handle), 
+		 * which wouldn't let us do get_spec().factory()...
+		 * BUT
+		 * core::factory_for(dwarf3_def::inst).make_payload(handle) WOULD work. So
+		 * it's a toss-up. Go with the latter. */
+		
+		dwarf3_factory_t dwarf3_factory;
+		basic_die *dwarf3_factory_t::make_payload(const iterator_base& it)
+		{
 				basic_die *p;
 				switch (it.tag_here())
 				{
 #define factory_case(name, ...) \
-case DW_TAG_ ## name: p = new basic_die(*this); break;
+case DW_TAG_ ## name: p = new name ## _die(it.spec_here(), std::move(it.get_handle())); break; // FIXME: not "basic_die"...
 #include "dwarf3-factory.h"
 #undef factory_case
-					default: assert(false);
+					default: p = new basic_die(it.spec_here(), std::move(it.get_handle())); break;
 				}
-				p->d = std::move(it.cur_handle);
-				p->depth = it.get_depth();
-				it.state = iterator_base::WITH_PAYLOAD;
-				it.cur_payload = p;
-				return it.cur_payload;
+				return p;
+		}
+		basic_die *dwarf3_factory_t::dummy_for_tag(Dwarf_Half tag)
+		{
+			static basic_die dummy_basic(dwarf::spec::dwarf3);
+#define factory_case(name, ...) \
+static name ## _die dummy_ ## name(dwarf::spec::dwarf3); 
+#include "dwarf3-factory.h"
+#undef factory_case
+			switch (tag)
+			{
+#define factory_case(name, ...) \
+case DW_TAG_ ## name: return &dummy_ ## name;
+#include "dwarf3-factory.h"
+#undef factory_case
+				default: return &dummy_basic;
 			}
 		}
 		
@@ -354,36 +482,59 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 			return it.tag_here() == DW_TAG_compile_unit;
 		}
 		
+		Dwarf_Off Die::offset_here() const
+		{
+			Dwarf_Off off;
+			int ret = dwarf_dieoffset(raw_handle(), &off, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			return off;
+		}		
 		Dwarf_Off iterator_base::offset_here() const
 		{
 			if (!is_real_die_position()) { assert(is_root_position()); return 0; }
-			Dwarf_Off off;
-			int ret = dwarf_dieoffset(get_raw_handle(), &off, &current_dwarf_error);
-			assert(ret == DW_DLV_OK);
-			return off;
+			return get_handle().offset_here();
 		}
 		
-		Dwarf_Half iterator_base::tag_here() const
+		Dwarf_Half Die::tag_here() const
 		{
-			if (!is_real_die_position()) return 0;
 			Dwarf_Half tag;
-			int ret = dwarf_tag(get_raw_handle(), &tag, &current_dwarf_error);
+			int ret = dwarf_tag(handle.get(), &tag, &current_dwarf_error);
 			assert(ret == DW_DLV_OK);
 			return tag;
 		}
-		
+		Dwarf_Half iterator_base::tag_here() const
+		{
+			if (!is_real_die_position()) return 0;
+			return get_handle().tag_here();
+		}
+		std::unique_ptr<const char, string_deleter>
+		Die::name_here() const
+		{
+			char *str;
+			int ret = dwarf_diename(raw_handle(), &str, &current_dwarf_error);
+			if (ret == DW_DLV_NO_ENTRY) return nullptr;
+			if (ret == DW_DLV_OK) return unique_ptr<const char, string_deleter>(
+				str, string_deleter(get_dbg()));
+			assert(false);
+		}
 		std::unique_ptr<const char, string_deleter>
 		iterator_base::name_here() const
 		{
 			if (!is_real_die_position()) return nullptr;
-			char *str;
-			int ret = dwarf_diename(get_raw_handle(), &str, &current_dwarf_error);
-			if (ret == DW_DLV_NO_ENTRY) return nullptr;
-			if (ret == DW_DLV_OK) return unique_ptr<const char, string_deleter>(
-				str, string_deleter(p_root->get_dbg()));
-			assert(false);
+			return get_handle().name_here();
 		}
-		
+		bool Die::has_attr_here(Dwarf_Half attr) const
+		{
+			Dwarf_Bool returned;
+			int ret = dwarf_hasattr(raw_handle(), attr, &returned, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			return returned;
+		}		
+		bool iterator_base::has_attr_here(Dwarf_Half attr)
+		{
+			if (!is_real_die_position()) return false;
+			return get_handle().has_attr_here(attr);
+		}		
 		iterator_base iterator_base::nearest_enclosing(Dwarf_Half tag) const
 		{
 			if (tag == DW_TAG_compile_unit)
@@ -403,20 +554,45 @@ case DW_TAG_ ## name: p = new basic_die(*this); break;
 			}
 		}
 		// for nearest_enclosing(DW_TAG_compile_unit), libdwarf supplies a call:
-		Dwarf_Off iterator_base::enclosing_cu_offset_here() const
+		// dwarf_CU_dieoffset_given_die -- gives you the CU of a DIE
+		Dwarf_Off Die::enclosing_cu_offset_here() const
 		{
 			Dwarf_Off cu_offset;
-			auto raw_handle = get_raw_handle();
-			int ret = dwarf_CU_dieoffset_given_die(raw_handle,
+			int ret = dwarf_CU_dieoffset_given_die(raw_handle(),
 				&cu_offset, &current_dwarf_error);
 			if (ret == DW_DLV_OK) return cu_offset;
 			else assert(false);
 		}
-		// dwarf_CU_dieoffset_given_die
-		// -- gives you the CU of a DIE
+// 		Dwarf_Off iterator_base::enclosing_cu_offset_here() const
+// 		{
+// 			return get_handle().enclosing_cu_offset_here();
+// 		}
+		
+		iterator_base iterator_base::parent() const
+		{
+			return p_root->parent(*this);
+		}
+		
 		const iterator_base iterator_base::END; 
-	
-	
+		
+		Dwarf_Half Attribute::attr_here() const
+		{
+			Dwarf_Half attr; 
+			int ret = dwarf_whatattr(handle.get(), &attr, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			return attr;
+		}			
+		
+		Dwarf_Half Attribute::form_here() const
+		{
+			Dwarf_Half form; 
+			int ret = dwarf_whatform(handle.get(), &form, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			return form;
+		}
+		
+		// FIXME: turn some of the above into inlines
+		
 	} /* end namespace core */
 
 	namespace lib

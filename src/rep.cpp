@@ -13,13 +13,13 @@ namespace dwarf
 		static
 		bool
 		is_structurally_rep_compatible(
-			boost::shared_ptr<type_die> arg1, boost::shared_ptr<type_die> arg2)
+			std::shared_ptr<type_die> arg1, std::shared_ptr<type_die> arg2)
 		{
 			// we are always structurally compatible with ourselves
 			if (arg1 == arg2) return true;
 		
-			auto arg1_with_data_members = boost::dynamic_pointer_cast<with_data_members_die>(arg1);
-			auto arg2_with_data_members = boost::dynamic_pointer_cast<with_data_members_die>(arg2);
+			auto arg1_with_data_members = std::dynamic_pointer_cast<with_data_members_die>(arg1);
+			auto arg2_with_data_members = std::dynamic_pointer_cast<with_data_members_die>(arg2);
 			if (!(arg1_with_data_members && arg2_with_data_members)) return false;
 			
 			// HACK: approximately, we require same tags
@@ -70,7 +70,7 @@ namespace dwarf
 					// FIXME: support a name-mapping in here, so that field renamings
 					// can recover rep-compatibility
 				}
-				auto like_named_member = boost::dynamic_pointer_cast<member_die>(
+				auto like_named_member = std::dynamic_pointer_cast<member_die>(
 					like_named_element);
 				if (!like_named_member) return false;
 				
@@ -92,7 +92,7 @@ namespace dwarf
 		}
 
 	
-        bool type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+        bool type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
         {
         	// first, try to make ourselves concrete to
 			// get rid of typedefs and qualifiers
@@ -107,14 +107,14 @@ namespace dwarf
 			std::cerr << "Warning: is_rep_compatible bailing out with default false." << std::endl;
 			return false;
         }
-		bool array_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool array_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
 			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			// HMM: do we want singleton arrays to be rep-compatible wit
 			// non-array single objects? Not so at present.
-			auto arg_array_type = boost::dynamic_pointer_cast<array_type_die>(arg);
+			auto arg_array_type = std::dynamic_pointer_cast<array_type_die>(arg);
 			if (!arg_array_type) return false;
 			
 			return this->calculate_byte_size() && arg_array_type->calculate_byte_size()
@@ -122,36 +122,36 @@ namespace dwarf
 				&& this->get_type() && arg_array_type->get_type()
 				&& this->get_type()->is_rep_compatible(arg_array_type->get_type());
 		}
-		bool pointer_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool pointer_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
 			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			// HMM: do we want pointers and references to be mutually
 			// rep-compatible? Not so at present.
-			auto arg_pointer_type = boost::dynamic_pointer_cast<pointer_type_die>(arg);
+			auto arg_pointer_type = std::dynamic_pointer_cast<pointer_type_die>(arg);
 			if (!arg_pointer_type) return false;
 			else return true; // all pointers are rep-compatible
 		}
-		bool reference_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool reference_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
 			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			// HMM: do we want pointers and references to be mutually
 			// rep-compatible? Not so at present.
-			auto arg_reference_type = boost::dynamic_pointer_cast<reference_type_die>(arg);
+			auto arg_reference_type = std::dynamic_pointer_cast<reference_type_die>(arg);
 			if (!arg_reference_type) return false;
 			else return true; // all references are rep-compatible		
 		}
-		bool base_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool base_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
 			// HACK: strange infinite recursion bug here, so try using get_offset
 			if (!arg->get_concrete_type()) return false;
 			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
-			auto arg_base_type = boost::dynamic_pointer_cast<base_type_die>(arg);
+			auto arg_base_type = std::dynamic_pointer_cast<base_type_die>(arg);
 			if (!arg_base_type) return false;
 			
 			return arg_base_type->get_encoding() == this->get_encoding()
@@ -159,44 +159,44 @@ namespace dwarf
 				&& arg_base_type->get_bit_size () == this->get_bit_size()
 				&& arg_base_type->get_bit_offset() == this->get_bit_offset();
 		}
-		bool structure_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool structure_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
 			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			auto nonconst_this = const_cast<structure_type_die *>(this); // HACK: remove
 			return is_structurally_rep_compatible(
-				boost::dynamic_pointer_cast<type_die>(nonconst_this->get_this()), 
+				std::dynamic_pointer_cast<type_die>(nonconst_this->get_this()), 
 				arg);
 		}
-		bool union_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool union_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
 			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			auto nonconst_this = const_cast<union_type_die *>(this); // HACK: remove
 			return is_structurally_rep_compatible(
-				boost::dynamic_pointer_cast<type_die>(nonconst_this->get_this()), 
+				std::dynamic_pointer_cast<type_die>(nonconst_this->get_this()), 
 				arg);
 		}
-		bool class_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool class_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
         	// first, try to make arg concrete
 			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
 			auto nonconst_this = const_cast<class_type_die *>(this); // HACK: remove
 			return is_structurally_rep_compatible(
-				boost::dynamic_pointer_cast<type_die>(nonconst_this->get_this()), 
+				std::dynamic_pointer_cast<type_die>(nonconst_this->get_this()), 
 				arg);
 		}
-		bool enumeration_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool enumeration_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
 			auto nonconst_this = const_cast<enumeration_type_die *>(this);
 			// first, try to make arg concrete
 			if (arg->get_concrete_type()->get_offset() != arg->get_offset()) return this->is_rep_compatible(
 				arg->get_concrete_type());			
-			auto arg_enumeration_type = boost::dynamic_pointer_cast<enumeration_type_die>(arg);
-			auto arg_base_type = boost::dynamic_pointer_cast<base_type_die>(arg);
+			auto arg_enumeration_type = std::dynamic_pointer_cast<enumeration_type_die>(arg);
+			auto arg_base_type = std::dynamic_pointer_cast<base_type_die>(arg);
 			if (!arg_enumeration_type && !arg_base_type) return false;
 			if (arg_enumeration_type) 
 			{
@@ -220,7 +220,7 @@ namespace dwarf
 			}
 			else return this->get_type()->is_rep_compatible(arg_base_type);
 		}
-		bool subroutine_type_die::is_rep_compatible(boost::shared_ptr<type_die> arg) const
+		bool subroutine_type_die::is_rep_compatible(std::shared_ptr<type_die> arg) const
 		{
 			//cerr << "Testing this subroutine type at 0x" << std::hex << get_offset()
 			//	<< " against arg subroutine type at 0x" << arg->get_offset() << std::dec << endl;

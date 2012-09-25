@@ -8,6 +8,8 @@
 #include "dwarfpp/spec.hpp"
 #include <vector>
 
+/* FIXME: clean up the giant mess that is this file. */
+
 namespace dwarf
 {
 	namespace spec
@@ -620,7 +622,8 @@ namespace dwarf
         template<> dwarf3_def dwarf3_def::inst(TABLE_ARGS_NS(::dwarf::spec));
         /*const*/ abstract_def& dwarf3 = dwarf3_def::inst;
         /*const*/ abstract_def& DEFAULT_DWARF_SPEC = dwarf3_def::inst;
-        
+        /*const*/ abstract_def& DEFAULT_SPEC = dwarf3_def::inst;
+       
         void print_symmetric_map_pair(
         	std::ostream& o,
         	const std::map<const char *, int>& forward_map,

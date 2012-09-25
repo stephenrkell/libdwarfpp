@@ -154,7 +154,7 @@ namespace boost
                     	*const_cast<dwarf::encap::basic_die&>(g).children_begin()
                       )
 	        	).find_sibling_ancestor_of(
-                    boost::dynamic_pointer_cast<dwarf::encap::basic_die>((*e.p_ds)[e.referencing_off])
+                    std::dynamic_pointer_cast<dwarf::encap::basic_die>((*e.p_ds)[e.referencing_off])
                 )
             )
         );
@@ -171,9 +171,9 @@ namespace boost
         auto begin_iter = g_nonconst.children_begin();
         dwarf::encap::basic_die *begin_ptr = dynamic_cast<dwarf::encap::basic_die *>(begin_iter->get());
         dwarf::encap::basic_die& base_ref = *begin_ptr;
-        return boost::dynamic_pointer_cast<dwarf::encap::basic_die>(
+        return std::dynamic_pointer_cast<dwarf::encap::basic_die>(
         	base_ref.find_sibling_ancestor_of(
-        		boost::dynamic_pointer_cast<dwarf::encap::basic_die>((*e.p_ds)[e.off]))
+        		std::dynamic_pointer_cast<dwarf::encap::basic_die>((*e.p_ds)[e.off]))
                 ).get();
     }
     

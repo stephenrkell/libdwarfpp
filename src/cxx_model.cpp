@@ -19,8 +19,8 @@ using std::dec;
 using std::ostringstream;
 using std::deque;
 using boost::optional;
-using boost::shared_ptr;
-using boost::dynamic_pointer_cast;
+using std::shared_ptr;
+using std::dynamic_pointer_cast;
 using namespace dwarf::spec;
 using dwarf::lib::Dwarf_Half;
 using dwarf::lib::Dwarf_Off;
@@ -58,9 +58,9 @@ namespace tool {
 	bool 
 	cxx_generator::is_valid_cxx_ident(const string& word)
 	{
-		static const boost::regex e("[a-zA-Z_][a-zA-Z0-9_]*");
+		static const std::regex e("[a-zA-Z_][a-zA-Z0-9_]*");
 		return !is_reserved(word) &&
-			regex_match(word, e);	
+			std::move(regex_match(word, e));	
 	}
 	
 	string 

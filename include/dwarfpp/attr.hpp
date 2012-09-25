@@ -1,7 +1,7 @@
 /* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
  * 
  * attr.hpp: transparently-allocated, mutable representations 
- *            of libdwarf-like structures.
+ *			of libdwarf-like structures.
  *
  * Copyright (c) 2010, Stephen Kell.
  */
@@ -9,46 +9,46 @@
 #ifndef __DWARFPP_ATTR_HPP
 #define __DWARFPP_ATTR_HPP
 
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 #include "spec.hpp"
-#include "lib.hpp"
+#include "private/libdwarf.hpp"
 //#include "spec_adt.hpp"
-#include "expr.hpp"
+//#include "expr.hpp"
+
+#include <boost/optional.hpp>
 
 namespace dwarf
 {
 	namespace spec { 
-    	class basic_die; class abstract_dieset; class type_die; 
+		class basic_die; class abstract_dieset; class type_die; 
 		std::ostream& operator<<(std::ostream& o, const dwarf::spec::basic_die& d);
-    }
+	}
 	namespace lib 
-    { 
-        std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& rl);
-        bool operator==(const Dwarf_Ranges& arg1, const Dwarf_Ranges& arg2);
-    	class basic_die; 
-    }
+	{ 
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& rl);
+		bool operator==(const Dwarf_Ranges& arg1, const Dwarf_Ranges& arg2);
+		class basic_die; 
+		std::ostream& operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
+		class attribute;
+	}
+	namespace core
+	{
+		struct Attribute;
+		struct Debug;
+		struct Die;
+	}
 	namespace encap
-    {
-    	using namespace dwarf::lib;
-        
+	{
+		using namespace dwarf::lib;
+		class rangelist;
+		
 		template <typename Value> struct die_out_edge_iterator; // forward decl
 		template <typename Value> struct sibling_dep_edge_iterator;
-    	class dieset; // forward decl
-        class die;
-        
-       class rangelist : public std::vector<lib::Dwarf_Ranges> 
-        {
-        public:
-        	template <class In> rangelist(In first, In last) 
-            : std::vector<lib::Dwarf_Ranges>(first, last) {}
-            rangelist() : std::vector<lib::Dwarf_Ranges>() {}
-            
-            boost::optional<std::pair<Dwarf_Off, long> >
-            find_addr(Dwarf_Off file_relative_addr);
-        };
-        std::ostream& operator<<(std::ostream& s, const rangelist& rl);
-        
+		class dieset; // forward decl
+		class die;
+		class loclist;
+		
 		class attribute_value {
 				friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
 				friend std::ostream& dwarf::spec::operator<<(std::ostream& o, const dwarf::spec::basic_die& d);                
@@ -107,30 +107,30 @@ namespace dwarf
                     return n;
                 }
             };
-            struct address 
-			/* Why do we have this? 
-			 * Hmm -- I think it was about overload resolution. Dwarf_Addr
-			 * is just a typedef for some integer type. And one of the other
-			 * constructors of attribute_value was taking that integer type.
-			 * So to disambiguate, we create an encapsulated address data type. */
-            { 
-            	Dwarf_Addr addr; 
-                bool operator==(const address& arg) const { return this->addr == arg.addr; }
-                bool operator!=(const address& arg) const { return !(*this == arg); }
-                bool operator<(const address& arg) const { return this->addr < arg.addr; }
-                bool operator<=(const address& arg) const { return this->addr <= arg.addr; }
-                bool operator>(const address& arg) const { return this->addr > arg.addr; }
-                bool operator>=(const address& arg) const { return this->addr >= arg.addr; }
-                bool operator==(Dwarf_Addr arg) const { return this->addr == arg; }
-                bool operator!=(Dwarf_Addr arg) const { return !(*this == arg); }
-                bool operator<(Dwarf_Addr arg) const { return this->addr < addr; }
-                bool operator<=(Dwarf_Addr arg) const { return this->addr <= addr; }
-                bool operator>(Dwarf_Addr arg) const { return this->addr > addr; }
-                bool operator>=(Dwarf_Addr arg) const { return this->addr >= addr; }
-                //Dwarf_Addr operator Dwarf_Addr() { return addr; }
+			struct address 
+			/* Why do we have this? It's because of overload resolution.
+			 * Dwarf_Addr is just a typedef for some integer type, and one
+			 * of the other constructors of attribute_value also takes that
+			 * integer type. To disambiguate, we create an encapsulated 
+			 * address data type. */
+			{ 
+				Dwarf_Addr addr; 
+				bool operator==(const address& arg) const { return this->addr == arg.addr; }
+				bool operator!=(const address& arg) const { return !(*this == arg); }
+				bool operator<(const address& arg) const { return this->addr < arg.addr; }
+				bool operator<=(const address& arg) const { return this->addr <= arg.addr; }
+				bool operator>(const address& arg) const { return this->addr > arg.addr; }
+				bool operator>=(const address& arg) const { return this->addr >= arg.addr; }
+				bool operator==(Dwarf_Addr arg) const { return this->addr == arg; }
+				bool operator!=(Dwarf_Addr arg) const { return !(*this == arg); }
+				bool operator<(Dwarf_Addr arg) const { return this->addr < addr; }
+				bool operator<=(Dwarf_Addr arg) const { return this->addr <= addr; }
+				bool operator>(Dwarf_Addr arg) const { return this->addr > addr; }
+				bool operator>=(Dwarf_Addr arg) const { return this->addr >= addr; }
+				//Dwarf_Addr operator Dwarf_Addr() { return addr; }
 				/* FIXME: why *not* have the above? There must be a good reason....
 				 *  ambiguity maybe? */
-            };
+			};
 			/*static const attribute_value& DOES_NOT_EXIST() {
 				if (dne_val == 0) dne_val = new attribute_value(); // FIXME: delete this anywhere?
 				return *dne_val;
@@ -177,7 +177,9 @@ namespace dwarf
 			// the following is a temporary HACK to allow core:: to create attribute_values
 		public:
 			attribute_value(const dwarf::core::Attribute& attr, 
-				core::Debug::raw_handle_type dbg,
+				//core::Debug::raw_handle_type dbg,
+				//lib::Dwarf_Debug dbg, // HACK: avoid including defn of core::Debug here
+				const dwarf::core::Die& d,
 				spec::abstract_def& = spec::DEFAULT_DWARF_SPEC);
 		public:
 			attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a);
@@ -189,9 +191,9 @@ namespace dwarf
  			attribute_value(spec::abstract_dieset& ds, const char *s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}
  			attribute_value(spec::abstract_dieset& ds, const std::string& s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}				
  			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
- 			attribute_value(spec::abstract_dieset& ds, boost::shared_ptr<spec::basic_die> ref_target);
-			attribute_value(spec::abstract_dieset& ds, const encap::loclist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(LOCLIST), v_loclist(new encap::loclist(l)) {}
-			attribute_value(spec::abstract_dieset& ds, const encap::rangelist& l) : p_ds(&ds), orig_form(DW_FORM_data4), f(RANGELIST), v_rangelist(new encap::rangelist(l)) {}
+ 			attribute_value(spec::abstract_dieset& ds, std::shared_ptr<spec::basic_die> ref_target);
+			attribute_value(spec::abstract_dieset& ds, const encap::loclist& l);
+			attribute_value(spec::abstract_dieset& ds, const encap::rangelist& l);
 		public:
 			
 			Dwarf_Bool get_flag() const { assert(f == FLAG); return v_flag; }
@@ -200,48 +202,20 @@ namespace dwarf
 			const std::vector<unsigned char> *get_block() const { assert(f == BLOCK); return v_block; }
 			const std::string& get_string() const { assert(f == STRING); return *v_string; }
 			weak_ref& get_ref() const { assert(f == REF); return *v_ref; }
+			Dwarf_Off get_refoff() const { assert(f == REF); return v_ref->off; }
+			Dwarf_Off get_refoff_is_type() const { assert(f == REF); return v_ref->off; }
 			address get_address() const { assert(f == ADDR); return v_addr; }
-			boost::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
+			std::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
 			//spec::basic_die& get_refdie() const; // defined in cpp file
-			boost::shared_ptr<spec::type_die> get_refdie_is_type() const; 
+			std::shared_ptr<spec::type_die> get_refdie_is_type() const; 
             //spec::type_die& get_refdie_is_type() { return dynamic_cast<spec::type_die&>(get_refdie()); }
             /* ^^^ I think a plain reference is okay here because the "this" pointer
              * (i.e. whatever pointer we'll be accessing the attribute through)
              * will be keeping the containing DIE in existence. */
 			const loclist& get_loclist() const { assert(f == LOCLIST); return *v_loclist; }
             const rangelist& get_rangelist() const { assert(f == RANGELIST); return *v_rangelist; }
-			
-			bool operator==(const attribute_value& v) const { 
-				if (this->f != v.f) return false;
-				// else this->f == v.f
-				switch (f)
-				{
-					case NO_ATTR:
-						return true;
-					case FLAG:
-						return this->v_flag == v.v_flag;
-					case UNSIGNED:
-						return this->v_u == v.v_u;
-					case SIGNED:
-						return this->v_s == v.v_s;
-					case BLOCK:
-						return this->v_block == v.v_block;
-					case STRING:
-						return *(this->v_string) == *(v.v_string);
-					case REF:
-						return this->v_ref == v.v_ref;
-					case ADDR:
-						return this->v_addr == v.v_addr;
-					case LOCLIST:
-						return *(this->v_loclist) == *(v.v_loclist);
-                    case RANGELIST:
-                    	return *(this->v_rangelist) == *(v.v_rangelist);
-					default: 
-						std::cerr << "Warning: comparing a dwarf::encap::attribute_value of unknown form " << v.f << std::endl;
-						return false;
-				} // end switch
-			}
-			
+
+			bool operator==(const attribute_value& v) const;
 			bool operator!=(const attribute_value &v) const { return !(*this == v); }
 			
 			void print_raw(std::ostream& s) const;
@@ -250,79 +224,9 @@ namespace dwarf
 			friend std::ostream& operator<<(std::ostream& s, std::pair<const Dwarf_Half, attribute_value>&);
 			//friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
 			// copy constructor
-			attribute_value(const attribute_value& av) : p_ds(av.p_ds), f(av.f)
-			{
-            	assert(this->p_ds == av.p_ds);
-				this->orig_form = av.orig_form;
-				switch (f)
-				{
-					case FLAG:
-						v_flag = av.v_flag;
-					break;
-					case UNSIGNED:
-						v_u = av.v_u;
-					break;
-					case SIGNED:
-						v_s = av.v_s;
-					break;
-					case BLOCK:
-						//std::cerr << "Copy constructing a block attribute value from vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;
-						v_block = new std::vector<unsigned char>(*av.v_block);
-						//std::cerr << "New block is at " << std::hex << (unsigned) v_block << std::dec << std::endl;						
-					break;
-					case STRING:
-						//std::cerr << "Copy constructing a string attribute value from string at 0x" << std::hex << (unsigned) v_string << std::dec << std::endl;
-						v_string = new std::string(*av.v_string);
-						//std::cerr << "New string is at " << std::hex << (unsigned) v_string << std::dec << std::endl;
-					break;
-					case REF:
-						v_ref = /*new ref(av.v_ref->ds, av.v_ref->off, av.v_ref->abs,
-							av.v_ref->referencing_off, av.v_ref->referencing_attr);*/
-                            av.v_ref->clone();
-					break;
-					case ADDR:
-						v_addr = av.v_addr;
-					break;
-					case LOCLIST:
-						v_loclist = new loclist(*av.v_loclist);
-					break;
-                    case RANGELIST:
-                    	v_rangelist = new rangelist(*av.v_rangelist);
-                    break;
-					default: 
-						std::cerr << "Warning: copy-constructing a dwarf::encap::attribute_value of unknown form " << f << std::endl;
-						break;
-				} // end switch				
-			}
+			attribute_value(const attribute_value& av);
 			
-			virtual ~attribute_value() {
-				switch (f)
-				{
-					case FLAG:
-					case UNSIGNED:
-					case SIGNED:
-					case ADDR:
-						// nothing allocated
-					break;
-					case BLOCK:
-						//std::cerr << "Destructing a block attribute_value with vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;
-						delete v_block;
-					break;
-					case STRING:
-						delete v_string;
-					break;
-					case REF:
-						delete v_ref;
-					break;
-					case LOCLIST:
-						delete v_loclist;
-					break;
-                    case RANGELIST:
-                    	delete v_rangelist;
-                    break;
-					default: break;
-				} // end switch
-			} // end ~attribute_value
+			virtual ~attribute_value();
 		}; // end class attribute_value
         
         bool operator==(Dwarf_Addr arg, attribute_value::address a);

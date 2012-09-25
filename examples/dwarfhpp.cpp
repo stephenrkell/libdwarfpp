@@ -31,8 +31,8 @@ using std::istringstream;
 using std::stack;
 using std::deque;
 using boost::optional;
-using boost::shared_ptr;
-using boost::dynamic_pointer_cast;
+using std::shared_ptr;
+using std::dynamic_pointer_cast;
 using namespace dwarf::lib;
 
 #include <boost/graph/graph_concepts.hpp>   
