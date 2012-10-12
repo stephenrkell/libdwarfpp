@@ -619,7 +619,13 @@ namespace dwarf
 			    }
 		    }  
 
-        template<> dwarf3_def dwarf3_def::inst(TABLE_ARGS_NS(::dwarf::spec));
+        template<> dwarf3_def dwarf3_def::inst(TABLE_ARGS_NS(::dwarf::spec))
+		 __attribute__((init_priority(1000))); 
+		 /* FIXME: init priority might be an issue -- need to make sure that we 
+		  * initialize this before any static state that uses DWARF specs in this 
+		  * library. BUT note that static state in *other* libraries is not our 
+		  * problem -- client programmers must get the link order correct so that 
+		  * initialization of client objects happens after this library is init'd. */
         /*const*/ abstract_def& dwarf3 = dwarf3_def::inst;
         /*const*/ abstract_def& DEFAULT_DWARF_SPEC = dwarf3_def::inst;
         /*const*/ abstract_def& DEFAULT_SPEC = dwarf3_def::inst;

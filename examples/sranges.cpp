@@ -45,8 +45,8 @@ int main(int argc, char **argv)
 			/* DWARF doesn't tell us whether a variable is static or not. 
 			 * We want to rule out non-static variables. To do this, we
 			 * rely on our existing lib:: infrastructure. */
-			core::Attribute a(i, DW_AT_location);
-			encap::attribute_value val(a, root.get_dbg());
+			core::Attribute a(i.get_handle(), DW_AT_location);
+			encap::attribute_value val(a, i.get_handle(), i.spec_here());
 			auto loclist = val.get_loclist();
 			bool reads_register = false;
 			for (auto i_loc_expr = loclist.begin(); 
