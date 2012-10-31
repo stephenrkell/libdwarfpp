@@ -53,6 +53,23 @@ namespace dwarf
 				base_type(shared_ptr<spec::base_type_die> p_d);
 				friend std::ostream& operator<<(std::ostream& s, const base_type& c);
 			}; 
+		
+			static const char *base_typename_equivs_schar[];
+			static const char *base_typename_equivs_uchar[];
+			static const char *base_typename_equivs_sshort[];
+			static const char *base_typename_equivs_ushort[];
+			static const char *base_typename_equivs_sint[];
+			static const char *base_typename_equivs_uint[];
+			static const char *base_typename_equivs_slong[];
+			static const char *base_typename_equivs_ulong[];
+			static const char *base_typename_equivs_slonglong[];
+			static const char *base_typename_equivs_ulonglong[];
+			static const char *base_typename_equivs_wchar_t[];
+			static const char *base_typename_equivs_bool[];
+			static const char *base_typename_equivs_float[];
+			static const char *base_typename_equivs_double[];
+			static const char *base_typename_equivs_long_double[];
+			static const char **base_typename_equivs[];
 
 		protected:
 			multimap<base_type, string> base_types;

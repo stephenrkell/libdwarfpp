@@ -34,6 +34,150 @@ namespace dwarf { namespace tool {
 		discover_base_types();
 	}
 	
+	const char *cxx_compiler::base_typename_equivs_schar[] = {
+		"char",
+		"signed char",
+		"char signed",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_uchar[] = {
+		"unsigned char",
+		"char unsigned",
+		NULL
+	}; 
+	const char *cxx_compiler::base_typename_equivs_sshort[] = {
+		"short",
+		"short int",
+		"int short",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_ushort[] = {
+		"unsigned short",
+		"unsigned short int",
+		"short unsigned",
+		"short unsigned int",
+		"int unsigned short",
+		"int short unsigned",
+		"unsigned int short",
+		"short int unsigned",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_sint[] = {
+		"int",
+		"signed", 
+		"signed int",
+		"int signed",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_uint[] = {
+		"unsigned",
+		"unsigned int",
+		"int unsigned",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_slong[] = {
+		"long",
+		"long int", // with int
+		"int long",
+		"signed long int", // with {int, signed}
+		"int signed long",
+		"int long signed",
+		"long signed int",
+		"signed int long",
+		"long signed", // with signed
+		"signed long", 
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_ulong[] = {
+		"unsigned long int", // with {int, signed}
+		"int unsigned long",
+		"int long unsigned",
+		"long unsigned int",
+		"unsigned int long",
+		"long unsigned", // with signed
+		"unsigned long", 
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_slonglong[] = {
+		"long long",
+		"long long int", // with int
+		"long int long",
+		"int long long",
+		"long long signed", // with signed
+		"long signed long",
+		"signed long long",
+		"long long int signed", // with {int, signed} -- int at end
+		"long long signed int",
+		"long signed long int",
+		"signed long long int",
+		"long int long signed", // with {int, signed} -- int moving left
+		"long int signed long",
+		"long signed int long",
+		"signed long int long",
+		"int long long signed",  // with {int, signed} -- int moving left again
+		"int long signed long",
+		"int signed long long",
+		"signed int long long",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_ulonglong[] = {
+		"long long unsigned", // with signed
+		"long unsigned long",
+		"unsigned long long",
+		"long long int unsigned", // with {int, signed} -- int at end
+		"long long unsigned int",
+		"long unsigned long int",
+		"unsigned long long int",
+		"long int long unsigned", // with {int, signed} -- int moving left
+		"long int unsigned long",
+		"long unsigned int long",
+		"unsigned long int long",
+		"int long long unsigned",  // with {int, signed} -- int moving left again
+		"int long unsigned long",
+		"int unsigned long long",
+		"unsigned int long long",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_float[] = {
+		"float",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_double[] = {
+		"double",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_long_double[] = {
+		"long double",
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_bool[] = {
+		"bool",	
+		NULL
+	};
+	const char *cxx_compiler::base_typename_equivs_wchar_t[] = {
+		"wchar_t",
+		NULL
+	};
+
+	const char **cxx_compiler::base_typename_equivs[] = {
+		cxx_compiler::base_typename_equivs_schar, 
+		cxx_compiler::base_typename_equivs_uchar, 
+		cxx_compiler::base_typename_equivs_sshort, 
+		cxx_compiler::base_typename_equivs_ushort, 
+		cxx_compiler::base_typename_equivs_sint, 
+		cxx_compiler::base_typename_equivs_uint, 
+		cxx_compiler::base_typename_equivs_slong, 
+		cxx_compiler::base_typename_equivs_ulong, 
+		cxx_compiler::base_typename_equivs_slonglong, 
+		cxx_compiler::base_typename_equivs_ulonglong, 
+		cxx_compiler::base_typename_equivs_float, 
+		cxx_compiler::base_typename_equivs_double, 
+		cxx_compiler::base_typename_equivs_long_double, 
+		cxx_compiler::base_typename_equivs_bool, 
+		cxx_compiler::base_typename_equivs_wchar_t, 
+		NULL
+	};
+	
 	void cxx_compiler::discover_base_types()
 	{
 		/* Discover the DWARF descriptions of our compiler's base types.
@@ -45,101 +189,18 @@ namespace dwarf { namespace tool {
 
 		// We now try to make these names exhaustive.
 		ostringstream test_src;
-		const char *base_typenames[] = {
-			"char",
-			"signed char",
-			"char signed",
-			
-			"unsigned char",
-			"char unsigned",
-			
-			"short",
-			"short int",
-			"int short",
-			
-			"unsigned short",
-			"unsigned short int",
-			"short unsigned",
-			"short unsigned int",
-			"int unsigned short",
-			"int short unsigned",
-			"unsigned int short",
-			"short int unsigned",
-			
-			"int",
-			"signed", 
-			"signed int",
-			"int signed",
-			
-			"unsigned",
-			"unsigned int",
-			"int unsigned",
-			
-			"long",
-			"long int", // with int
-			"int long",
-			"signed long int", // with {int, signed}
-			"int signed long",
-			"int long signed",
-			"long signed int",
-			"signed int long",
-			"long signed", // with signed
-			"signed long", 
 
-			"unsigned long int", // with {int, signed}
-			"int unsigned long",
-			"int long unsigned",
-			"long unsigned int",
-			"unsigned int long",
-			"long unsigned", // with signed
-			"unsigned long", 
-			
-			"long long",
-			"long long int", // with int
-			"long int long",
-			"int long long",
-			"long long signed", // with signed
-			"long signed long",
-			"signed long long",
-			"long long int signed", // with {int, signed} -- int at end
-			"long long signed int",
-			"long signed long int",
-			"signed long long int",
-			"long int long signed", // with {int, signed} -- int moving left
-			"long int signed long",
-			"long signed int long",
-			"signed long int long",
-			"int long long signed",  // with {int, signed} -- int moving left again
-			"int long signed long",
-			"int signed long long",
-			"signed int long long",
-			
-			"long long unsigned", // with signed
-			"long unsigned long",
-			"unsigned long long",
-			"long long int unsigned", // with {int, signed} -- int at end
-			"long long unsigned int",
-			"long unsigned long int",
-			"unsigned long long int",
-			"long int long unsigned", // with {int, signed} -- int moving left
-			"long int unsigned long",
-			"long unsigned int long",
-			"unsigned long int long",
-			"int long long unsigned",  // with {int, signed} -- int moving left again
-			"int long unsigned long",
-			"int unsigned long long",
-			"unsigned int long long",
-			
-			"float",
-			"double",
-			"long double",
-			"bool",	
-			"wchar_t",
-			NULL
-		};
-
-		vector<string> base_typenames_vec(&base_typenames[0],
-			&base_typenames[sizeof base_typenames / sizeof (const char *) - 1]);
+		vector<string> base_typenames_vec;
+		for (auto p_equiv = base_typename_equivs[0]; p_equiv != NULL; ++p_equiv)
+		{
+			for (auto p_el = p_equiv[0]; p_el != NULL; ++p_el)
+			{
+				base_typenames_vec.push_back(string(p_el));
+			}
+		}
+		
+		//(&base_typenames[0],
+		//	&base_typenames[sizeof base_typenames / sizeof (const char *) - 1]);
 
 		int funcount = 0;
 		for (vector<string>::iterator i_tn = base_typenames_vec.begin();

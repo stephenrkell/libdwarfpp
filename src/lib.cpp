@@ -401,8 +401,11 @@ namespace dwarf
 			 * root and END iterators have no handle, so they can be copied directly. */
 
 			if (it.state == iterator_base::WITH_PAYLOAD) return it.cur_payload;
-			else
+			else // we're a handle
 			{
+				// assert we're *not* sticky -- handles should not be created in the sticky case
+				assert(!is_sticky(it));
+				
 				// heap-allocate the right kind of basic_die
 				
 				/* creates the intrusive ptr, hence bumping the refcount */

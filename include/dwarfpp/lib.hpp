@@ -354,9 +354,17 @@ namespace dwarf
 			 : cur_handle(Die(nullptr)), state(HANDLE_ONLY), m_depth(0), p_root(nullptr) {}
 			
 			static const iterator_base END; // sentinel definition
-			bool is_root_position() const { return p_root && !cur_handle.handle.get(); }  
-			bool is_end_position() const { return !p_root && !cur_handle.handle.get(); }
-			bool is_real_die_position() const { return !is_root_position() && !is_end_position(); } 
+			
+			/* root position is encoded by null handle, null payload
+			 * and non-null root pointer.
+			 * cf. end position, which has null root pointer. */
+			
+			bool is_root_position() const 
+			{ return p_root && !cur_handle.handle && !cur_payload; }  
+			bool is_end_position() const 
+			{ return !p_root && !cur_handle.handle && !cur_payload; }
+			bool is_real_die_position() const 
+			{ return !is_root_position() && !is_end_position(); } 
 			
 			// this constructor sets us up at begin(), i.e. the root DIE position
 			explicit iterator_base(root_die& r)
@@ -385,7 +393,7 @@ namespace dwarf
 					cur_handle = std::move(h);
 					state = HANDLE_ONLY;
 				}
-				m_depth = depth; // now shared yb both cases
+				m_depth = depth; // now shared by both cases
 				p_root = &r;
 			}
 
@@ -398,11 +406,24 @@ namespace dwarf
 			// iterators must be copyable
 			iterator_base(const iterator_base& arg)
 			 : cur_handle(nullptr), 
-			   cur_payload(arg.is_real_die_position() ? arg.get_root().make_payload(arg) : nullptr),
+			   cur_payload(arg.is_real_die_position() ?
+			   	  arg.get_root().make_payload(arg) 
+				: nullptr),
 			   state(WITH_PAYLOAD), 
 			   m_depth(arg.depth()), 
 			   p_root(arg.is_end_position() ? nullptr : &arg.get_root())
-			{ if (arg.is_real_die_position()) assert(false); } // FIXME: make sure root_die does the sticky set
+			{
+				/* Now we're a copy, with payload. AND note that make_payload has modified arg 
+				 * so that it is with payload too. */
+				
+				/* Sticky set: if we were passed a handle, and have therefore turned 
+				 * it into a with_payload DIE, it should not have been sticky. That's
+				 * because we don't create handle DIEs in the sticky case. To make sure,
+				 * we assert this in make_payload. */
+				
+				// assert(!arg.is_real_die_position()); // uncomment for zero-copy
+				// FIXME: make sure root_die does the sticky set
+			} 
 			
 			// ... but we prefer to move them
 			iterator_base(iterator_base&& arg)
