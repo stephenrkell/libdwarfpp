@@ -440,6 +440,8 @@ namespace dwarf
 			const abstract_dieset::position& arg2
 		)
 		{ return arg1 == arg2 || arg1 > arg2; }
+
+		/* Key interface class. */
 		struct basic_die : public std::enable_shared_from_this<basic_die>
 		{
 			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
@@ -462,17 +464,6 @@ namespace dwarf
 			// FIXME: iterator pair //virtual std::pair< > get_children() = 0;
 			abstract_dieset::iterator children_begin() 
 			{
-				/* FIXME: how to remove iterator_here()? 
-				 * 1. We could thread through an optional position_and_path
-				 * from the caller. Will the caller be able to supply it? 
-				 * 2. We could put equivalent children_ methods on
-				 * basic_iterator_base. This is a big change for clients,
-				 * but is arguably a better design.
-				 * 3. We could retreat and just put a position in each
-				 * DIE. This doesn't separate concerns so well, but doesn't
-				 * require changes to clients, and only precludes the
-				 * stacking_dieset design.
-				 */
 				if (first_child_offset()) 
 				{
 					return this->get_first_child()->iterator_here(
@@ -953,6 +944,7 @@ struct with_iterator_partial_order : public Iter
 		
 // define additional virtual dies first -- note that
 // some virtual DIEs are defined manually (above)
+/* program_element_die */
 begin_class(program_element, base_initializations(initialize_base(basic)), declare_base(basic))
         attr_optional(decl_file, unsigned)
         attr_optional(decl_line, unsigned)
@@ -963,6 +955,7 @@ begin_class(program_element, base_initializations(initialize_base(basic)), decla
         attr_optional(visibility, unsigned)
         attr_optional(artificial, flag)
 end_class(program_element)
+/* type_die */
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
         attr_optional(byte_size, unsigned)
         virtual opt<Dwarf_Unsigned> calculate_byte_size() const;
@@ -971,15 +964,18 @@ begin_class(type, base_initializations(initialize_base(program_element)), declar
 		virtual std::shared_ptr<type_die> get_unqualified_type() const;
         std::shared_ptr<type_die> get_concrete_type();
 end_class(type)
+/* type_chain_die */
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
         attr_optional(type, refdie_is_type)
         opt<Dwarf_Unsigned> calculate_byte_size() const;
         std::shared_ptr<type_die> get_concrete_type() const;
 end_class(type_chain)
+/* qualified_type_die */
 begin_class(qualified_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
         virtual std::shared_ptr<type_die> get_unqualified_type() const;
         std::shared_ptr<type_die> get_unqualified_type();
 end_class(qualified_type)
+/* with_data_members_die */
 begin_class(with_data_members, base_initializations(initialize_base(type), initialize_base(with_named_children)), declare_base(type), declare_base(with_named_children))
         child_tag(member)
 		shared_ptr<type_die> find_my_own_definition() const; // for turning declarations into defns

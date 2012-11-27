@@ -267,9 +267,13 @@ namespace dwarf
 				last_seen_next_cu_header = seen_next_cu_header;
 				
 				// also grab the current CU DIE offset
-				auto tmp_handle = Die::try_construct(*this);
-				assert(tmp_handle.get());
-				current_cu_offset = iterator_base(std::move(tmp_handle), 1U, *this).offset_here();
+				Die tmp_d(*this); // "current CU" constructor
+				
+				current_cu_offset = //iterator_base(std::move(tmp_handle), 1U, *this).offset_here();
+					// can't use iterator_base because it will recursively try to make payload, make_cu_payload, 
+					// set_cu_context, ...
+					tmp_d.offset_here();
+				
 				if (prev_current_cu_offset == 0UL)
 				{
 					first_cu_offset = optional<Dwarf_Off>(current_cu_offset);
@@ -307,7 +311,7 @@ namespace dwarf
 			do
 			{
 				ret = advance_cu_context();
-				if (have_no_context) { have_no_context = false; assert(current_cu_offset == 11); }
+				if (ret && have_no_context) { have_no_context = false; assert(current_cu_offset == 11); }
 			}
 			while (current_cu_offset != 0 // i.e. stop if we hit the no-context case
 				&& current_cu_offset != off // i.e. stop if we reach our target
@@ -403,32 +407,19 @@ namespace dwarf
 			if (it.state == iterator_base::WITH_PAYLOAD) return it.cur_payload;
 			else // we're a handle
 			{
-				// assert we're *not* sticky -- handles should not be created in the sticky case
-				assert(!is_sticky(it));
+				assert(it.state == iterator_base::HANDLE_ONLY);
+
+				// assert we're *not* sticky -- 
+				// iterators with handles should not be created in the sticky case.
+				// Whenever we construct an iterator, we build sticky payload if necessary.
+				assert(!is_sticky(it.get_handle().handle));
 				
-				// heap-allocate the right kind of basic_die
-				
-				/* creates the intrusive ptr, hence bumping the refcount */
-				it.cur_payload = core::factory::for_spec(it.spec_here()).make_payload(it);
+				/* heap-allocate the right kind of basic_die, 
+				 * creating the intrusive ptr, hence bumping the refcount */
+				it.cur_payload = core::factory::for_spec(it.spec_here()).make_payload(std::move(it.get_handle().handle), *this);
 				it.state = iterator_base::WITH_PAYLOAD;
 				
-				/* fill in the CU fields -- this code would be shared by all 
-				 * factories, so we put it here (but HMM, if our factories were
-				 * a delegation chain, we could just put it in the root). */
-				if (it.tag_here() == DW_TAG_compile_unit)
-				{
-					bool ret = set_cu_context(it.offset_here());
-					assert(ret);
-					auto cu = dynamic_pointer_cast<compile_unit_die>(it.cur_payload);
-					cu->cu_header_length = *last_seen_cu_header_length;
-					cu->version_stamp = *last_seen_version_stamp;
-					cu->abbrev_offset = *last_seen_abbrev_offset;
-					cu->address_size = *last_seen_address_size;
-					cu->offset_size = *last_seen_offset_size;
-					cu->extension_size = *last_seen_extension_size;
-					cu->next_cu_header = *last_seen_next_cu_header;
-				}
-				else
+				if (it.tag_here() != DW_TAG_compile_unit)
 				{
 					cerr << "Warning: made payload for non-CU " << endl;
 				}
@@ -444,23 +435,52 @@ namespace dwarf
 		 * (rather than trying to do core::factory<dwarf3_def::inst>.make_payload(handle), 
 		 * which wouldn't let us do get_spec().factory()...
 		 * BUT
-		 * core::factory_for(dwarf3_def::inst).make_payload(handle) WOULD work. So
+		 * core::factory_for(dwarf3_def::inst).make_payload(handle) WOULD swork. So
 		 * it's a toss-up. Go with the latter. */
-		
+				
 		dwarf3_factory_t dwarf3_factory;
-		basic_die *dwarf3_factory_t::make_payload(const iterator_base& it)
+		basic_die *dwarf3_factory_t::make_non_cu_payload(Die::handle_type&& h, root_die& r)
 		{
 				basic_die *p;
-				switch (it.tag_here())
+				Die d(std::move(h));
+				assert(d.tag_here() != DW_TAG_compile_unit);
+				switch (d.tag_here())
 				{
 #define factory_case(name, ...) \
-case DW_TAG_ ## name: p = new name ## _die(it.spec_here(), std::move(it.get_handle())); break; // FIXME: not "basic_die"...
+case DW_TAG_ ## name: p = new name ## _die(d.spec_here(r), std::move(d.handle)); break; // FIXME: not "basic_die"...
 #include "dwarf3-factory.h"
 #undef factory_case
-					default: p = new basic_die(it.spec_here(), std::move(it.get_handle())); break;
+					default: p = new basic_die(d.spec_here(r), std::move(d.handle)); break;
 				}
 				return p;
 		}
+			
+		compile_unit_die *factory::make_cu_payload(Die::handle_type&& h, root_die& r)
+		{
+			// Key point: we're not allowed to call Die::spec_here() for this handle. 
+			// We could write libdwarf-level code to grab the version stamp and 
+			// so on... for now, just construct the thing.
+			Die d(std::move(h));
+			Dwarf_Off off = d.offset_here();
+			auto p = new compile_unit_die(dwarf::spec::dwarf3, std::move(d.handle));
+			/* fill in the CU fields -- this code would be shared by all 
+			 * factories, so we put it here (but HMM, if our factories were
+			 * a delegation chain, we could just put it in the root). */
+
+			bool ret = r.set_cu_context(off);
+			assert(ret);
+
+			p->cu_header_length = *r.last_seen_cu_header_length;
+			p->version_stamp = *r.last_seen_version_stamp;
+			p->abbrev_offset = *r.last_seen_abbrev_offset;
+			p->address_size = *r.last_seen_address_size;
+			p->offset_size = *r.last_seen_offset_size;
+			p->extension_size = *r.last_seen_extension_size;
+			p->next_cu_header = *r.last_seen_next_cu_header;
+			
+			return p;
+		}
+		
 		basic_die *dwarf3_factory_t::dummy_for_tag(Dwarf_Half tag)
 		{
 			static basic_die dummy_basic(dwarf::spec::dwarf3);
@@ -478,11 +498,18 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			}
 		}
 		
-		bool root_die::is_sticky(const iterator_base& it)
+		bool root_die::is_sticky(const Die::handle_type& h)
 		{
 			/* This sets the default policy for stickiness: compile unit DIEs
-			 * are sticky, but others aren't. */
-			return it.tag_here() == DW_TAG_compile_unit;
+			 * are sticky, but others aren't. Note that since we do the sticky
+			 * test before making payload, we need to use raw libdwarf functions.
+			 * We can't construct a Die because that means std::move(), and our 
+			 * caller will still need the handle. */
+			
+			Dwarf_Half tag;
+			int ret = dwarf_tag(h.get(), &tag, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			return tag == DW_TAG_compile_unit;
 		}
 		
 		Dwarf_Off Die::offset_here() const

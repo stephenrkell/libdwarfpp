@@ -34,9 +34,12 @@ namespace dwarf { namespace tool {
 		discover_base_types();
 	}
 	
+	/* We put first the ones that GCC's DWARF generator seems to use.
+	 * This is helpful in libcrunch, to avoid defining too many uniqtype symbol aliases, 
+	 * although eventually we should define the full set anyway. */
 	const char *cxx_compiler::base_typename_equivs_schar[] = {
-		"char",
 		"signed char",
+		"char",
 		"char signed",
 		NULL
 	};
@@ -46,16 +49,16 @@ namespace dwarf { namespace tool {
 		NULL
 	}; 
 	const char *cxx_compiler::base_typename_equivs_sshort[] = {
-		"short",
 		"short int",
+		"short",
 		"int short",
 		NULL
 	};
 	const char *cxx_compiler::base_typename_equivs_ushort[] = {
-		"unsigned short",
-		"unsigned short int",
-		"short unsigned",
 		"short unsigned int",
+		"unsigned short",
+		"short unsigned",
+		"unsigned short int",
 		"int unsigned short",
 		"int short unsigned",
 		"unsigned int short",
@@ -70,14 +73,14 @@ namespace dwarf { namespace tool {
 		NULL
 	};
 	const char *cxx_compiler::base_typename_equivs_uint[] = {
-		"unsigned",
 		"unsigned int",
+		"unsigned",
 		"int unsigned",
 		NULL
 	};
 	const char *cxx_compiler::base_typename_equivs_slong[] = {
+		"long int", 
 		"long",
-		"long int", // with int
 		"int long",
 		"signed long int", // with {int, signed}
 		"int signed long",
@@ -99,8 +102,8 @@ namespace dwarf { namespace tool {
 		NULL
 	};
 	const char *cxx_compiler::base_typename_equivs_slonglong[] = {
+		"long long int",
 		"long long",
-		"long long int", // with int
 		"long int long",
 		"int long long",
 		"long long signed", // with signed
@@ -121,11 +124,11 @@ namespace dwarf { namespace tool {
 		NULL
 	};
 	const char *cxx_compiler::base_typename_equivs_ulonglong[] = {
+		"long long unsigned int",
 		"long long unsigned", // with signed
 		"long unsigned long",
 		"unsigned long long",
 		"long long int unsigned", // with {int, signed} -- int at end
-		"long long unsigned int",
 		"long unsigned long int",
 		"unsigned long long int",
 		"long int long unsigned", // with {int, signed} -- int moving left
