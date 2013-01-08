@@ -557,12 +557,12 @@ namespace dwarf {
 				{ if (name) put_attr(DW_AT_name, dwarf::encap::attribute_value( \
 					parent->get_ds(), std::string(*name))); } 
 				
-#define begin_class(fragment, base_inits, ...) \
+#define begin_class(fragment, base_inits, base_decls...) \
 	struct fragment ## _die : public encap::basic_die, public virtual spec:: fragment ## _die { \
 		typedef fragment ## _die self_type; \
 		friend class factory; \
 		constructor(fragment)
-/* #define base_initializations(...) __VA_ARGS__ */
+#define base_initializations(...) __VA_ARGS__
 #define end_class(fragment) \
 	};
 
@@ -736,6 +736,7 @@ namespace dwarf {
 
 #undef forward_decl
 #undef declare_base
+#undef declare_bases
 #undef base_fragment
 #undef initialize_base
 #undef constructor

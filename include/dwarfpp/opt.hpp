@@ -6,11 +6,15 @@
 
 namespace dwarf
 {
+	namespace core 
+	{
+		struct iterator_base; 
+	}
 	namespace spec
 	{
 		/* FIXME: this stuff arguably doesn't belong in spec --
 		 * rather, it belongs in a util area.
-		 * So do the exception types we define, like Not_supportd and No_entry,
+		 * So do the exception types we define, like Not_supported and No_entry,
 		 * arguably, although at least some of those correspond directly to
 		 * libdwarf errors, so should perhaps go/stay in lib::. */
 	
@@ -95,6 +99,11 @@ namespace dwarf
 			template <class U>
  			opt<T>& operator=(const opt<U>& arg) { assign(arg); return *this; }
 		};
+		
+		/* END the non-specialised opt<> case. */
+		
+		/* BEGIN the opt<> case specialized for shared_ptr. */
+		
 		template <typename T>
 		struct opt<shared_ptr<T> > : shared_ptr<T> 
 		{
@@ -162,6 +171,8 @@ namespace dwarf
 			{ *((super *) this) = (const super&) arg; return *this; }
 		};
 		
+	/* END specialization for opt<shared_ptr <T> > */
+		
 		/* This does the opposite. We only need it in encap.hpp where we have macros
 		 * that want to do attribute_value(*a) for any argument a. Normally the caller
 		 * would know not to do *a, but in that macroised generic code, we can't know. */
@@ -173,7 +184,12 @@ namespace dwarf
 		T deref_opt(const opt<T>& arg)
 		{ return *arg; }
 		
-	}
+		/* BEGIN declaration of specialization for core:: iterator_base.
+		 * We don't define this until lib.hpp. */
+		template <>
+		struct opt< core::iterator_base >;
+		
+	} /* end namespace spec */
 }
 
 #endif

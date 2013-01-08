@@ -30,8 +30,8 @@ def main(argv):
         print "forward_decl(%s)" % tag
     for (tag, (attr_list, children, bases) ) in tags:
         print "begin_class(%s, %s, %s)" % (tag, \
-        'base_initializations(' + ', '.join(["initialize_base(" + base + ")" for base in bases]) + ')', \
-        ', '.join(["declare_base(%s)" % base for base in bases]))
+        'base_initializations(' + ', '.join(["initialize_base(" + base + ")" for base in bases if base != "basic"]) + ')', \
+        ', '.join(["declare_base(%s)" % base for base in bases if base != "basic"]))
         for (attr, mand) in attr_list:
             print "\tattr_%s(%s, %s)" % (mandatory_fragment(mand), attr, attr_type_map[attr])
         for (attr, mand) in super_attrs(tag):

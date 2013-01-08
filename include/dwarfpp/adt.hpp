@@ -378,9 +378,10 @@ namespace dwarf
 /* begin generated ADT includes                                 */
 /****************************************************************/
 #define forward_decl(t) class t ## _die;
-//#define declare_base(base) base ## _die
+#define declare_base(base) /*base ## _die*/
 //#define base_fragment(base) base ## _die(ds, p_d) {}
-//#define initialize_base(fragment) virtual spec:: fragment ## _die(ds, p_d)
+#define initialize_base(fragment) /*virtual spec:: fragment ## _die(ds, p_d)*/
+#define declare_bases(...) __VA_ARGS__
 #define constructor(fragment) \
 		/* "exactly this" */ \
 		friend class dieset; \
@@ -395,10 +396,10 @@ namespace dwarf
 		/* "specific offset" */ \
 		fragment ## _die(dieset& ds, Dwarf_Off off) \
 		 : basic_die(ds, off) {}
-#define begin_class(fragment, base_inits, ...) \
+#define begin_class(fragment, base_inits, base_decls...) \
 	struct fragment ## _die : public lib::basic_die, public virtual spec:: fragment ## _die { \
     	constructor(fragment)
-/* #define base_initializations(...) __VA_ARGS__ */
+#define base_initializations(...) __VA_ARGS__
 #define end_class(fragment) \
 	};
 
@@ -463,6 +464,8 @@ namespace dwarf
 #undef constructor
 #undef begin_class
 #undef base_initializations
+#undef declare_base
+#undef declare_bases
 #undef end_class
 #undef stored_type_string
 #undef stored_type_flag

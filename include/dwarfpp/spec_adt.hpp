@@ -712,11 +712,11 @@ namespace dwarf
 #define base_fragment(base) base ## _die(ds, p_d) {} /* unused */
 #define initialize_base(fragment) fragment ## _die(ds, p_d)
 #define constructor(fragment) 
-        
-#define begin_class(fragment, base_inits, ...) \
-	struct fragment ## _die : __VA_ARGS__ { \
+#define declare_bases(...) __VA_ARGS__
+#define begin_class(fragment, base_inits, base_decls...) \
+	struct fragment ## _die : declare_bases(base_decls) { \
     	constructor(fragment)
-/* #define base_initializations(...) __VA_ARGS__ */
+#define base_initializations(...) __VA_ARGS__
 #define end_class(fragment) \
 	};
 
@@ -945,7 +945,7 @@ struct with_iterator_partial_order : public Iter
 // define additional virtual dies first -- note that
 // some virtual DIEs are defined manually (above)
 /* program_element_die */
-begin_class(program_element, base_initializations(initialize_base(basic)), declare_base(basic))
+begin_class(program_element, base_initializations())
         attr_optional(decl_file, unsigned)
         attr_optional(decl_line, unsigned)
         attr_optional(decl_column, unsigned)
@@ -1087,6 +1087,8 @@ end_class(with_data_members)
 #undef constructor
 #undef begin_class
 #undef base_initializations
+#undef declare_base
+#undef declare_bases
 #undef end_class
 #undef stored_type_string
 #undef stored_type_flag
