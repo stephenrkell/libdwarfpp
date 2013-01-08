@@ -4,7 +4,7 @@ You will need recent g++ (at least 4.5) to build most of the code. Also
 libdwarf, libunwind, boost, and other things you probably already have.
 
 For pmirror, you *also* need malloc_hooks.c:
-<http://www.cs.ox.ac.uk/people/stephen.kell/software/malloc_hooks.c>
+<http://www.inf.usi.ch/postdoc/kells/software/malloc_hooks.c>
 -- I should really put it in a repository, but it doesn't
 really belong in any. Although it's a C file, put it in an include dir.
 
