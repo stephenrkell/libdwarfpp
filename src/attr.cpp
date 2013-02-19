@@ -274,6 +274,7 @@ namespace dwarf
 		// temporary HACK: copy 
 		attribute_value::attribute_value(const dwarf::core::Attribute& a, 
 			const core::Die& d,
+			root_die& r, 
 			spec::abstract_def& spec /* = spec::DEFAULT_DWARF_SPEC */)
 		{
 			int retval;
@@ -352,7 +353,7 @@ namespace dwarf
 						this->f = LOCLIST;
 						// replaced lib::loclist with core::LocdescList
 						//this->v_loclist = new loclist(dwarf::lib::loclist(a, a.get_dbg()));
-						core::LocdescList ll(core::LocdescList::try_construct(a));
+						core::LocdescList ll(core::LocdescList::try_construct(a)); // why not just ll(a)? 
 						this->v_loclist = new loclist(ll);
 						break;
 					}
@@ -364,14 +365,7 @@ namespace dwarf
 					}
 				case spec::interp::rangelistptr: {
 					this->f = RANGELIST;
-					this->v_rangelist = new rangelist(
-						/* FIXME: to extract Dwarf_Ranges, we should really pass a Die, 
-						 * not just an Attribute. This would let us call dwarf_ranges_s
-						 * and therefore support variable address size. But we have no 
-						 * access to the Die here. We would have to add an extra parameter
-						 * to this function, or create a whole new overload. */
-						/*rs.begin(), rs.end()*/ core::RangeList(a, d)
-					);
+					this->v_rangelist = new rangelist(core::RangeList(a, d));
 				} break;
 				case spec::interp::lineptr:
 				case spec::interp::macptr:
@@ -390,6 +384,77 @@ namespace dwarf
 					//break;
 			}
 			
+		}
+		core::iterator_df<> attribute_value::get_refiter() const // { assert(f == REF); return v_ref->off; }
+		{
+			/* To make an iterator, we need
+			 * - a root
+			 * - an offset
+			 * - (a depth, but we have to get that by searching in our case)
+			 */
+			assert(false);
+			
+			/* A possible solution: 
+			 * - all DIEs have a reference to their enclosing compile unit DIE (sticky)
+			 * - all compile unit DIEs have a "default root" 
+			 *   -- this can be set by the user, but defaults to the physical root
+			 * -- what does this achieve? 
+			 * -- all functions which currently need a "root" argument still have one
+			 *    ... but it can be defaulted.
+			 *    QUESTION: how do we default it? opt<root_die&> p_root = opt<root_die&>()
+			 * -- for get_<type> attribute accessors, what do we need to thread in?
+			 *    -- the compile_unit_die would be cleanest, 
+			 *       because it includes both spec and default root 
+			 *       (but doesn't let us choose an alternative root!)
+			 *    -- root_die would be clearest in the API design, but 
+			 *       leaves the spec undecided. Maybe that's okay -- we've already
+			 *       decided the spec when we *create* the attribute value? 
+			 *    -- spec is not enough
+			 *    -- AH but we've solved this already with weak_ref and ref. 
+			 *       We need to update them to the "core" way of doing things. 
+			 *    -- Summary: when creating an attribute value, pass a 
+			 *       spec *and* a root? 
+			 *       When getting an attribute value, no need to pass anything.
+			 *    -- This means copy_attrs will need a root, as before. 
+			 *       The root is obligatory because without it we can only get the CU offset,
+			 *       not the actual CU iterator or DIE.
+			 * 
+			 * Regarding the problem with get_<>() now requiring a root_die& , 
+			 * it might make things easier if every Die has a "constructing root"; 
+			 * does this supplant the "default root" idea? 
+			 * No because "constructing" is fixed, whereas we might want to set the
+			 * default root on CUs that participate in a stacking dieset.
+			 *
+			 * We seem to have the worst of both worlds now -- we need a root_die
+			 * *both* at every get_<>() *and* on constructing attribute_values. 
+			 * Whereas we should only need one or the other (i.e. eagerly encapsulate
+			 * the root on copy_attrs, or lazily pass it in when actually getting an
+			 * attr. But hmm, copy_attrs and get_<>() work differently -- 
+			 * when we consume attrs we use either/or, not both.
+			 * */
+			 
+		}
+		core::iterator_df<core::type_die> attribute_value::get_refiter_is_type() const // { assert(f == REF); return v_ref->off; }
+		{
+			return get_refiter();
+		}
+		
+		attribute_map::attribute_map(const core::AttributeList& l, const core::Die& d, 
+			root_die& r, spec::abstract_def& spec /* = 0 */)
+		{
+			for (auto i = l.copied_list.begin(); i != l.copied_list.end(); ++i)
+			{
+				this->insert(make_pair(i->attr_here(), attribute_value(*i, d, r, spec)));
+			}
+		}
+		std::ostream& operator<<(std::ostream& s, const attribute_map& m)
+		{
+			for (auto i = m.begin(); i != m.end(); ++i)
+			{
+				/* FIXME: synchronise syntax with other operator<<s (encap, lib)  */
+				s << spec::DEFAULT_DWARF_SPEC.attr_lookup(i->first) << ": " << i->second;
+			}
+			return s;
 		}
 		
 		attribute_value::attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a)

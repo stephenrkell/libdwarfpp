@@ -2041,8 +2041,9 @@ namespace dwarf
 					if (!i.has_attribute_here(DW_AT_visibility)) visible = true;
 					else
 					{
-						core::Attribute a(i.get_handle(), DW_AT_visibility);
-						encap::attribute_value val(a, i.get_handle(), i.spec_here());
+						core::Attribute a(dynamic_cast<core::Die&>(i.get_handle()), DW_AT_visibility);
+						encap::attribute_value val(a, 
+							dynamic_cast<core::Die&>(i.get_handle()), i.spec_here());
 						visible = (val.get_unsigned() != DW_VIS_local);
 					}
 

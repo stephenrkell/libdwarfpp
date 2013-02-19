@@ -12,11 +12,11 @@
 #include <memory>
 
 #include "spec.hpp"
-#include "private/libdwarf.hpp"
-//#include "spec_adt.hpp"
-//#include "expr.hpp"
+#include "private/libdwarf.hpp" /* includes libdwarf.h, Error, No_entry, some fwddecls */
 
 #include <boost/optional.hpp>
+
+#include <srk31/util.hpp> /* for forward_constructors */
 
 namespace dwarf
 {
@@ -35,8 +35,14 @@ namespace dwarf
 	namespace core
 	{
 		struct Attribute;
+		struct AttributeList;
 		struct Debug;
 		struct Die;
+		struct root_die;
+		struct iterator_base;
+		struct basic_die;
+		struct type_die;
+		template <typename DerefAs = basic_die> struct iterator_df;
 	}
 	namespace encap
 	{
@@ -48,6 +54,7 @@ namespace dwarf
 		class dieset; // forward decl
 		class die;
 		class loclist;
+		using core::root_die;
 		
 		class attribute_value {
 				friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
@@ -179,7 +186,8 @@ namespace dwarf
 			attribute_value(const dwarf::core::Attribute& attr, 
 				//core::Debug::raw_handle_type dbg,
 				//lib::Dwarf_Debug dbg, // HACK: avoid including defn of core::Debug here
-				const dwarf::core::Die& d,
+				const dwarf::core::Die& d, 
+				root_die& r,
 				spec::abstract_def& = spec::DEFAULT_DWARF_SPEC);
 		public:
 			attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a);
@@ -204,6 +212,8 @@ namespace dwarf
 			weak_ref& get_ref() const { assert(f == REF); return *v_ref; }
 			Dwarf_Off get_refoff() const { assert(f == REF); return v_ref->off; }
 			Dwarf_Off get_refoff_is_type() const { assert(f == REF); return v_ref->off; }
+			core::iterator_df<> get_refiter() const;// { assert(f == REF); return v_ref->off; }
+			core::iterator_df<core::type_die> get_refiter_is_type() const;// { assert(f == REF); return v_ref->off; }
 			address get_address() const { assert(f == ADDR); return v_addr; }
 			std::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
 			//spec::basic_die& get_refdie() const; // defined in cpp file
@@ -228,6 +238,20 @@ namespace dwarf
 			
 			virtual ~attribute_value();
 		}; // end class attribute_value
+		
+		struct attribute_map : public std::map<Dwarf_Half, attribute_value> 
+		{
+			typedef std::map<Dwarf_Half, attribute_value> base;
+			// forward constructors
+			//forward_constructors(base, attribute_map)
+			// hmm -- this messes with overload resolution; just forward default for now
+			attribute_map() : base() {}
+			
+			// also construct from AttributeList
+			attribute_map(const core::AttributeList& a, const core::Die& d, root_die& r, 
+				spec::abstract_def &p_spec = spec::DEFAULT_DWARF_SPEC);
+		};
+		std::ostream& operator<<(std::ostream& s, const attribute_map& arg); 
         
         bool operator==(Dwarf_Addr arg, attribute_value::address a);
         bool operator!=(Dwarf_Addr arg, attribute_value::address a);

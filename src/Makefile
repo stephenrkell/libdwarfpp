@@ -11,6 +11,9 @@ endif
 CXXFLAGS += -I../include
 CXXFLAGS += -I../include/dwarfpp
 
+# add dependencies on dynamic libs libdwarfpp.so should pull in
+LDFLAGS += -lboost_serialization # why do we need this?
+
 SRC := $(wildcard *.cpp)
 DEPS := $(patsubst %.cpp,.%.d,$(SRC))
 OBJS := $(patsubst %.cpp,%.o,$(SRC))

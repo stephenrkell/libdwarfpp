@@ -110,7 +110,7 @@ artificial_tags = [ \
 ("with_static_location", ([], [], ["basic"])), \
 ("with_dynamic_location", ([], [], ["with_type_describing_layout"])), \
 ("with_type_describing_layout", ([("type", False)], [], ["basic"])), \
-("with_data_members", ([], ["member"], ["type", "with_named_children"]))
+("with_data_members", ([], ["member"], ["type"]))
 ]
 artificial_tag_map = dict(artificial_tags)
 

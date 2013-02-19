@@ -1,17 +1,14 @@
 *** core integration: 
-make a public-worthy API based on core, but including adt/factory functionality
---- start with lib.hpp
-reintroduce DerefAs? or some better _nonnull mechanism? or just use filter_iterator?
-move all the crufty old stuff into compat/*
-add compat.hpp and include compat/*
+why do we need to pass in a root_die& just to get attrs?
+fix base().base().base() problem
+move all the crufty old stuff into compat/*; add compat.hpp and include compat/*
 
 
 optimisation:
 make dwarfpplibdump comparable to dwarfdump
-consider avoiding some shared_ptr copies by using const... & ?
 
-API changes: 
-change "contains_addr_" wording
+implementation completeness: 
+replace uses of dynamic_cast<Die&> with a solution that's robust to non-libdwarf impls
 
 API completion:
 more const+nonconst completeness (accessors, iterators)
