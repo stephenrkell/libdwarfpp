@@ -89,7 +89,7 @@ namespace dwarf
 			}
         }
             
-		    /* DWARF3: tags */
+		    /* DWARF4: tags */
 		    #define TAG_PAIR_LIST(make_pair, last_pair) \
 							    make_pair(DW_TAG_array_type) \
 							    make_pair(DW_TAG_class_type) \
@@ -148,7 +148,10 @@ namespace dwarf
 							    make_pair(DW_TAG_imported_unit) /* DWARF3 */ \
 							    make_pair(DW_TAG_mutable_type) /* Withdrawn from DWARF3 by DWARF3f. */ \
 							    make_pair(DW_TAG_condition) /* DWARF3f */ \
-							    last_pair(DW_TAG_shared_type) /* DWARF3f */
+							    make_pair(DW_TAG_shared_type) /* DWARF3f */ \
+							    make_pair(DW_TAG_type_unit) /* DWARF4 */ \
+							    make_pair(DW_TAG_rvalue_reference_type) /* DWARF4 */ \
+							    last_pair(DW_TAG_template_alias) /* DWARF4 */
 
 		    template<> 
             bool table_def<0U>::tag_is_type(int tag) const
@@ -179,7 +182,8 @@ namespace dwarf
 				    || tag == DW_TAG_interface_type
 				    || tag == DW_TAG_unspecified_type
 				    || tag == DW_TAG_shared_type
-                    || tag == DW_TAG_thrown_type;
+				    || tag == DW_TAG_thrown_type
+				    || tag == DW_TAG_rvalue_reference_type;
 		    }
 		    template<> 
             bool table_def<0U>::tag_is_type_chain(int tag) const
@@ -191,7 +195,8 @@ namespace dwarf
 				    || tag == DW_TAG_volatile_type
 				    || tag == DW_TAG_restrict_type
 				    || tag == DW_TAG_shared_type
-                    || tag == DW_TAG_thrown_type;
+				    || tag == DW_TAG_thrown_type
+				    || tag == DW_TAG_rvalue_reference_type;
 		    }
 		    /* This predicate is intended to match DWARF entries on which we might do
 		     * Cake's "name : pred"-style checking/assertions, where the 'name'd elements
@@ -254,7 +259,7 @@ namespace dwarf
 							    make_decl(DW_AT_lower_bound, interp::block, interp::constant, interp::reference ) \
 							    make_decl(DW_AT_producer, interp::string ) \
 							    make_decl(DW_AT_prototyped, interp::flag ) \
-							    make_decl(DW_AT_return_addr, interp::block, interp::loclistptr ) \
+							    make_decl(DW_AT_return_addr, interp::block, interp::loclistptr, interp::constant ) \
 							    make_decl(DW_AT_start_scope, interp::constant ) \
 							    make_decl(DW_AT_bit_stride, interp::constant ) \
 							    make_decl(DW_AT_upper_bound, interp::block, interp::constant, interp::reference ) \
@@ -265,7 +270,7 @@ namespace dwarf
 							    make_decl(DW_AT_base_types, interp::reference ) \
 							    make_decl(DW_AT_calling_convention, interp::constant ) \
 							    make_decl(DW_AT_count, interp::block, interp::constant, interp::reference ) \
-							    make_decl(DW_AT_data_member_location, interp::block, interp::constant, interp::loclistptr ) \
+							    make_decl(DW_AT_data_member_location, interp::block, interp::constant, interp::loclistptr, interp::constant ) \
 							    make_decl(DW_AT_decl_column, interp::constant ) \
 							    make_decl(DW_AT_decl_file, interp::constant ) \
 							    make_decl(DW_AT_decl_line, interp::constant ) \
@@ -273,20 +278,20 @@ namespace dwarf
 							    make_decl(DW_AT_discr_list, interp::block ) \
 							    make_decl(DW_AT_encoding, interp::constant ) \
 							    make_decl(DW_AT_external, interp::flag ) \
-							    make_decl(DW_AT_frame_base, interp::block, interp::loclistptr ) \
+							    make_decl(DW_AT_frame_base, interp::block, interp::loclistptr, interp::constant ) \
 							    make_decl(DW_AT_friend, interp::reference ) \
 							    make_decl(DW_AT_identifier_case, interp::constant ) \
 							    make_decl(DW_AT_macro_info, interp::macptr ) \
 							    make_decl(DW_AT_namelist_item, interp::block ) \
 							    make_decl(DW_AT_priority, interp::reference ) \
-							    make_decl(DW_AT_segment, interp::block, interp::loclistptr ) \
+							    make_decl(DW_AT_segment, interp::block, interp::loclistptr, interp::constant ) \
 							    make_decl(DW_AT_specification, interp::reference ) \
-							    make_decl(DW_AT_static_link, interp::block, interp::loclistptr ) \
+							    make_decl(DW_AT_static_link, interp::block, interp::loclistptr, interp::constant ) \
 							    make_decl(DW_AT_type, interp::reference ) \
-							    make_decl(DW_AT_use_location, interp::block, interp::loclistptr ) \
+							    make_decl(DW_AT_use_location, interp::block, interp::loclistptr, interp::constant ) \
 							    make_decl(DW_AT_variable_parameter, interp::flag ) \
 							    make_decl(DW_AT_virtuality, interp::constant ) \
-							    make_decl(DW_AT_vtable_elem_location, interp::block, interp::loclistptr ) \
+							    make_decl(DW_AT_vtable_elem_location, interp::block, interp::loclistptr, interp::constant ) \
 							    make_decl(DW_AT_allocated, interp::block, interp::constant, interp::reference ) \
 							    make_decl(DW_AT_associated, interp::block, interp::constant, interp::reference ) \
 							    make_decl(DW_AT_data_location, interp::block ) \
@@ -312,7 +317,14 @@ namespace dwarf
 							    make_decl(DW_AT_object_pointer, interp::reference ) \
 							    make_decl(DW_AT_endianity, interp::constant ) \
 							    make_decl(DW_AT_elemental, interp::flag ) \
-							    last_decl(DW_AT_pure, interp::flag )
+							    make_decl(DW_AT_pure, interp::flag ) \
+							    make_decl(DW_AT_recursive, interp::flag ) \
+							    make_decl(DW_AT_signature, interp::reference ) \
+							    make_decl(DW_AT_main_subprogram, interp::flag ) \
+							    make_decl(DW_AT_data_bit_offset, interp::constant ) \
+							    make_decl(DW_AT_const_expr, interp::flag ) \
+							    make_decl(DW_AT_enum_class, interp::flag ) \
+							    last_decl(DW_AT_linkage_name, interp::string )
 
 		    template<> // specialization of DWARF3-supplied override
             bool table_def<0U>::attr_describes_location(int attr) const
@@ -359,7 +371,12 @@ namespace dwarf
 							    make_decl(DW_FORM_ref4, interp::reference)  \
 							    make_decl(DW_FORM_ref8, interp::reference)  \
 							    make_decl(DW_FORM_ref_udata, interp::reference)  \
-							    last_decl(DW_FORM_indirect, interp::EOL) 
+							    make_decl(DW_FORM_indirect, interp::EOL) \
+							    make_decl(DW_FORM_sec_offset, interp::lineptr, interp::loclistptr, interp::macptr, interp::rangelistptr) \
+							    make_decl(DW_FORM_exprloc, /*interp::exprloc*/ interp::EOL ) \
+							    make_decl(DW_FORM_flag_present, interp::flag ) \
+							    last_decl(DW_FORM_ref_sig8, interp::reference ) 
+								
 
 		    MAKE_LOOKUP(forward_name_mapping_t, form_forward_tbl, PAIR_ENTRY_FORWARDS_VARARGS, PAIR_ENTRY_FORWARDS_VARARGS_LAST, FORM_DECL_LIST);
 		    MAKE_LOOKUP(inverse_name_mapping_t, form_inverse_tbl, PAIR_ENTRY_BACKWARDS_VARARGS, PAIR_ENTRY_BACKWARDS_VARARGS_LAST, FORM_DECL_LIST);

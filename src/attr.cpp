@@ -55,10 +55,14 @@ namespace dwarf
 				case LOCLIST:
 					print_as(s, spec::interp::loclistptr);
 					break;
-                    
-                case RANGELIST:
-                	print_as(s, spec::interp::rangelistptr);
-                    break;
+					
+				case RANGELIST:
+					print_as(s, spec::interp::rangelistptr);
+					break;
+				
+				case UNRECOG:
+					s << "(unrecognised attribute)";
+					break;
 				
 				default: 
 					s << "FIXME! (not present)";
@@ -271,11 +275,10 @@ namespace dwarf
 			}			
 		} // end attribute_value::print_as
 		
-		// temporary HACK: copy 
+		// temporary HACK: copy  (... increasingly less like a copy)
 		attribute_value::attribute_value(const dwarf::core::Attribute& a, 
 			const core::Die& d,
-			root_die& r, 
-			spec::abstract_def& spec /* = spec::DEFAULT_DWARF_SPEC */)
+			root_die& r)
 		{
 			int retval;
 			orig_form = 0;
@@ -288,11 +291,17 @@ namespace dwarf
 			Dwarf_Addr addr;
 			char *str;
 			int cls = spec::interp::EOL; // dummy initialization
+			
+			// find our dwarf spec
+			Dwarf_Off cu_offset = d.enclosing_cu_offset_here();
+			dwarf::spec::abstract_def& spec = r.find(cu_offset).spec_here();
+
 			if (retval != DW_DLV_OK) goto fail; // retval set by whatform() above
-			Dwarf_Half attr; retval = dwarf_whatattr(a.handle.get(), &attr, &core::current_dwarf_error);
+			Dwarf_Half attr; 
+			retval = dwarf_whatattr(a.handle.get(), &attr, &core::current_dwarf_error);
 			if (retval != DW_DLV_OK) goto fail;
+			
 			cls = spec.get_interp(attr, orig_form);
-						
 			switch(cls)
 			{
 				case spec::interp::string:
@@ -325,26 +334,42 @@ namespace dwarf
 					Dwarf_Half referencing_attr = a.attr_here();
 					int ret = dwarf_global_formref(a.handle.get(), &o, &core::current_dwarf_error);
 					assert(ret == DW_DLV_OK);
-					this->v_ref = new weak_ref(*((dwarf::spec::abstract_dieset*)0), o, 
-						true, referencing_off, referencing_attr);
+					this->v_ref = new weak_ref(r, o, true, 
+						referencing_off, referencing_attr);
 					break;
 				}
 				as_if_unsigned:
 				case spec::interp::constant:
-					if (orig_form == DW_FORM_sdata)
+					if (orig_form == DW_FORM_sdata
+					 || orig_form == DW_FORM_data1
+					 || orig_form == DW_FORM_data2
+					 || orig_form == DW_FORM_data4
+					 || orig_form == DW_FORM_data8
+					 )
 					{
 						int ret = dwarf_formsdata(a.handle.get(), &s, &core::current_dwarf_error);
 						assert(ret == DW_DLV_OK);
 						this->f = SIGNED;
 						this->v_s = s;					
 					}
-					else
+					else if (orig_form == DW_FORM_udata) // NOTE: there is no FORM_udata{1,2,4,9}
 					{
 						int ret = dwarf_formudata(a.handle.get(), &u, &core::current_dwarf_error);
 						assert(ret == DW_DLV_OK);
 						this->f = UNSIGNED;
 						this->v_u = u;
 					}
+					else if (orig_form == DW_FORM_sec_offset)
+						// TODO: need to handle ref{1,2,4,8,_udata} here?
+					{
+						Dwarf_Off ref;
+						int ret = dwarf_global_formref(a.handle.get(), &ref, &core::current_dwarf_error); 
+						assert(ret == DW_DLV_OK);
+						u = ref;
+						this->f = UNSIGNED;
+						this->v_u = u;
+					}
+					else assert(false);
 					break;
 				case spec::interp::block_as_dwarf_expr: // dwarf_loclist_n works for both of these
 				case spec::interp::loclistptr:
@@ -373,11 +398,12 @@ namespace dwarf
 				fail:
 				default:
 					// FIXME: we failed to case-catch, or handle, the FORM; do something
-					//std::cerr << "FIXME: didn't know how to handle an attribute "
-					//	<< "numbered 0x" << std::hex << attr << std::dec << " of form "
-					//	<< /*ds.toplevel()->get_spec()*/spec.form_lookup(orig_form) 
-					//	<< ", skipping." << std::endl;
-					throw Not_supported("unrecognised attribute");
+					std::cerr << "FIXME: didn't know how to handle an attribute "
+						<< "numbered 0x" << std::hex << attr << std::dec << " of form "
+						<< /*ds.toplevel()->get_spec()*/spec.form_lookup(orig_form) 
+						<< ", skipping." << std::endl;
+					this->f = UNRECOG;
+					//throw Not_supported("unrecognised attribute");
 					/* NOTE: this Not_supportd doesn't happen in some cases, because often
 					 * we have successfully guessed an interp:: class for the attribute
 					 * anyway. FIXME: remember how this works, and see if we can do better. */
@@ -388,11 +414,13 @@ namespace dwarf
 		core::iterator_df<> attribute_value::get_refiter() const // { assert(f == REF); return v_ref->off; }
 		{
 			/* To make an iterator, we need
-			 * - a root
-			 * - an offset
+			 * - a root    \ normally these are in the weak_ref... just extend that?
+			 * - an offset / 
 			 * - (a depth, but we have to get that by searching in our case)
 			 */
-			assert(false);
+			assert(f == REF);
+			assert(v_ref->p_root);
+			return v_ref->p_root->find(v_ref->off);
 			
 			/* A possible solution: 
 			 * - all DIEs have a reference to their enclosing compile unit DIE (sticky)
@@ -429,8 +457,16 @@ namespace dwarf
 			 * *both* at every get_<>() *and* on constructing attribute_values. 
 			 * Whereas we should only need one or the other (i.e. eagerly encapsulate
 			 * the root on copy_attrs, or lazily pass it in when actually getting an
-			 * attr. But hmm, copy_attrs and get_<>() work differently -- 
-			 * when we consume attrs we use either/or, not both.
+			 * attr. 
+			 * But hmm, copy_attrs and get_<>() work differently -- 
+			 * when we consume attrs we use either/or, not both. So I think we do 
+			 * need both mechanisms. 
+			 * 
+			 * NOTE: as a first stage, I have implemented the optional_root_arg 
+			 * trick, but not the in-CU "default root". Therefore, 
+			 * all use of the defaulted argument will result in the constructing root
+			 * being used. It's likely we'll want the other behaviour once
+			 * stacking diesets are around, but it's unimplemented for now.
 			 * */
 			 
 		}
@@ -444,15 +480,15 @@ namespace dwarf
 		{
 			for (auto i = l.copied_list.begin(); i != l.copied_list.end(); ++i)
 			{
-				this->insert(make_pair(i->attr_here(), attribute_value(*i, d, r, spec)));
+				this->insert(make_pair(i->attr_here(), attribute_value(*i, d, r)));
 			}
 		}
 		std::ostream& operator<<(std::ostream& s, const attribute_map& m)
 		{
 			for (auto i = m.begin(); i != m.end(); ++i)
 			{
-				/* FIXME: synchronise syntax with other operator<<s (encap, lib)  */
-				s << spec::DEFAULT_DWARF_SPEC.attr_lookup(i->first) << ": " << i->second;
+				s << spec::DEFAULT_DWARF_SPEC.attr_lookup(i->first) 
+					<< ": " << i->second << endl;
 			}
 			return s;
 		}
@@ -631,8 +667,11 @@ namespace dwarf
 				case RANGELIST:
 					v_rangelist = new rangelist(*av.v_rangelist);
 				break;
-				default: 
+				case UNRECOG:
 					std::cerr << "Warning: copy-constructing a dwarf::encap::attribute_value of unknown form " << f << std::endl;
+				break; 
+				default: 
+					assert(false);
 					break;
 			} // end switch				
 		}
@@ -711,6 +750,7 @@ namespace dwarf
         attribute_value::weak_ref::operator=(const attribute_value::weak_ref& r)
         {
         	assert(r.p_ds == this->p_ds);
+			assert(r.p_root == this->p_root);
             this->off = r.off;
             this->abs = r.abs;
             this->referencing_off = r.referencing_off;
@@ -721,6 +761,7 @@ namespace dwarf
         attribute_value::weak_ref::weak_ref(const attribute_value::weak_ref& r)
         {
         	this->p_ds = r.p_ds;
+			this->p_root = r.p_root;
             *this = r;
         }
 
@@ -764,38 +805,6 @@ namespace dwarf
 			ds.backrefs()[off].push_back(std::make_pair(referencing_off, referencing_attr));
 		}
 		
-// 		//const attribute_value *attribute_value::dne_val;
-//         boost::optional<std::pair<Dwarf_Off, int> >
-//         arangelist::find_addr(Dwarf_Off cu_relative_address)
-//         {
-//             iterator found = this->end();
-//             Dwarf_Off offset = 0UL;
-//             iterator i;
-//             for (i = this->begin(); i != this->end(); i++)
-//             {
-//                 std::cerr << "Considering arange beginning at " << std::hex << i->start
-//                     << ", length " << i->length << std::endl;
-//                 if (cu_relative_address >= i->start
-//                     && cu_relative_address < i->start + i->length)
-//                 {
-//                     std::cerr << "Matches..." << std::endl;
-//                     found = i;
-//                     offset += cu_relative_address - i->start;
-//                 }
-//                 else if (i->start < cu_relative_address)
-//                 {
-//                     std::cerr << "Precedes." << std::endl;
-//                     offset += i->length;
-//                 }
-//             }
-//             if (found == this->end()) 
-//             {
-//                 std::cerr << "No match." << std::endl;
-// 	            return 0;
-//             }
-//             else return std::make_pair(offset, i - this->begin());
-//         }
-        
 		boost::optional<std::pair<Dwarf_Off, long int> >
 		rangelist::find_addr(Dwarf_Off dieset_relative_address)
 		{

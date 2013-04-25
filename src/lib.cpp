@@ -88,10 +88,8 @@ namespace dwarf
 						<< ", depth " << i.depth()
 						<< ", tag " << i.spec_here().tag_lookup(i.tag_here()) 
 						<< ", attributes: " 
-						<< core::AttributeList(i.attributes_here(), 
-							dynamic_cast<Die&>(i.get_handle()))
+						<< i.copy_attrs(opt<root_die&>()/* use constructing/default root */)
 						<< endl;
-			/* FIXME: this is no good if our abstract_die is not a Die (i.e. libdwarf-backed). */
 			return s;
 		}
 		string abstract_die::summary() const
@@ -108,7 +106,7 @@ namespace dwarf
 				s << dwarf::spec::DEFAULT_DWARF_SPEC.attr_lookup(attrs[i].attr_here());
 				try
 				{
-					encap::attribute_value v(attrs[i], attrs.d);
+					encap::attribute_value v(attrs[i], attrs.d, attrs.d.get_constructing_root());
 					s << ": " << v;
 				} catch (Not_supported)
 				{
@@ -118,6 +116,17 @@ namespace dwarf
 				s << endl;
 			}
 			return s;
+		}
+		
+		/* Attribute access within basic_die */
+		encap::attribute_map  basic_die::all_attrs(optional_root_arg_decl) const
+		{
+			return encap::attribute_map(AttributeList(d), d, get_root(opt_r));
+		}
+		encap::attribute_value basic_die::attr(Dwarf_Half a, optional_root_arg_decl) const
+		{
+			Attribute attr(d, a);
+			return encap::attribute_value(attr, d, get_root(opt_r));
 		}
 		
 		/* Moving around, there are a few concerns to deal with. 
@@ -243,7 +252,7 @@ namespace dwarf
 				auto p_with = dynamic_pointer_cast<with_named_children_die>(cur_payload);
 				if (p_with)
 				{
-					return p_with->named_child(*p_root, name);
+					return p_with->named_child(name, *p_root);
 				}
 			}
 			return p_root->find_named_child(*this, name);
@@ -260,7 +269,6 @@ namespace dwarf
 			}
 			return iterator_base::END;
 		}
-
 		
 		bool root_die::advance_cu_context()
 		{
@@ -612,7 +620,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			if (tag == DW_TAG_compile_unit)
 			{
 				Dwarf_Off cu_off = enclosing_cu_offset_here();
-				return p_root->pos(cu_off, 1);
+				return p_root->cu_pos(cu_off);
 			}
 			else
 			{
@@ -1504,13 +1512,231 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 	namespace core
 	{
 		/* begin pasted from adt.cpp */
-		bool variable_die::has_static_storage(/*root_die& r*/) const
+/* from type_die */
+		opt<Dwarf_Unsigned> type_die::calculate_byte_size(optional_root_arg_decl) const
+		{
+			return get_byte_size(opt_r); 
+		}
+		iterator_df<type_die> type_die::get_concrete_type(optional_root_arg_decl) const
+		{
+			// by default, our concrete self is our self -- we have to find ourselves. :-(
+			return get_root(opt_r).find(get_offset());
+		} 
+		iterator_df<type_die> type_die::get_unqualified_type(optional_root_arg_decl) const
+		{
+			// by default, our unqualified self is our self -- we have to find ourselves. :-(
+			return get_root(opt_r).find(get_offset());
+		} 
+/* from qualified_type_die */
+		iterator_df<type_die> qualified_type_die::get_unqualified_type(optional_root_arg_decl) const
+		{
+			// for qualified types, our unqualified self is our get_type, recursively unqualified
+			opt<iterator_df<type_die> > opt_next_type = get_type(opt_r);
+			if (!opt_next_type) return iterator_base::END; 
+			if (!opt_next_type->base().is_a<qualified_type_die>()) return *opt_next_type;
+			else return iterator_df<qualified_type_die>(std::move(*opt_next_type))
+				->get_unqualified_type();
+		} 
+/* from spec::type_chain_die */
+		opt<Dwarf_Unsigned> type_chain_die::calculate_byte_size(optional_root_arg_decl) const
+		{
+			// Size of a type_chain is always the size of its concrete type
+			// which is *not* to be confused with its pointed-to type!
+			auto next_type = get_concrete_type(opt_r);
+			if (next_type != iterator_base::END)
+			{
+				auto to_return = next_type->calculate_byte_size(opt_r);
+				if (!to_return)
+				{
+					cerr << "Type chain concrete type " << *get_concrete_type(opt_r)
+						<< " returned no byte size" << endl;
+				}
+				return to_return;
+			}
+			else
+			{
+				cerr << "Type with no concrete type: " << *this << endl;
+				return opt<Dwarf_Unsigned>();
+			}
+		}
+		iterator_df<type_die> type_chain_die::get_concrete_type(optional_root_arg_decl) const
+		{
+			// pointer and reference *must* override us -- they do not follow chain
+			assert(get_tag() != DW_TAG_pointer_type
+				&& get_tag() != DW_TAG_reference_type);
+			
+			auto opt_next_type = get_type(opt_r);
+			if (!opt_next_type) return iterator_base::END; // a.k.a. None
+			else return (*opt_next_type)->get_concrete_type(opt_r);
+		}
+/* from spec::pointer_type_die */  
+		iterator_df<type_die> pointer_type_die::get_concrete_type(optional_root_arg_decl) const 
+		{
+			// we have to find ourselves :-(
+			return get_root(opt_r).find(get_offset());
+		}
+		opt<Dwarf_Unsigned> pointer_type_die::calculate_byte_size(optional_root_arg_decl) const 
+		{
+			root_die& r = get_root(opt_r);
+			auto opt_size = get_byte_size(r);
+			if (opt_size) return opt_size;
+			else return r.cu_pos(get_enclosing_cu_offset())->get_address_size(/*opt_r*/);
+		}
+/* from spec::reference_type_die */  
+		iterator_df<type_die> reference_type_die::get_concrete_type(optional_root_arg_decl) const 
+		{
+			// we have to find ourselves :-(
+			return get_root(opt_r).find(get_offset());
+		}
+		opt<Dwarf_Unsigned> reference_type_die::calculate_byte_size(optional_root_arg_decl) const 
+		{
+			root_die& r = get_root(opt_r);
+			auto opt_size = get_byte_size(r);
+			if (opt_size) return opt_size;
+			else return r.cu_pos(get_enclosing_cu_offset())->get_address_size(/*r*/);
+		}
+/* from spec::array_type_die */
+		opt<Dwarf_Unsigned> array_type_die::element_count(optional_root_arg_decl) const
+		{
+			auto element_type = get_type(opt_r);
+			assert(element_type && *element_type != iterator_base::END);
+			opt<Dwarf_Unsigned> count;
+			root_die& r = get_root(opt_r);
+			// we have to find ourselves. :-(
+			auto self = r.find(get_offset());
+			auto enclosing_cu = r.cu_pos(get_enclosing_cu_offset());
+			auto opt_implicit_lower_bound = enclosing_cu->implicit_array_base();
+			
+			auto subrs = self.children_here().subseq_of<subrange_type_die>();
+			for (auto i_subr = std::move(subrs.first); i_subr != subrs.second; ++i_subr)
+			{
+				auto opt_count = i_subr->get_count(r);
+				if (opt_count) 
+				{
+					count = *opt_count;
+					break;
+				}
+				else
+				{
+					auto opt_lower_bound = i_subr->get_lower_bound(r);
+					Dwarf_Unsigned lower_bound;
+					if (opt_lower_bound) lower_bound = *opt_lower_bound;
+					else if (opt_implicit_lower_bound) lower_bound = *opt_implicit_lower_bound;
+					else break; // give up
+					
+					opt<Dwarf_Unsigned> opt_upper_bound = i_subr->get_upper_bound(r);
+					if (!opt_upper_bound) break; // give up
+					
+					Dwarf_Unsigned upper_bound = *opt_upper_bound;
+					assert(upper_bound < 10000000); // detects most garbage
+					count = upper_bound - lower_bound + 1;
+					break;
+				}
+			}
+			return count;
+		}
+
+		opt<Dwarf_Unsigned> array_type_die::calculate_byte_size(optional_root_arg_decl) const
+		{
+			auto element_type = get_type(opt_r);
+			assert(element_type && *element_type != iterator_base::END);
+			opt<Dwarf_Unsigned> count = element_count(opt_r);
+			opt<Dwarf_Unsigned> calculated_byte_size = (*element_type)->calculate_byte_size(opt_r);
+			if (count && calculated_byte_size) return *count * *calculated_byte_size;
+			else return opt<Dwarf_Unsigned>();
+		}
+		
+		iterator_df<type_die> array_type_die::ultimate_element_type(optional_root_arg_decl) const
+		{
+			iterator_df<array_type_die> cur = get_concrete_type(opt_r);
+			while (cur != iterator_base::END
+				 && cur.base().is_a<array_type_die>())
+			{
+				cur = (*cur->get_type(opt_r))->get_concrete_type(opt_r);
+			}
+			return cur;
+		}
+		
+		opt<Dwarf_Unsigned> array_type_die::ultimate_element_count(optional_root_arg_decl) const 
+		{
+			Dwarf_Unsigned count = 1;
+			iterator_df<array_type_die> cur = get_concrete_type(opt_r);
+			while (cur != iterator_base::END
+				 && cur.base().is_a<array_type_die>())
+			{
+				auto opt_count = cur->element_count(opt_r);
+				if (!opt_count) return opt<Dwarf_Unsigned>();
+				else 
+				{
+					count *= *opt_count;
+					cur = (*cur->get_type(opt_r))->get_concrete_type(opt_r);
+				}
+			}
+			return opt<Dwarf_Unsigned>(count);
+		}
+		
+		
+/* from spec::structure_type_die */
+		opt<Dwarf_Unsigned> structure_type_die::calculate_byte_size(optional_root_arg_decl) const
+		{
+			// HACK: for now, do nothing
+			// We should make this more reliable,
+			// but it's difficult because overall size of a struct is
+			// language- and implementation-dependent.
+			return this->type_die::calculate_byte_size(opt_r);
+		}
+/* from spec::with_data_members_die */
+		iterator_df<type_die> with_data_members_die::find_my_own_definition(optional_root_arg_decl) const
+		{
+			root_die& r = get_root(opt_r);
+			if (!get_declaration(r) || !*get_declaration(r)) 
+			{
+				/* we have to find ourselves :-( */
+				return r.find(get_offset());
+			}
+			cerr << "Looking for definition of declaration " << summary() << endl;
+			
+			// if we don't have a name, we have no way to proceed
+			auto opt_name = get_name(/*r*/);
+			if (!opt_name) goto return_no_result;
+			else
+			{
+				string my_name = *opt_name;
+
+				/* Otherwise, we search forwards from our position, for siblings
+				 * that have the same name but no "declaration" attribute. */
+				auto iter = r.find(get_offset());
+
+				/* Are we a CU-toplevel DIE? We only handle this case at the moment. */
+				if (iter.depth() != 2) goto return_no_result;
+
+				iterator_sibs<with_data_members_die> i_sib = iter; ++i_sib;/* i.e. don't check ourselves */; 
+				for (; i_sib != iterator_base::END; ++i_sib)
+				{
+					opt<bool> opt_decl_flag;
+					if (i_sib.base().is_a<with_data_members_die>()
+					 && i_sib->get_name() && *i_sib->get_name() == my_name
+						&& (opt_decl_flag = i_sib->get_declaration(r), 
+							!opt_decl_flag || !*opt_decl_flag))
+					{
+						cerr << "Found definition " << i_sib->summary() << endl;
+						return i_sib;
+					}
+				}
+			}
+		return_no_result:
+			cerr << "Failed to find definition of declaration " << summary() << endl;
+			return iterator_base::END;
+		}
+
+		bool variable_die::has_static_storage(optional_root_arg_decl) const
 		{
 			// don't bother testing whether we have an enclosing subprogram -- too expensive
 			//if (nonconst_this->nearest_enclosing(DW_TAG_subprogram))
 			//{
 				// we're either a local or a static -- skip if local
-				auto attrs = copy_attrs(/*r*/);
+				root_die& r = get_root(opt_r);
+				auto attrs = copy_attrs(r);
 				if (attrs.find(DW_AT_location) != attrs.end())
 				{
 					// HACK: only way to work out whether it's static
@@ -1536,7 +1762,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 							i_instr != i_loc_expr->end();
 							++i_instr)
 						{
-							if (get_spec().op_reads_register(i_instr->lr_atom)) return false;
+							if (get_spec(r).op_reads_register(i_instr->lr_atom)) return false;
 						}
 					}
 				}
@@ -1553,7 +1779,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		{
 			auto nonconst_this = const_cast<with_static_location_die *>(this);
 			
-			encap::attribute_map attrs = d.copy_attrs(/*r*/);
+			encap::attribute_map attrs = d.copy_attrs(r);
 			
 			using namespace boost::icl;
 			auto& right_open = interval<Dwarf_Addr>::right_open;
@@ -1577,8 +1803,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 
 				if (found_ranges != attrs.end())
 				{
-					iterator_df<compile_unit_die> i_cu
-					 = r.find(d.enclosing_cu_offset_here());
+					iterator_df<compile_unit_die> i_cu = r.cu_pos(d.enclosing_cu_offset_here());
 					auto rangelist = i_cu->normalize_rangelist(found_ranges->second.get_rangelist());
 					Dwarf_Unsigned cumulative_bytes_seen = 0;
 					for (auto i_r = rangelist.begin(); i_r != rangelist.end(); ++i_r)
@@ -1648,7 +1873,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						else
 						{
 							iterator_df<type_die> t = r.find(found_type->second.get_ref().off);
-							auto calculated_byte_size = t->calculate_byte_size();
+							auto calculated_byte_size = t->calculate_byte_size(r);
 							assert(calculated_byte_size);
 							opt_byte_size = *calculated_byte_size; // assign to *another* opt
 						}
@@ -1809,9 +2034,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 // 			 * when they pass through: see lib::loclist::loclist in lib.hpp 
 // 			 * and the block_as_dwarf_expr case in attr.cpp. */
 //         }
-		encap::loclist with_static_location_die::get_static_location(root_die& r) const
+		encap::loclist with_static_location_die::get_static_location(optional_root_arg_decl) const
         {
-        	auto attrs = copy_attrs(/*r*/);
+        	auto attrs = copy_attrs(get_root(opt_r));
             if (attrs.find(DW_AT_location) != attrs.end())
             {
             	return attrs.find(DW_AT_location)->second.get_loclist();
@@ -1910,7 +2135,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			// Calculate the vaddr which selects a loclist element
 			auto frame_base_loclist = *get_frame_base();
 			iterator_df<compile_unit_die> enclosing_cu
-			 = r.find(i.enclosing_cu_offset_here());
+			 = r.cu_pos(i.enclosing_cu_offset_here());
 			cerr << "Enclosing CU is " << enclosing_cu->summary() << endl;
 			Dwarf_Addr low_pc = enclosing_cu->get_low_pc()->addr;
 			assert(low_pc <= dieset_relative_ip);
@@ -1956,9 +2181,10 @@ case DW_TAG_ ## name: return &dummy_ ## name;
             }
             return return_type();
         }
-        bool subprogram_die::is_variadic(root_die& r) const
+        bool subprogram_die::is_variadic(optional_root_arg_decl) const
         {
 			/* We have to find ourselves. :-( */
+			root_die& r = get_root(opt_r);
 			auto i = r.find(get_offset());
 			auto children = i.children_here();
 			auto unspec = children.subseq_of<unspecified_parameters_die>();
@@ -1982,7 +2208,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		}
 /* from spec::with_dynamic_location_die */
 		iterator_df<program_element_die> 
-		with_dynamic_location_die::get_instantiating_definition(root_die& r) const
+		with_dynamic_location_die::get_instantiating_definition(optional_root_arg_decl) const
 		{
 			/* We want to return a parent DIE describing the thing whose instances
 			 * contain instances of us. 
@@ -1992,6 +2218,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			 * This might be null if we're actually a static variable. */
 
 			/* We have to find ourselves. :-( */ 
+			root_die& r = get_root(opt_r);
 			auto i = r.find(get_offset());
 
 			// HACK: this should arguably be in overrides for formal_parameter and variable
@@ -2021,7 +2248,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
                     Dwarf_Off dieset_relative_ip,
                     dwarf::lib::regs *p_regs) const
         {
-        	auto attrs = copy_attrs(/*r*/);
+        	auto attrs = copy_attrs(r);
 			if (attrs.find(DW_AT_location) == attrs.end())
 			{
 				cerr << "Warning: " << this->summary() << " has no DW_AT_location; "
@@ -2036,7 +2263,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			std::cerr << "Calculated that an instance of DIE" << summary()
 				<< " has base addr 0x" << std::hex << base_addr << std::dec;
             assert(attrs.find(DW_AT_type) != attrs.end());
-            auto size = *(attrs.find(DW_AT_type)->second.get_refdie_is_type()->calculate_byte_size());
+            auto size = *(attrs.find(DW_AT_type)->second.get_refiter_is_type()->calculate_byte_size(r));
 			std::cerr << " and size " << size
 				<< ", to be tested against absolute addr 0x"
 				<< std::hex << absolute_addr << std::dec << std::endl;
@@ -2048,7 +2275,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
             return opt<Dwarf_Off>();
         }
 /* from with_dynamic_location_die, stack-based cases */
-		encap::loclist formal_parameter_die::get_dynamic_location(root_die& r) const
+		encap::loclist formal_parameter_die::get_dynamic_location(optional_root_arg_decl) const
 		{
 			/* These guys are probably relative to a frame base. 
 			   If they're not, it's an error. So we rewrite the loclist
@@ -2060,12 +2287,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				*this->get_location());
 		
 		}
-		encap::loclist variable_die::get_dynamic_location(root_die& r) const
+		encap::loclist variable_die::get_dynamic_location(optional_root_arg_decl) const
 		{
 			// see note in expr.hpp
 			if (!this->get_location()) return encap::loclist::NO_LOCATION; //(/*encap::loc_expr::NO_LOCATION*/);
 			
 			// We have to find ourselves. :-( 
+			root_die& r = get_root(opt_r);
 			auto i = r.find(get_offset());
 			
 			// we need an enclosing subprogram or lexical_block
@@ -2085,11 +2313,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
                     Dwarf_Off dieset_relative_ip,
                     dwarf::lib::regs *p_regs) const
         {
-        	auto attrs = copy_attrs(/*r*/);
+        	auto attrs = copy_attrs(r);
             auto base_addr = calculate_addr_in_object(
 				object_base_addr, r, dieset_relative_ip, p_regs);
             assert(attrs.find(DW_AT_type) != attrs.end());
-            auto size = *(attrs.find(DW_AT_type)->second.get_refdie_is_type()->calculate_byte_size());
+            auto size = *(attrs.find(DW_AT_type)->second.get_refiter_is_type()->calculate_byte_size(r));
             if (absolute_addr >= base_addr
             &&  absolute_addr < base_addr + size)
             {
@@ -2098,15 +2326,15 @@ case DW_TAG_ ## name: return &dummy_ ## name;
             return opt<Dwarf_Off>();
         }
 /* from with_dynamic_location_die, object-based cases */
-		encap::loclist member_die::get_dynamic_location(root_die& r) const
+		encap::loclist member_die::get_dynamic_location(optional_root_arg_decl) const
 		{
 			/* These guys have loclists that adding to what on the
 			   top-of-stack, which is what we want. */
-			return *this->get_data_member_location();
+			return *this->get_data_member_location(opt_r);
 		}
-		encap::loclist inheritance_die::get_dynamic_location(root_die& r) const
+		encap::loclist inheritance_die::get_dynamic_location(optional_root_arg_decl) const
 		{
-			return *this->get_data_member_location();
+			return *this->get_data_member_location(opt_r);
 		}
 /* from spec::with_dynamic_location_die */
 		Dwarf_Addr 
@@ -2116,11 +2344,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				Dwarf_Off dieset_relative_ip,
 				dwarf::lib::regs *p_regs/* = 0*/) const
 		{
-        	auto attrs = copy_attrs(/*r*/);
+        	auto attrs = copy_attrs(r);
             assert(attrs.find(DW_AT_location) != attrs.end());
 			
 			/* We have to find ourselves. :-( Well, almost -- enclosing CU. */
-			auto found = r.find(get_enclosing_cu_offset());
+			auto found = r.cu_pos(get_enclosing_cu_offset());
 			iterator_df<compile_unit_die> i_cu = found;
 			Dwarf_Addr dieset_relative_cu_base_ip
 			 = i_cu->get_low_pc() ? i_cu->get_low_pc()->addr : 0;
@@ -2148,8 +2376,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				Dwarf_Off dieset_relative_ip,
 				dwarf::lib::regs *p_regs /*= 0*/) const
 		{
-        	auto attrs = copy_attrs(/*r*/);
-			iterator_df<compile_unit_die> i_cu = r.find(get_enclosing_cu_offset());
+        	auto attrs = copy_attrs(r);
+			iterator_df<compile_unit_die> i_cu = r.cu_pos(get_enclosing_cu_offset());
             assert(attrs.find(DW_AT_data_member_location) != attrs.end());
 			return (Dwarf_Addr) dwarf::lib::evaluator(
 				attrs.find(DW_AT_data_member_location)->second.get_loclist(),
@@ -2195,7 +2423,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 //         }
 /* from spec::compile_unit_die */
 		encap::rangelist
-		compile_unit_die::normalize_rangelist(const encap::rangelist& rangelist) const
+		compile_unit_die::normalize_rangelist(const encap::rangelist& rangelist/*, optional_root_arg_decl*/) const
 		{
 			encap::rangelist retval;
 			/* We create a rangelist that has no address selection entries. */
@@ -2221,9 +2449,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			return retval;
 		}
 
-		opt<Dwarf_Unsigned> compile_unit_die::implicit_array_base() const
+		opt<Dwarf_Unsigned> compile_unit_die::implicit_array_base(optional_root_arg_decl) const
 		{
-			switch(this->get_language())
+			switch(get_language(opt_r))
 			{
 				/* See DWARF 3 sec. 5.12! */
 				case DW_LANG_C:
@@ -2239,9 +2467,10 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					return opt<Dwarf_Unsigned>();
 			}
 		}
-		iterator_df<type_die> compile_unit_die::implicit_enum_base_type(root_die& r) const
+		iterator_df<type_die> compile_unit_die::implicit_enum_base_type(optional_root_arg_decl) const
 		{
-			switch(this->get_language())
+			root_die& r = get_root(opt_r);
+			switch(get_language(r))
 			{
 				case DW_LANG_C:
 				case DW_LANG_C89:
@@ -2251,7 +2480,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					auto total_attempts = sizeof attempts / sizeof attempts[0];
 					for (auto i_attempt = 0; i_attempt < total_attempts; ++i_attempt)
 					{
-						auto found = named_child(r, attempts[i_attempt]);
+						auto found = named_child(attempts[i_attempt], opt_r);
 						if (found != iterator_base::END) return found;
 					}
 					assert(false && "enum but no int or signed int");

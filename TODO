@@ -1,8 +1,22 @@
 *** core integration: 
 why do we need to pass in a root_die& just to get attrs?
+-- answer, it's complicated (see below)
 fix base().base().base() problem
 move all the crufty old stuff into compat/*; add compat.hpp and include compat/*
 
+-- design of stacking, passing roots & specs around etc.:
+- whenever we encapsulate an attribute, we need a root 
+- this is because encapsulated *references* must be convertible to iterators, so need a root
+- it also fixes the spec with which the attributes are interpreted
+- when a DIE payload participates in >1 root (e.g. in a stacking scenario)...
+- ... its enclosing CU payload must also participate in both
+- ... HOWEVER, CU impls are special and can have different *attributes* for different roots
+- ... e.g. the DW_AT_ranges of a CU is necessarily different between one root
+- ... and another root in which an extra subprogram has been added
+- ... FIXME: implement the magic in compile_unit_die that will implement this
+- ... FIXME: hmm, this must *also* be true for others, e.g. a subprogram_die with modified hipc?
+- ... HMM. We could just say "no such alterations", hence avoiding any need for CU magic
+- ... if you want to define new DIEs, it's probably in a fresh CU anyway
 
 optimisation:
 make dwarfpplibdump comparable to dwarfdump

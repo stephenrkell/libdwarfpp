@@ -28,8 +28,8 @@ int main(int argc, char **argv)
 			/* DWARF doesn't tell us whether a variable is static or not. 
 			 * We want to rule out non-static variables. To do this, we
 			 * rely on our existing lib:: infrastructure. */
-			core::Attribute a(i.get_handle(), DW_AT_location);
-			encap::attribute_value val(a, i.get_handle());
+			core::Attribute a(dynamic_cast<core::Die&>(i.get_handle()), DW_AT_location);
+			encap::attribute_value val(a, dynamic_cast<core::Die&>(i.get_handle()), root);
 			auto loclist = val.get_loclist();
 			bool reads_register = false;
 			for (auto i_loc_expr = loclist.begin(); 
@@ -52,13 +52,13 @@ int main(int argc, char **argv)
 			{
 				auto name = i.name_here();
 				cout << "Found a static or global variable named "
-					<< (name.get() ? name.get() : "(no name)") << endl;
+					<< (name ? *name : "(no name)") << endl;
 			}
 			else
 			{
 				auto name = i.name_here();
 				cout << "Found a local variable named "
-					<< (name.get() ? name.get() : "(no name)") << endl;
+					<< (name ? *name : "(no name)") << endl;
 			}
 		} 
 	}

@@ -104,7 +104,7 @@ namespace dwarf
 			virtual Dwarf_Off get_enclosing_cu_offset() const = 0;
 			virtual bool has_attr(Dwarf_Half attr) const = 0;
 			inline bool has_attribute(Dwarf_Half attr) const { return has_attr(attr); }
-			virtual encap::attribute_map copy_attrs(root_die& r, spec& s = DEFAULT_DWARF_SPEC) const = 0;
+			virtual encap::attribute_map copy_attrs(opt<root_die&> opt_r/*, spec& s = DEFAULT_DWARF_SPEC*/) const = 0;
 			/* HMM. Can we make this non-virtual? 
 			 * Just move the code from Die (and get rid of that method)? */
 			virtual spec& get_spec(root_die& r) const = 0;
@@ -143,17 +143,50 @@ namespace dwarf
 			// we need this because it's a property of the CU, which we can't navigate to
 			spec& s;
 
-			/* Nothing else! This class is here to act as the base for
+			/* No other fields! This class is here to act as the base for
 			 * state-holding subclasses that are optimised for particular
 			 * purposes, e.g. fast local/parameter location.  */
-			
 			// remember! payload = handle + shared count + extra state
 			
+			/* We define an overridable *interface* for attribute access. */
+#define optional_root_arg_decl \
+  opt<root_die&> opt_r 
+#define optional_root_arg \
+  optional_root_arg_decl = opt<root_die&>()
+			virtual bool has_attr(Dwarf_Half attr) const 
+			{ assert(d.handle); return d.has_attr_here(attr); }
+			virtual encap::attribute_map all_attrs(optional_root_arg) const;
+			virtual encap::attribute_value attr(Dwarf_Half a, optional_root_arg) const;
+			root_die& get_root(opt<root_die&> opt_r) const // NOT defaulted!
+			{ 
+				return opt_r 
+					? *opt_r 
+					: (assert(d.handle), d.get_constructing_root()); 
+			} // FIXME: replace with per-CU "default root" approach
+			// NOTE: all functions passed an opt<root_die&> arg
+			// which *delegate* to another function passing an opt<root_die&> arg
+			// should... do what?
+			// 1. pass the root they got from get_root()?
+			// 2. pass the opt<root_die&> arg? 
+			// 3. it doesn't matter?
+			// 4. (DEFINITELY DON'T let it get defaulted)
+			// 
+			// regarding (3), it can only matter if the root *we* get, by doing get_root(), 
+			// is not the same as the root the callee would get if it did get_root()
+			// on the same argument. Can this happen? Only if there's an override of get_root()
+			// in the target, *and* [this will only be different]
+			// if the target is a different object (that chooses its default root differently).
+			// Nevertheless, this could happen. 
+			// Do we want to force the same root (good for consistency)
+			// or respect the other object's different default (good for... hmm, not sure).
+			// For now I will go with the former, i.e. "same root", meaning if we get_root() 
+			// and therefore have our own r, we should delegate with that one. 
+			
 			// protected constructor constructing dummy instances only
-			inline basic_die(spec& s): d(nullptr), s(s) {}
+			inline basic_die(spec& s): d(nullptr, 0), s(s) {}
 			// protected constructor that is never actually used, but 
 			// required to avoid special-casing in macros -- see begin_class() macro
-			inline basic_die() : d(nullptr), s(::dwarf::spec::DEFAULT_DWARF_SPEC) 
+			inline basic_die() : d(nullptr, nullptr), s(::dwarf::spec::DEFAULT_DWARF_SPEC) 
 			{ assert(false); }
 			friend struct dwarf3_factory_t;
 		public:
@@ -166,7 +199,8 @@ namespace dwarf
 			
 			virtual ~basic_die() {}
 			
-			/* implement the abstract_die interface */
+			/* implement the abstract_die interface 
+			 * -- note that has_attr is defined above */
 			inline Dwarf_Off get_offset() const { assert(d.handle); return d.offset_here(); }
 			inline Dwarf_Half get_tag() const { assert(d.handle); return d.tag_here(); }
 			inline opt<string> get_name() const 
@@ -175,10 +209,11 @@ namespace dwarf
 			{ assert(d.handle); return d.name_here(); }
 			inline Dwarf_Off get_enclosing_cu_offset() const 
 			{ assert(d.handle); return d.enclosing_cu_offset_here(); }
-			inline bool has_attr(Dwarf_Half attr) const 
-			{ assert(d.handle); return d.has_attr_here(attr); }
-			inline encap::attribute_map copy_attrs(root_die& r, spec& s = DEFAULT_DWARF_SPEC/*root_die& r*/) const
-			{ return encap::attribute_map(core::AttributeList(d), d, r, s); }
+			//inline bool has_attr(Dwarf_Half attr) const 
+			//{ assert(d.handle); return d.has_attr_here(attr); }
+			inline encap::attribute_map copy_attrs(opt<root_die&> opt_r) const
+			{ return encap::attribute_map(core::AttributeList(d), d, 
+			  opt_r ? *opt_r : d.get_constructing_root(), s); }
 			inline spec& get_spec(root_die& r) const 
 			{ assert(d.handle); return d.spec_here(r); }
 		};	
@@ -269,6 +304,8 @@ namespace dwarf
 			template <typename Iter = iterator_df<> >
 			pair<Iter, Iter> sequence() const 
 			{ return const_cast<root_die*>(this)->sequence<Iter>(); }
+			template <typename Iter = iterator_df<compile_unit_die> >
+			inline Iter enclosing_cu(const iterator_base& it);
 			
 			/* This is the expensive version. */
 			template <typename Iter = iterator_df<> >
@@ -282,6 +319,11 @@ namespace dwarf
 			Iter at(Dwarf_Off off, unsigned depth, 
 				optional<Dwarf_Off> parent_off = optional<Dwarf_Off>() )
 			{ return pos<Iter>(off, depth, parent_off); }
+			/* Convenience for getting CUs */
+			template <typename Iter = iterator_df<compile_unit_die> >
+			Iter cu_pos(Dwarf_Off off)
+			{ return pos<Iter>(off, 1, optional<Dwarf_Off>()); }
+			
 			
 			::Elf *get_elf(); // hmm: lib-only?
 			Debug& get_dbg() { return dbg; }
@@ -437,7 +479,7 @@ namespace dwarf
 			// we are in an unusable state after this constructor
 			// -- the same state as end()!
 			iterator_base()
-			 : cur_handle(Die(nullptr)), state(HANDLE_ONLY), m_depth(0), p_root(nullptr) {}
+			 : cur_handle(Die(nullptr, nullptr)), state(HANDLE_ONLY), m_depth(0), p_root(nullptr) {}
 			
 			static const iterator_base END; // sentinel definition
 			
@@ -454,12 +496,12 @@ namespace dwarf
 			
 			// this constructor sets us up at begin(), i.e. the root DIE position
 			explicit iterator_base(root_die& r)
-			 : cur_handle(nullptr), state(HANDLE_ONLY), m_depth(0), p_root(&r) {}
+			 : cur_handle(nullptr, nullptr), state(HANDLE_ONLY), m_depth(0), p_root(&r) {}
 			
 			// this constructor sets us up using a handle -- 
 			// this does the exploitation of the sticky set
 			iterator_base(Die&& d, unsigned depth, root_die& r)
-			 : cur_handle(Die(nullptr)) // will be replaced in function body...
+			 : cur_handle(Die(nullptr, nullptr)) // will be replaced in function body...
 			{
 				// get the offset of the handle we've been passed
 				Dwarf_Off off = d.get_offset(); 
@@ -468,9 +510,10 @@ namespace dwarf
 				if (found != r.sticky_dies.end())
 				{
 					// sticky and exists
-					cur_handle = Die(nullptr);
+					cur_handle = Die(nullptr, nullptr);
 					state = WITH_PAYLOAD;
 					cur_payload = found->second;
+					assert(cur_payload);
 					//m_depth = found->second->get_depth(); assert(depth == m_depth);
 					//p_root = &found->second->get_root();
 					assert(r.is_sticky(static_cast<const abstract_die&>(d)));
@@ -478,9 +521,10 @@ namespace dwarf
 				else if (r.is_sticky(static_cast<const abstract_die&>(d)))
 				{
 					// should be sticky, but does not exist yet -- use the factory
-					cur_handle = Die(nullptr);
+					cur_handle = Die(nullptr, nullptr);
 					state = WITH_PAYLOAD;
 					cur_payload = factory::for_spec(d.spec_here(r)).make_payload(std::move(d.handle), r);
+					assert(cur_payload);
 					r.sticky_dies[off] = cur_payload;
 				}
 				else
@@ -500,7 +544,8 @@ namespace dwarf
 					return get_handle().has_attr_here(attr);
 	
 			 * 	SO... YES. Die should implement abstract_die, and get_handle()
-			 * just does the switch and returns an abstract_die&. 
+			 * just does the switch and returns an abstract_die&
+			 * either from payload or directly from the local linear handle. 
 			 */
 			
 		public:
@@ -512,11 +557,11 @@ namespace dwarf
 		
 			// iterators must be copyable
 			iterator_base(const iterator_base& arg)
-			 : cur_handle(nullptr), 
+			 : cur_handle(nullptr, nullptr), 
 			   cur_payload(arg.is_real_die_position() ?
 			   	  arg.get_root().make_payload(arg) 
 				: nullptr),
-			   state(WITH_PAYLOAD), 
+			   state(arg.is_real_die_position() ? WITH_PAYLOAD : HANDLE_ONLY), 
 			   m_depth(arg.depth()), 
 			   p_root(arg.is_end_position() ? nullptr : &arg.get_root())
 			{
@@ -529,7 +574,7 @@ namespace dwarf
 				 * we assert this in make_payload. */
 
 #ifdef DWARFPP_LINEAR_ITERATORS
-				assert(!arg.is_real_die_position()); 
+				assert(!arg.is_real_die_position()); // linear mode: only copy non-real DIEs
 #endif
 				// FIXME: make sure root_die does the sticky set
 			}
@@ -554,7 +599,7 @@ namespace dwarf
 // 			{
 // 			
 // 			}
-			/* NO! We don't support this constructor, because we'd have to 
+			/* NO! We don't support the above constructor, because we'd have to 
 			 * get m_depth by searching. We go through root_die::find() instead. */ 
 			
 			// copy assignment			
@@ -563,13 +608,30 @@ namespace dwarf
 #ifdef DWARFPP_LINEAR_ITERATORS
 				assert(false); // ... which we initially want to avoid (zero-copy)
 #endif
-				this->cur_handle = nullptr;
-				this->cur_payload = arg.is_real_die_position() ?
-				  arg.get_root().make_payload(arg) 
-				: nullptr;
-				this->state = WITH_PAYLOAD;
-				this->m_depth = arg.depth();
-				this->p_root = arg.is_end_position() ? nullptr : &arg.get_root();
+				// we're a copy, so we can't have a handle
+				this->cur_handle = std::move(Die(nullptr, nullptr));
+				if (arg.is_real_die_position())
+				{
+					this->cur_payload = arg.get_root().make_payload(arg);
+					this->state = WITH_PAYLOAD;
+					this->m_depth = arg.depth();
+					this->p_root = &arg.get_root();
+				}
+				else if (arg.is_end_position())
+				{
+					// NOTE: must put us in the same state as the default constructor
+					this->cur_payload = nullptr;
+					this->state = HANDLE_ONLY;
+					this->m_depth = 0;
+					this->p_root = nullptr;
+				}
+				else if (arg.is_root_position())
+				{
+					this->cur_payload = nullptr;
+					this->state = HANDLE_ONLY; // the root DIE can get away with this (?)
+					this->m_depth = 0;
+					this->p_root = &arg.get_root();
+				} else assert(false);
 
 				return *this;
 			}
@@ -611,11 +673,23 @@ namespace dwarf
 			inline Dwarf_Off get_enclosing_cu_offset() const 
 			{ return enclosing_cu_offset_here(); }
 			inline bool has_attr(Dwarf_Half attr) const { return has_attr_here(attr); }
-			inline encap::attribute_map copy_attrs(root_die& r, spec& s) const
-			{ 	/* FIXME: this only works if we're libdwarf-backed! 
-				 * Need to delegate to payload in other cases. */
-				return encap::attribute_map(AttributeList(dynamic_cast<Die&>(get_handle())),
-					dynamic_cast<Die&>(get_handle()), r, /*spec_here()*/ s);
+			inline encap::attribute_map copy_attrs(opt<root_die&> opt_r) const
+			{
+				if (is_root_position()) return encap::attribute_map();
+				
+				if (state == HANDLE_ONLY)
+				{
+					return encap::attribute_map(
+						AttributeList(dynamic_cast<Die&>(get_handle())),
+						dynamic_cast<Die&>(get_handle()), 
+						opt_r ? *opt_r : dynamic_cast<Die&>(get_handle()).get_constructing_root()
+					);
+				} 
+				else 
+				{
+					assert(state == WITH_PAYLOAD);
+					return cur_payload->all_attrs(opt_r);
+				}
 			}
 			inline spec& get_spec(root_die& r) const { return spec_here(); }
 			
@@ -684,6 +758,7 @@ namespace dwarf
 			iterator_base next_sibling() const;			
 			iterator_base named_child(const string& name) const;
 			// + resolve? no, I have put resolve stuff on the root_die
+			inline iterator_df<compile_unit_die> enclosing_cu() const;
 			
 			// children
 			// so how do we iterate over "children satisfying predicate, derefAs'd X"? 
@@ -841,19 +916,24 @@ namespace dwarf
 			
 			bool operator==(const iterator_base& arg) const
 			{
-				if (!p_root && !arg.p_root) return true; // invalid/end
-				if (state == HANDLE_ONLY)
-				{
-					// if we both point to the root, we're equal
-					if (!cur_handle.handle.get() && !arg.cur_handle.handle.get()) return true;
-					// otherwise we can't be equal because we should be unique
-					else return false;
-				}
-				else
-				{
+				if (!p_root && !arg.p_root) return true; // END
+				// now we're either root or "real". Handle the case where we're root. 
+				if (!cur_handle.handle.get() 
+					&& !arg.cur_handle.handle.get()) return p_root == arg.p_root;
+				// now at least one of us is "real"...
+				//if (state == HANDLE_ONLY)
+				//{
+				//	// ... and we can't be equal because we should be unique // NO, WRONG; see below
+				//	else return false;
+				//}
+				//else
+				//{
+				// NOTE: the above logic is wrong because we can ask libdwarf for a 
+				// fresh handle at the same offset, and it will be distinct.
+				
 					return this->p_root == arg.p_root
 						&& this->offset_here() == arg.offset_here();
-				}
+				//}
 			}
 			bool operator!=(const iterator_base& arg) const	
 			{ return !(*this == arg); }
@@ -937,6 +1017,7 @@ namespace dwarf
 		                     >
 		{
 			typedef iterator_df<DerefAs> self;
+			typedef DerefAs DerefType;
 			friend class boost::iterator_core_access;
 			
 			iterator_base& base_reference()
@@ -1119,15 +1200,6 @@ namespace dwarf
 			DerefAs& dereference() const
 			{ return dynamic_cast<DerefAs&>(this->iterator_base::dereference()); }
 		};
-/*
- * Doing constructors in the below:
- * 
- * To avoid nonlinearly copying/splitting the Die&& rvalue reference, 
- * we must virtually inherit basic_die. 
- * We then must initialize it in *every* derived class. 
- * For our other bases, we use a dummy protected no-arg constructor
- * to avoid any need to pass the rvalue reference twice. 
- */
 
 
 /****************************************************************/
@@ -1143,7 +1215,7 @@ namespace dwarf
 	struct fragment ## _die : virtual __VA_ARGS__ { \
 	friend struct dwarf3_factory_t; \
 	private: /* dummy constructor used only to construct dummy instances */\
-		fragment ## _die(spec& s) : basic_die(s, Die(nullptr)) {} \
+		fragment ## _die(spec& s) : basic_die(s, Die(nullptr, nullptr)) {} \
 	public: /* main constructor */ \
 		constructor(fragment, base_inits /* NOTE: base_inits is expanded via ',' into varargs list */) \
 	protected: /* protected constructor that doesn't touch basic_die */ \
@@ -1152,11 +1224,6 @@ namespace dwarf
 #define base_initializations(...) __VA_ARGS__
 #define end_class(fragment) \
 	};
-
-/* Helper for the argument we thread into get_<>()s.  */
-#define optional_root_argument \
-  opt<root_die&> opt_r = opt<root_die&>()
-/* */
 
 #define stored_type_string std::string
 #define stored_type_flag bool
@@ -1185,20 +1252,17 @@ namespace dwarf
  * ARGH: no, we need another round of these macros to enumerate all the getters. 
  */
 #define attr_optional(name, stored_t) \
-	opt<stored_type_ ## stored_t> get_ ## name() const \
-    { if (d.has_attr_here(DW_AT_ ## name)) { \
-    Attribute a(d, DW_AT_ ## name); \
-    return encap::attribute_value(a, d, s).get_ ## stored_t (); } \
-    else return opt<stored_type_ ## stored_t>(); }
+	opt<stored_type_ ## stored_t> get_ ## name(optional_root_arg) const \
+    { if (has_attr(DW_AT_ ## name)) return attr(DW_AT_ ## name, opt_r).get_ ## stored_t (); \
+      else return opt<stored_type_ ## stored_t>(); }
 
 #define super_attr_optional(name, stored_t) attr_optional(name, stored_t)
 
 #define attr_mandatory(name, stored_t) \
-	stored_type_ ## stored_t get_ ## name() const \
+	stored_type_ ## stored_t get_ ## name(optional_root_arg) const \
     { assert (d.has_attr_here(DW_AT_ ## name)); \
-    Attribute a(d, DW_AT_ ## name);\
-    return encap::attribute_value(a, d, s).get_ ## stored_t (); \
-    }
+      return attr(DW_AT_ ## name, opt_r).get_ ## stored_t (); }
+
 #define super_attr_mandatory(name, stored_t) attr_mandatory(name, stored_t)
 #define child_tag(arg)
 /* here we hack the to-be-included file s.t. it has s/refdie/refiter/ */
@@ -1218,7 +1282,7 @@ struct regs;
 			Dwarf_Off file_relative_start_addr; 
 			Dwarf_Unsigned size;
 		};
-		virtual encap::loclist get_static_location(root_die& r) const;
+		virtual encap::loclist get_static_location(optional_root_arg) const;
 		opt<Dwarf_Off> spans_addr(
 			Dwarf_Addr file_relative_addr,
 			root_die& r,
@@ -1233,7 +1297,7 @@ struct regs;
 
 	struct with_type_describing_layout_die : public virtual basic_die
 	{
-		virtual opt<iterator_df<type_die> > get_type() const = 0;
+		virtual opt<iterator_df<type_die> > get_type(optional_root_arg) const = 0;
 	};
 
 	struct with_dynamic_location_die : public virtual with_type_describing_layout_die
@@ -1263,7 +1327,7 @@ struct regs;
 				dwarf::lib::regs *p_regs = 0) const;
 	public:
 		virtual iterator_df<program_element_die> 
-		get_instantiating_definition(root_die& r) const;
+		get_instantiating_definition(optional_root_arg) const;
 
 		virtual Dwarf_Addr calculate_addr(
 			Dwarf_Addr instantiating_instance_location,
@@ -1274,7 +1338,7 @@ struct regs;
 		/** This gets a location list describing the location of the thing, 
 			assuming that the instantiating_instance_location has been pushed
 			onto the operand stack. */
-		virtual encap::loclist get_dynamic_location(root_die& r) const = 0;
+		virtual encap::loclist get_dynamic_location(optional_root_arg) const = 0;
 	protected:
 		/* ditto */
 		virtual Dwarf_Addr calculate_addr_on_stack(
@@ -1303,7 +1367,7 @@ struct regs;
 		 * way to look up named children (e.g. hash table). */
 		virtual 
 		inline iterator_base
-		named_child(root_die& r, const std::string& name) const;
+		named_child(const std::string& name, optional_root_arg) const;
 	};
 
 /* program_element_die */
@@ -1320,27 +1384,25 @@ end_class(program_element)
 /* type_die */
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
 		attr_optional(byte_size, unsigned)
-		opt<Dwarf_Unsigned> calculate_byte_size() const;
-		bool is_rep_compatible(iterator_df<type_die> arg) const;
-		iterator_df<type_die> get_concrete_type() const;
-		iterator_df<type_die> get_unqualified_type() const;
-		iterator_df<type_die> get_concrete_type();
+		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
+		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
+		iterator_df<type_die> get_concrete_type(optional_root_arg) const;
+		iterator_df<type_die> get_unqualified_type(optional_root_arg) const;
 end_class(type)
 /* type_chain_die */
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
         attr_optional(type, refdie_is_type)
-        opt<Dwarf_Unsigned> calculate_byte_size() const;
-        iterator_df<type_die> get_concrete_type() const;
+        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
+        iterator_df<type_die> get_concrete_type(optional_root_arg) const;
 end_class(type_chain)
 /* qualified_type_die */
 begin_class(qualified_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
-        iterator_df<type_die> get_unqualified_type() const;
-        iterator_df<type_die> get_unqualified_type();
+        iterator_df<type_die> get_unqualified_type(optional_root_arg) const;
 end_class(qualified_type)
 /* with_data_members_die */
 begin_class(with_data_members, base_initializations(initialize_base(type)), declare_base(type))
         child_tag(member)
-		iterator_df<type_die> find_my_own_definition() const; // for turning declarations into defns
+		iterator_df<type_die> find_my_own_definition(optional_root_arg) const; // for turning declarations into defns
 end_class(with_data_members)
 
 #define has_stack_based_location \
@@ -1357,7 +1419,7 @@ end_class(with_data_members)
 				Dwarf_Off dr_ip, \
 				dwarf::lib::regs *p_regs = 0) const \
 				{ return calculate_addr_on_stack(fb, r, dr_ip, p_regs); } \
-	encap::loclist get_dynamic_location(root_die& r) const;
+	encap::loclist get_dynamic_location(optional_root_arg_decl) const;
 #define has_object_based_location \
 	opt<Dwarf_Off> spans_addr( \
                     Dwarf_Addr aa, \
@@ -1372,7 +1434,7 @@ end_class(with_data_members)
 				Dwarf_Off dr_ip, \
 				dwarf::lib::regs *p_regs = 0) const \
 				{ return calculate_addr_in_object(io, r, dr_ip, p_regs); } \
-	encap::loclist get_dynamic_location(root_die& r) const;
+	encap::loclist get_dynamic_location(optional_root_arg_decl) const;
 #define extra_decls_subprogram \
         opt< std::pair<Dwarf_Off, iterator_df<with_dynamic_location_die> > > \
         spans_addr_in_frame_locals_or_args( \
@@ -1381,44 +1443,44 @@ end_class(with_data_members)
                     Dwarf_Off dieset_relative_ip, \
                     Dwarf_Signed *out_frame_base, \
                     dwarf::lib::regs *p_regs = 0) const; \
-        bool is_variadic(root_die& r) const; 
+        bool is_variadic(optional_root_arg) const; 
 #define extra_decls_variable \
-        bool has_static_storage(/*root_die& r*/) const; \
+        bool has_static_storage(optional_root_arg) const; \
 		has_stack_based_location
 #define extra_decls_formal_parameter \
 		has_stack_based_location
 #define extra_decls_array_type \
-		opt<Dwarf_Unsigned> element_count() const; \
-        opt<Dwarf_Unsigned> calculate_byte_size() const; \
-        bool is_rep_compatible(iterator_df<type_die> arg) const; \
-		iterator_df<type_die> ultimate_element_type() const; \
-		opt<Dwarf_Unsigned> ultimate_element_count() const; 
+		opt<Dwarf_Unsigned> element_count(optional_root_arg) const; \
+        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
+        bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; \
+		iterator_df<type_die> ultimate_element_type(optional_root_arg) const; \
+		opt<Dwarf_Unsigned> ultimate_element_count(optional_root_arg) const; 
 #define extra_decls_pointer_type \
-		iterator_df<type_die> get_concrete_type() const; \
-        opt<Dwarf_Unsigned> calculate_byte_size() const; \
-        bool is_rep_compatible(iterator_df<type_die> arg) const;
+		iterator_df<type_die> get_concrete_type(optional_root_arg) const; \
+        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
+        bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
 #define extra_decls_reference_type \
-		iterator_df<type_die> get_concrete_type() const; \
-        opt<Dwarf_Unsigned> calculate_byte_size() const; \
-        bool is_rep_compatible(iterator_df<type_die> arg) const;
+		iterator_df<type_die> get_concrete_type(optional_root_arg) const; \
+        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
+        bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
 #define extra_decls_base_type \
-		bool is_rep_compatible(iterator_df<type_die> arg) const;
+		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
 #define extra_decls_structure_type \
-		opt<Dwarf_Unsigned> calculate_byte_size() const; \
-		bool is_rep_compatible(iterator_df<type_die> arg) const; 
+		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
+		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; 
 #define extra_decls_union_type \
-		bool is_rep_compatible(iterator_df<type_die> arg) const; 
+		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; 
 #define extra_decls_class_type \
-		bool is_rep_compatible(iterator_df<type_die> arg) const; 
+		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; 
 #define extra_decls_enumeration_type \
-		bool is_rep_compatible(iterator_df<type_die> arg) const;
+		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
 #define extra_decls_subroutine_type \
-		bool is_rep_compatible(iterator_df<type_die> arg) const;
+		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
 #define extra_decls_member \
-		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
+		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(optional_root_arg) const; \
 		has_object_based_location
 #define extra_decls_inheritance \
-		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
+		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(optional_root_arg) const; \
 		has_object_based_location
 
 #define extra_decls_compile_unit \
@@ -1445,8 +1507,8 @@ Dwarf_Half get_address_size() const { return address_size; } \
 Dwarf_Half get_offset_size() const { return offset_size; } \
 Dwarf_Half get_extension_size() const { return extension_size; } \
 Dwarf_Unsigned get_next_cu_header() const { return next_cu_header; } \
-opt<Dwarf_Unsigned> implicit_array_base() const; \
-iterator_df<type_die> implicit_enum_base_type(root_die& r) const; \
+opt<Dwarf_Unsigned> implicit_array_base(optional_root_arg) const; \
+iterator_df<type_die> implicit_enum_base_type(optional_root_arg) const; \
 encap::rangelist normalize_rangelist(const encap::rangelist& rangelist) const; \
 friend class iterator_base; \
 friend class factory; 
@@ -1573,19 +1635,24 @@ friend class factory;
 				return;
 			}
 		}
+		template <typename Iter/* = iterator_df<compile_unit_die>*/ >
+		inline Iter root_die::enclosing_cu(const iterator_base& it)
+		{ return cu_pos<Iter>(it.get_enclosing_cu_offset()); }
 
 		//// FIXME: do I need this function?
 		//inline iterator_base root_die::scoped_resolve(const std::string& name)
 		//{ return scoped_resolve(this->begin(), name); }
 
 		inline iterator_base
-		with_named_children_die::named_child(root_die& r, const std::string& name) const
+		with_named_children_die::named_child(const std::string& name, optional_root_arg_decl) const
 		{
 			/* The default implementation just asks the root. Since we've somehow 
 			 * been called via the payload, we have the added inefficiency of 
 			 * searching for ourselves first. This shouldn't happen, though 
 			 * I'm not sure if we explicitly avoid it. Warn. */
+#ifdef DWARFPP_WARN_ON_INEFFICIENT_USAGE
 			cerr << "Warning: inefficient usage of with_named_children_die::named_child" << endl;
+#endif
 			/* NOTE: the idea about payloads knowing about their children is 
 			 * already dodgy because it breaks our "no knowledge of structure" 
 			 * property. We can likely work around this by requiring that named_child 
@@ -1605,7 +1672,8 @@ friend class factory;
 			 * linear search in the common case, but fall back to it in weird
 			 * scenarios (deletions). 
 			 */
-			return r.find_named_child(r.find(this->get_offset()), name); 
+			root_die& r = get_root(opt_r);
+			return r.find_named_child(r.find(get_offset()), name); 
 		}
 
 		// now compile_unit_die is complete...
@@ -1685,6 +1753,7 @@ friend class factory;
 		Die::try_construct(root_die& r, const iterator_base& it) /* siblingof */
 		{
 			raw_handle_type returned;
+			auto tmp = dynamic_cast<Die *>(&it.get_handle());
 			int ret
 			 = dwarf_siblingof(r.dbg.handle.get(), dynamic_cast<Die&>(it.get_handle()).handle.get(), 
 			 	&returned, &current_dwarf_error);
@@ -1698,9 +1767,9 @@ friend class factory;
 					// parent of the sibling is the same as parent of "it"
 					r.parent_of[off] = found->second;
 				} else cerr << "Warning: parent cache did not know 0x" << std::hex << it.offset_here() << std::dec << endl;
-				return handle_type(returned, deleter(r.dbg.handle.get()));
+				return handle_type(returned, deleter(r.dbg.handle.get(), r));
 			}
-			else return handle_type(nullptr, deleter(nullptr));
+			else return handle_type(nullptr, deleter(nullptr, r));
 		}
 		inline Die::handle_type 
 		Die::try_construct(root_die& r) /* siblingof in root case */
@@ -1713,22 +1782,29 @@ friend class factory;
 				// update parent cache
 				GET_HANDLE_OFFSET;
 				r.parent_of[off] = 0UL;
-				return handle_type(returned, deleter(r.dbg.handle.get()));
+				return handle_type(returned, deleter(r.dbg.handle.get(), r));
 			}
-			else return handle_type(nullptr, deleter(nullptr));
+			else return handle_type(nullptr, deleter(nullptr, r));
 		}
 		inline Die::handle_type 
 		Die::try_construct(const iterator_base& it) /* child */
 		{
 			raw_handle_type returned;
+			root_die& r = it.get_root();
+			auto tmp0 = &it.get_handle();
+			auto tmp = dynamic_cast<core::Die *>(&it.get_handle());
+			auto tmp1 = dynamic_cast<core::iterator_base *>(&it.get_handle());
+			auto tmp2 = dynamic_cast<core::basic_die *>(&it.get_handle());
+			//auto tmp3 = dynamic_cast<core::Die *>(&it.get_handle());
+			//auto tmp4 = dynamic_cast<core::Die *>(&it.get_handle());
 			int ret = dwarf_child(dynamic_cast<Die&>(it.get_handle()).handle.get(), &returned, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
 			{
 				GET_HANDLE_OFFSET;
-				it.get_root().parent_of[off] = it.offset_here();
-				return handle_type(returned, deleter(it.get_root().dbg.handle.get()));
+				r.parent_of[off] = it.offset_here();
+				return handle_type(returned, deleter(it.get_root().dbg.handle.get(), r));
 			}
-			else return handle_type(nullptr, deleter(nullptr));
+			else return handle_type(nullptr, deleter(nullptr, r));
 
 		}
 		inline Die::handle_type 
@@ -1739,9 +1815,9 @@ friend class factory;
 			if (ret == DW_DLV_OK)
 			{
 				// can't update parent cache
-				return handle_type(returned, deleter(r.dbg.handle.get()));
+				return handle_type(returned, deleter(r.dbg.handle.get(), r));
 			}
-			else return handle_type(nullptr, deleter(nullptr));
+			else return handle_type(nullptr, deleter(nullptr, r));
 		}
 			
 		inline Die::Die(handle_type h) : handle(std::move(h)) {}
@@ -1765,6 +1841,10 @@ friend class factory;
 		{
 			if (!this->handle) throw Error(current_dwarf_error, 0); 
 		}
+		
+		inline iterator_df<compile_unit_die>
+		iterator_base::enclosing_cu() const
+		{ return get_root().pos(enclosing_cu_offset_here(), 1, optional<Dwarf_Off>(0UL)); }
 		
 		inline spec& Die::spec_here(root_die& r) const
 		{
@@ -1825,8 +1905,58 @@ friend class factory;
 			else if (parent_off) parent_of[off] = *parent_off;
 			
 			return Iter(std::move(base));
-		}	
+		}
 		
+		/* We use the properties of diesets to avoid a naive depth-first search. 
+		 * FIXME: make it work with encap::-style less strict ordering. 
+		 * NOTE: a possible idea here is to support a kind of "fractional offsets"
+		 * where we borrow *high-order* bits from the offset space in a dynamic
+		 * fashion. We need some per-root bookkeeping about what offsets have
+		 * been issued, and a way to get a numerical comparison (for search
+		 * functions, like this one). 
+		 * Probably the best way to accommodate this is as a new class
+		 * used in place of Dwarf_Off. */
+		template <typename Iter /* = iterator_df<> */ >
+		inline Iter root_die::find(Dwarf_Off off)
+		{
+			/* Interesting problem: our iterators don't make searching a subtree 
+			 * easy. I think there is a neat way of expressing this by combining
+			 * dfs and bfs traversal. FIXME: work out the recipe. */
+			
+			/* I think we want bf traversal with a smart subtree-skipping test. */
+			iterator_bf<typename Iter::DerefType> pos = begin();
+			while (pos != iterator_base::END && pos.offset_here() != off)
+			{
+				/* What's next in the breadth-first order? */
+				iterator_bf<typename Iter::DerefType> next_pos = pos; next_pos.increment();
+				 
+				/* Does the move pos->next_pos skip over (enqueue) a subtree? 
+				 * If so, the depth will stay the same. 
+				 * If no, it's because we took a previously enqueued (deeper, but earlier) 
+				 * node out of the queue (i.e. descended instead of skipped-over). */
+				if (next_pos != iterator_base::END && next_pos.depth() == pos.depth())
+				{
+					// if I understand correctly....
+					assert(next_pos.offset_here() > pos.offset_here());
+					
+					/* Might that subtree contain off? */
+					if (off < next_pos.offset_here() && off > pos.offset_here())
+					{
+						/* Yes. We want that subtree. */
+						do { pos.increment(); } while (pos.offset_here() > off); //  cut straight to that subtree?
+						continue;
+					}
+					else // off >= next_pos.offset_here() || off <= pos.offset_here()
+					{
+						/* We can't possibly want that subtree. */
+						pos.increment_skipping_subtree();
+						continue;
+					}
+				}
+				pos.increment();
+			}
+			return pos;
+		}
 		inline Attribute::handle_type 
 		Attribute::try_construct(const Die& h, Dwarf_Half attr)
 		{
@@ -1851,7 +1981,14 @@ friend class factory;
 				/* Since we are try_construct, the most we can do is 
 				 * pass a unique_ptr to the allocated block, where that
 				 * unique_ptr's deleter includes the length of the block. */
+				assert(count != 0); // this would be ambiguous w.r.t the NO_ENTRY case
 				return handle_type(block_start, deleter(h.get_dbg(), count));
+			}
+			else if (ret == DW_DLV_NO_ENTRY)
+			{
+				/* We allow zero-length AttributeLists. 
+				   HACK: Use (void*)-1 as the block_start. */
+				return handle_type((raw_element_type*)-1, deleter(h.get_dbg(), 0));
 			}
 			else
 			{
@@ -1878,7 +2015,12 @@ friend class factory;
 			int ret = dwarf_srcfiles(h.raw_handle(), &block_start, &count, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
 			{
+				assert(count > 0);
 				return handle_type(block_start, deleter(h.get_dbg(), count));
+			}
+			else if (ret == DW_DLV_NO_ENTRY)
+			{
+				return handle_type((raw_element_type*)-1, deleter(h.get_dbg(), 0));
 			}
 			else return handle_type(nullptr, deleter(nullptr, 0));
 		}
@@ -1917,12 +2059,44 @@ friend class factory;
 			}
 			else return handle_type(nullptr, deleter(nullptr, 0));
 		}
+		inline Dwarf_Unsigned 
+		RangeList::get_rangelist_offset(const Attribute& a)
+		{
+			/* Since DWARF4, form can be unsigned or sec_offset, so we  
+			 * check it here. */
+			Dwarf_Half form;
+			int retF = dwarf_whatform(a.handle.get(), &form, &core::current_dwarf_error); 
+			if (retF == DW_DLV_OK)
+			{
+				int ret;
+				switch (form)
+				{
+					case DW_FORM_udata: {
+						Dwarf_Unsigned ranges_off;
+						ret = dwarf_formudata(a.handle.get(), &ranges_off, &core::current_dwarf_error); 
+						return (ret == DW_DLV_OK) ? ranges_off : (Dwarf_Unsigned)-1;
+					}
+					case DW_FORM_data4: {
+						Dwarf_Signed ref;
+						ret = dwarf_formsdata(a.handle.get(), &ref, &core::current_dwarf_error); 
+						return (ret == DW_DLV_OK) ? ref : (Dwarf_Unsigned) -1;
+					}
+					case DW_FORM_sec_offset: {
+						Dwarf_Off ref; 
+						ret = dwarf_global_formref(a.handle.get(), &ref, &core::current_dwarf_error); 
+						return (ret == DW_DLV_OK) ? ref : (Dwarf_Unsigned) -1;
+					}
+					default: assert(false);
+				}
+			}
+			return (Dwarf_Unsigned)-1; // error
+		}
+		
 		inline RangesList::handle_type 
 		RangesList::try_construct(const Attribute& a)
 		{
-			Dwarf_Unsigned ranges_off;
-			int ret = dwarf_formudata(a.handle.get(), &ranges_off, &core::current_dwarf_error); 
-			if (ret == DW_DLV_OK)
+			Dwarf_Unsigned ranges_off = get_rangelist_offset(a);
+			if (ranges_off != (Dwarf_Unsigned)-1)
 			{
 				Dwarf_Ranges *block_start;
 				Dwarf_Signed count = 0;
@@ -1937,16 +2111,19 @@ friend class factory;
 					 * we upgrade this handle and copy the array. */
 					return handle_type(block_start, deleter(a.get_dbg(), count));
 				}
+				else if (ret2 == DW_DLV_NO_ENTRY)
+				{
+					/* HACK: use (void*)-1 */
+					return handle_type((raw_element_type*)-1, deleter(a.get_dbg(), 0));
+				}
 			}
-			
 			return handle_type(nullptr, deleter(nullptr, 0));
 		}
 		inline RangesList::handle_type 
 		RangesList::try_construct(const Attribute& a, const Die& d)
 		{
-			Dwarf_Unsigned ranges_off;
-			int ret = dwarf_formudata(a.handle.get(), &ranges_off, &core::current_dwarf_error); 
-			if (ret == DW_DLV_OK)
+			Dwarf_Unsigned ranges_off = get_rangelist_offset(a);
+			if (ranges_off != (Dwarf_Unsigned)-1)
 			{
 				Dwarf_Ranges *block_start;
 				Dwarf_Signed count = 0;
@@ -1961,6 +2138,10 @@ friend class factory;
 					 * We will make unique_ptrs out of each of them, but only when
 					 * we upgrade this handle and copy the array. */
 					return handle_type(block_start, deleter(a.get_dbg(), count));
+				}
+				else if (ret2 == DW_DLV_OK)
+				{
+					return handle_type((raw_element_type*)-1, deleter(a.get_dbg(), 0));
 				}
 			}
 			

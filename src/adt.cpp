@@ -2043,7 +2043,7 @@ namespace dwarf
 					{
 						core::Attribute a(dynamic_cast<core::Die&>(i.get_handle()), DW_AT_visibility);
 						encap::attribute_value val(a, 
-							dynamic_cast<core::Die&>(i.get_handle()), i.spec_here());
+							dynamic_cast<core::Die&>(i.get_handle()), i.get_root());
 						visible = (val.get_unsigned() != DW_VIS_local);
 					}
 

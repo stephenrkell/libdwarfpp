@@ -52,14 +52,18 @@
 			}
 		};		
 		typedef struct Dwarf_Die_s*        Dwarf_Die;
-		struct Die : private virtual abstract_die // remind me: why is this private?
+		struct Die : /*private*/ virtual abstract_die // remind me: why is this private?
 		{
 			typedef Dwarf_Die raw_handle_type;
 			typedef Dwarf_Die_s opaque_type;
 			struct deleter
 			{
 				Debug::raw_handle_type dbg;
-				deleter(Debug::raw_handle_type dbg) : dbg(dbg) {}
+				root_die *p_constructing_root; // HMM: really don't like this
+				deleter(Debug::raw_handle_type dbg, root_die& r)
+				 : dbg(dbg), p_constructing_root(&r) {}
+				deleter(Debug::raw_handle_type dbg)
+				 : dbg(dbg), p_constructing_root(nullptr) {}
 				// also provide a lame default deleter that can only delete nullptr
 				//deleter() : dbg(nullptr) {}
 				// temporarily DISABLED while we check we only use it where necessary
@@ -69,9 +73,11 @@
 			typedef unique_ptr<opaque_type, deleter> handle_type;
 			handle_type handle;
 			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; }
+			root_die& get_constructing_root() const 
+			{ return *handle.get_deleter().p_constructing_root; }
 			
 			// to avoid making exception handling compulsory, 
-			// we provide static "maybe" constructor functions...
+			// we provide static "maybe" constructor functions (defined in lib.hpp)...
 			static inline handle_type 
 			try_construct(root_die& r, const iterator_base& die); /* siblingof */
 			static inline handle_type 
@@ -85,7 +91,7 @@
 			inline Die(handle_type h);
 			
 			// ... and a "nullptr" constructor
-			inline Die(std::nullptr_t n) : handle(nullptr, deleter(nullptr)) {} 
+			inline Die(std::nullptr_t n, root_die *p_r) : handle(nullptr, deleter(nullptr, *p_r)) {} 
 			
 			// ... then the "normal" constructors, that throw exceptions on failure
 			inline Die(root_die& r, const iterator_base& die); /* siblingof */
@@ -112,10 +118,10 @@
 			
 			// for convenience, this one is public -- basic_die's subclasses call it
 			// (whereas the rest of our abstract_die implementation is private)
-			inline encap::attribute_map copy_attrs(root_die& r, spec& s/*root_die& r*/) const;
+			inline encap::attribute_map copy_attrs(opt<root_die&> opt_r) const;
 
 			friend class iterator_base;
-		private: 
+		//private: 
 			/* implement the abstract_die interface, but privately -- WHY? */
 			inline Dwarf_Off get_offset() const { return offset_here(); }
 			inline Dwarf_Half get_tag() const { return tag_here(); }
@@ -301,7 +307,7 @@
 				 : dbg(dbg), len(len) {} 
 				void operator()(raw_handle_type arg) const
 				{
-					dwarf_dealloc(dbg, arg, DW_DLA_LIST);
+					if (len > 0) dwarf_dealloc(dbg, arg, DW_DLA_LIST);
 				}
 			};
 			
@@ -462,7 +468,7 @@
 				deleter(Debug::raw_handle_type dbg, Dwarf_Signed len) : dbg(dbg), len(len) {} 
 				void operator()(raw_handle_type arg) const
 				{
-					if (arg) dwarf_ranges_dealloc(dbg, arg, len);
+					if (arg && arg != (void*)-1) dwarf_ranges_dealloc(dbg, arg, len);
 					else assert(len == 0);
 				}
 			};
@@ -474,6 +480,9 @@
 			try_construct(const Attribute& a);
 			static inline handle_type
 			try_construct(const Attribute& a, const Die& d);
+			// helper
+			static inline Dwarf_Unsigned
+			get_rangelist_offset(const Attribute& a);
 
 			RangesList(handle_type h) : handle(std::move(h)) { /* "upgrade" */
 				if (!handle) throw Error(current_dwarf_error, 0);
@@ -503,7 +512,7 @@
 				 : dbg(dbg), len(len) {} 
 				void operator()(raw_handle_type arg) const
 				{
-					dwarf_dealloc(dbg, arg, DW_DLA_LIST);
+					if (len > 0) dwarf_dealloc(dbg, arg, DW_DLA_LIST);
 				}
 			};
 			
@@ -566,5 +575,5 @@
 		typedef RangesList RangeList;
 		
 		// inlines we couldn't define earlier
-		inline encap::attribute_map Die::copy_attrs(root_die& r, spec& s/* = DEFAULT_DWARF_SPEC*/) const
-		{ return encap::attribute_map(AttributeList(*this), *this, r, s); }
+		inline encap::attribute_map Die::copy_attrs(opt<root_die&> opt_r) const
+		{ return encap::attribute_map(AttributeList(*this), *this, *opt_r/*, s*/); }

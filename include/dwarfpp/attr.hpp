@@ -68,24 +68,33 @@ namespace dwarf
 				friend class encap::dieset;
  	        	friend struct die_out_edge_iterator<weak_ref>; // in encap_graph.hpp
                 friend struct sibling_dep_edge_iterator<weak_ref>; // in encap_sibling_graph.hpp
-				Dwarf_Off off; bool abs;
+
+				Dwarf_Off off; 
+				bool abs;
 				Dwarf_Off referencing_off; // off of DIE keeping the reference
 				spec::abstract_dieset *p_ds; // FIXME: make this private again after fixing encap_graph.hpp
+				root_die *p_root;            // FIXME: hmm
 				Dwarf_Half referencing_attr; // attr# of attribute holding the reference
 				weak_ref(spec::abstract_dieset& ds, Dwarf_Off off, bool abs, 
 					Dwarf_Off referencing_off, Dwarf_Half referencing_attr)
                     :	off(off), abs(abs), 
 						referencing_off(referencing_off), 
-                        p_ds(&ds), referencing_attr(referencing_attr) {}
+                        p_ds(&ds), p_root(0), referencing_attr(referencing_attr) {}
+				weak_ref(root_die& r, Dwarf_Off off, bool abs,  // the same but root not ds
+					Dwarf_Off referencing_off, Dwarf_Half referencing_attr)
+                    :	off(off), abs(abs), 
+						referencing_off(referencing_off), 
+                        p_ds(0), p_root(&r), referencing_attr(referencing_attr) {}
                 // weak_ref is default-constructible
-                weak_ref() : off(0UL), abs(false), referencing_off(0), p_ds(0), referencing_attr(0)
+                weak_ref() : off(0UL), abs(false), referencing_off(0), p_ds(0), p_root(0), referencing_attr(0)
                 { std::cerr << "Warning: default-constructed a weak_ref!" << std::endl; }
-                weak_ref(bool arg) : off(0UL), abs(false), referencing_off(0), p_ds(0), referencing_attr(0)
+                weak_ref(bool arg) : off(0UL), abs(false), referencing_off(0), p_ds(0), p_root(0), referencing_attr(0)
                 { /* Same as above but extra dummy argument, to suppress warning (see clone()). */}
                 virtual weak_ref& operator=(const weak_ref& r); // assignment
                 virtual weak_ref *clone() { 
                 	weak_ref *n = new weak_ref(true); // FIXME: deleted how? containing attribute's destructor? yes, I think so
                     n->p_ds = this->p_ds; // this is checked during assignment
+					n->p_root = this->p_root;
                     *n = *this;
                     return n;
                 }
@@ -95,13 +104,14 @@ namespace dwarf
                 	return off == arg.off && abs == arg.abs
                     && referencing_off == arg.referencing_off 
                     && referencing_attr == arg.referencing_attr
-                    && p_ds == arg.p_ds; 
+                    && p_ds == arg.p_ds
+					&& p_root == arg.p_root; 
                 }
                 bool operator!=(const weak_ref& arg) const {
                 	return !(*this == arg);
                 }
 			};
-            struct ref : weak_ref {
+			struct ref : weak_ref {
 				ref(spec::abstract_dieset& ds, Dwarf_Off off, bool abs, 
 					Dwarf_Off referencing_off, Dwarf_Half referencing_attr);
                 encap::dieset& ds;					
@@ -142,10 +152,10 @@ namespace dwarf
 				if (dne_val == 0) dne_val = new attribute_value(); // FIXME: delete this anywhere?
 				return *dne_val;
 			}*/
-			enum form { NO_ATTR, ADDR, FLAG, UNSIGNED, SIGNED, BLOCK, STRING, REF, LOCLIST, RANGELIST }; // TODO: complete?
+			enum form { NO_ATTR, ADDR, FLAG, UNSIGNED, SIGNED, BLOCK, STRING, REF, LOCLIST, RANGELIST, UNRECOG }; // TODO: complete?
 			form get_form() const { return f; }
 		private:
-            spec::abstract_dieset *p_ds;
+            spec::abstract_dieset *p_ds; // FIXME: really needed? refs have a p_ds in them too
 			Dwarf_Half orig_form;
 			form f; // discriminant			
 			union {
@@ -184,11 +194,10 @@ namespace dwarf
 			// the following is a temporary HACK to allow core:: to create attribute_values
 		public:
 			attribute_value(const dwarf::core::Attribute& attr, 
-				//core::Debug::raw_handle_type dbg,
-				//lib::Dwarf_Debug dbg, // HACK: avoid including defn of core::Debug here
 				const dwarf::core::Die& d, 
-				root_die& r,
-				spec::abstract_def& = spec::DEFAULT_DWARF_SPEC);
+				root_die& r/*,
+				spec::abstract_def& = spec::DEFAULT_DWARF_SPEC*/);
+				// spec is no longer passed because it's deducible from r and d.get_offset()
 		public:
 			attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a);
 // 			//attribute_value() {} // allow uninitialised temporaries
@@ -209,21 +218,22 @@ namespace dwarf
 			Dwarf_Signed get_signed() const { assert(f == SIGNED); return v_s; }
 			const std::vector<unsigned char> *get_block() const { assert(f == BLOCK); return v_block; }
 			const std::string& get_string() const { assert(f == STRING); return *v_string; }
+			address get_address() const { assert(f == ADDR); return v_addr; }
+			const loclist& get_loclist() const { assert(f == LOCLIST); return *v_loclist; }
+			const rangelist& get_rangelist() const { assert(f == RANGELIST); return *v_rangelist; }
+
 			weak_ref& get_ref() const { assert(f == REF); return *v_ref; }
 			Dwarf_Off get_refoff() const { assert(f == REF); return v_ref->off; }
 			Dwarf_Off get_refoff_is_type() const { assert(f == REF); return v_ref->off; }
 			core::iterator_df<> get_refiter() const;// { assert(f == REF); return v_ref->off; }
 			core::iterator_df<core::type_die> get_refiter_is_type() const;// { assert(f == REF); return v_ref->off; }
-			address get_address() const { assert(f == ADDR); return v_addr; }
 			std::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
 			//spec::basic_die& get_refdie() const; // defined in cpp file
 			std::shared_ptr<spec::type_die> get_refdie_is_type() const; 
-            //spec::type_die& get_refdie_is_type() { return dynamic_cast<spec::type_die&>(get_refdie()); }
-            /* ^^^ I think a plain reference is okay here because the "this" pointer
-             * (i.e. whatever pointer we'll be accessing the attribute through)
-             * will be keeping the containing DIE in existence. */
-			const loclist& get_loclist() const { assert(f == LOCLIST); return *v_loclist; }
-            const rangelist& get_rangelist() const { assert(f == RANGELIST); return *v_rangelist; }
+			//spec::type_die& get_refdie_is_type() { return dynamic_cast<spec::type_die&>(get_refdie()); }
+			/* ^^^ I think a plain reference is okay here because the "this" pointer
+			 * (i.e. whatever pointer we'll be accessing the attribute through)
+			 * will be keeping the containing DIE in existence. */
 
 			bool operator==(const attribute_value& v) const;
 			bool operator!=(const attribute_value &v) const { return !(*this == v); }
@@ -250,8 +260,13 @@ namespace dwarf
 			// also construct from AttributeList
 			attribute_map(const core::AttributeList& a, const core::Die& d, root_die& r, 
 				spec::abstract_def &p_spec = spec::DEFAULT_DWARF_SPEC);
+			
+			// static 3-arg print function
+			//static std::ostream& 
+			//print_to(std::ostream& s, const AttributeList& attrs, root_die& r);
 		};
 		std::ostream& operator<<(std::ostream& s, const attribute_map& arg); 
+		
         
         bool operator==(Dwarf_Addr arg, attribute_value::address a);
         bool operator!=(Dwarf_Addr arg, attribute_value::address a);
