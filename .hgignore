@@ -1,3 +1,5 @@
+syntax: regexp
+
 .*\.a$
 .*\.cmi$
 .*\.cmo$
@@ -50,8 +52,8 @@ examples/[^\.]*$
 ^include/dwarfpp/encap_adt\.hpp$
 ^src/.*\.inc$
 ^tests/test-.*-input$
-^tests/[^\.]*$
-(^|/)makefile$
+^tests/.*/[^\.]*$
+makefile$
 ^\.cproject$
 ^\.project$
 ^\.settings/
