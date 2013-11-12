@@ -631,10 +631,16 @@ namespace dwarf
 					switch (orig_form) 
 					{
 						case DW_FORM_udata:
-							retval = a.formudata(&u); assert(retval == DW_DLV_OK);
+							retval = a.formudata(&u); 
+							assert(retval == DW_DLV_OK);
+							break;
+						case DW_FORM_data4: // FIXME: really?
+							retval = a.formsdata(reinterpret_cast<Dwarf_Signed*>(&u));
+							assert(retval == DW_DLV_OK);
 							break;
 						case DW_FORM_sec_offset: 
-							retval = a.formref(static_cast<Dwarf_Off*>(&u)); assert(retval == DW_DLV_OK);
+							retval = a.formref(static_cast<Dwarf_Off*>(&u)); 
+							assert(retval == DW_DLV_OK);
 							break;
 						default:
 							assert(false);

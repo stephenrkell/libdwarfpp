@@ -211,13 +211,20 @@ namespace dwarf
 			}
 			bool move_to_next_sibling(iterator_base& arg)
 			{
-				if (!arg.p_d) return false;
+				// handle root DIE specially
+				int start_depth = arg.path_from_root.size() - 1;
+				assert(start_depth >= 0);
+				if (arg.p_d->get_offset() == 0) return false;
 				// handle CU DIEs specially
+				assert(start_depth >= 1);
 				if (arg.p_d->get_tag() == DW_TAG_compile_unit) 
 				{ return move_to_next_cu(arg); }
 				
+				assert(start_depth >= 2);
+				
 				try
 				{
+					// call the 'next-sibling' lib::die constructor
 					lib::die& current = *dynamic_pointer_cast<lib::die>(arg.p_d).get();
 					arg.p_d = get(lib::die(*p_f, current));
 				} catch (...) { return false; }
@@ -225,7 +232,7 @@ namespace dwarf
 				arg.path_from_root.back() = arg.off;
 				
 				// update the parent cache
-				assert(arg.path_from_root.size() >= 2);
+				assert(arg.path_from_root.size() - 1 == start_depth); // which is >= 2
 				parent_cache[arg.off] = arg.path_from_root.at(arg.path_from_root.size() - 2);
 				return true;
 			}
