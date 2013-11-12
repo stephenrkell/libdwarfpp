@@ -388,6 +388,42 @@ namespace dwarf
 						 * doesn't recognise. Treat it as a not-supported case.*/
 						goto fail;
 					}
+				case spec::interp::exprloc: { // like above, but simpler: use dwarf_formexprloc
+					try
+					{
+						this->f = LOCLIST; 
+						Dwarf_Unsigned exprlen;
+						Dwarf_Ptr block_ptr;
+						int ret = dwarf_formexprloc(a.handle.get(), &exprlen, &block_ptr, 
+							&core::current_dwarf_error);
+						assert(ret == DW_DLV_OK);
+						this->v_loclist = new loclist(
+							loc_expr(
+								std::vector<expr_instr>(
+									static_cast<Dwarf_Loc*>(block_ptr), // HMM
+									static_cast<Dwarf_Loc*>(block_ptr) + exprlen 
+								)
+								
+// 								vector<Dwarf_Locdesc>(1, 
+// 									(Dwarf_Locdesc) {
+// 										/* ld_lopc */ 0, /* see libdwarf2.1.pdf sec 2.3.2 */
+// 										/* ld_hipc */ 0, 
+// 										/* ld_cents */ exprlen, 
+// 										/* ld_s */ (Dwarf_Loc*) block_ptr, // HMM
+// 										/* ld_from_loclist */ 0, // FIXME
+// 										/* ld_section_offset */ 0 // FIXME
+// 									}
+// 								)
+							)
+						);
+					}
+					catch (...)
+					{
+						/* This can happen if the loclist includes opcodes that our libdwarf
+						 * doesn't recognise. Treat it as a not-supported case.*/
+						goto fail;
+					}
+				}
 				case spec::interp::rangelistptr: {
 					this->f = RANGELIST;
 					this->v_rangelist = new rangelist(core::RangeList(a, d));
@@ -591,14 +627,24 @@ namespace dwarf
 						goto fail;
 					}
 				case spec::interp::rangelistptr: {
-                	this->f = RANGELIST;
-                    retval = a.formudata(&u); assert(retval == DW_DLV_OK);
-                    dwarf::lib::ranges rs(a, u);
-                    this->v_rangelist = new rangelist(rs.begin(), rs.end());
-                	} break;
+					this->f = RANGELIST;
+					switch (orig_form) 
+					{
+						case DW_FORM_udata:
+							retval = a.formudata(&u); assert(retval == DW_DLV_OK);
+							break;
+						case DW_FORM_sec_offset: 
+							retval = a.formref(static_cast<Dwarf_Off*>(&u)); assert(retval == DW_DLV_OK);
+							break;
+						default:
+							assert(false);
+					}
+					dwarf::lib::ranges rs(a, u);
+					this->v_rangelist = new rangelist(rs.begin(), rs.end());
+				} break;
 				case spec::interp::lineptr:
 				case spec::interp::macptr:
-					goto as_if_unsigned;		
+					goto as_if_unsigned;
 				fail:
 				default:
 					// FIXME: we failed to case-catch, or handle, the FORM; do something

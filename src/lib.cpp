@@ -203,6 +203,7 @@ namespace dwarf
 		iterator_base
 		root_die::first_child(const iterator_base& it)
 		{
+			assert(it.is_real_die_position() || it.is_root_position());
 			assert(&it.get_root() == this);
 			Dwarf_Off start_offset = it.offset_here();
 			Die::handle_type maybe_handle(nullptr, Die::deleter(nullptr)); // TODO: reenable deleter's default constructor
@@ -1604,6 +1605,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			root_die& r = get_root(opt_r);
 			// we have to find ourselves. :-(
 			auto self = r.find(get_offset());
+			assert(self != iterator_base::END);
 			auto enclosing_cu = r.cu_pos(get_enclosing_cu_offset());
 			auto opt_implicit_lower_bound = enclosing_cu->implicit_array_base();
 			
@@ -2131,6 +2133,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 
 			/* We have to find ourselves. :-( */
 			auto i = r.find(get_offset()); 
+			assert(i != iterator_base::END);
 			
 			// Calculate the vaddr which selects a loclist element
 			auto frame_base_loclist = *get_frame_base();
@@ -2186,6 +2189,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			/* We have to find ourselves. :-( */
 			root_die& r = get_root(opt_r);
 			auto i = r.find(get_offset());
+			assert(i != iterator_base::END);
 			auto children = i.children_here();
 			auto unspec = children.subseq_of<unspecified_parameters_die>();
 
@@ -2220,6 +2224,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			/* We have to find ourselves. :-( */ 
 			root_die& r = get_root(opt_r);
 			auto i = r.find(get_offset());
+			assert(i != iterator_base::END);
 
 			// HACK: this should arguably be in overrides for formal_parameter and variable
 			if (get_tag() == DW_TAG_formal_parameter
@@ -2295,6 +2300,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			// We have to find ourselves. :-( 
 			root_die& r = get_root(opt_r);
 			auto i = r.find(get_offset());
+			assert(i != iterator_base::END);
 			
 			// we need an enclosing subprogram or lexical_block
 			auto i_lexical = i.nearest_enclosing(DW_TAG_lexical_block);
@@ -2350,6 +2356,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			/* We have to find ourselves. :-( Well, almost -- enclosing CU. */
 			auto found = r.cu_pos(get_enclosing_cu_offset());
 			iterator_df<compile_unit_die> i_cu = found;
+			assert(i_cu != iterator_base::END);
 			Dwarf_Addr dieset_relative_cu_base_ip
 			 = i_cu->get_low_pc() ? i_cu->get_low_pc()->addr : 0;
 			

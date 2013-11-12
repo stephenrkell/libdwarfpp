@@ -52,3 +52,14 @@ examples/[^\.]*$
 ^tests/test-.*-input$
 ^tests/[^\.]*$
 (^|/)makefile$
+^\.cproject$
+^\.project$
+^\.settings/
+^\.settings/
+callgrind\.out
+.*\.log$
+.*\.tmp$
+nocommit
+^include/dwarfpp/dwarf-ext-GNU\.h$
+^include/dwarfpp/dwarf-onlystd-v2\.h$
+include/dwarfpp/dwarf-onlystd\.h$

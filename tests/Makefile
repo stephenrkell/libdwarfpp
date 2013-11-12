@@ -10,16 +10,18 @@ CXXFLAGS += -std=c++0x $(INCLUDE_DIRS) -O0 -g3 -fno-eliminate-unused-debug-symbo
 
 CXXFLAGS += -Wl,-R$(realpath ../src)
 
+LDLIBS += -ldwarfpp -lsrk31c++ -ldwarf -lelf -lc++fileno -lboost_regex
+
 default: $(ALL_TESTS)
 
 test-input: test-2-input.c
 	$(CC) -o "$@" $(CFLAGS) "$<"
 
 test-%: test-%.cpp test-input ../src/libdwarfpp.so
-	$(CXX) -o "$@" "$<" $(CXXFLAGS) $(LDFLAGS) -ldwarfpp -lsrk31c++ -ldwarf -lelf -lc++fileno -lboost_regex
+	$(CXX) -o "$@" "$<" $(CXXFLAGS) $(LDFLAGS) $(LDLIBS)
 
 test-iterator-comp: test-iterator-comp.cpp
-	$(CXX) -o "$@" "$<" $(CXXFLAGS) $(LDFLAGS) -ldwarfpp -lsrk31c++ -ldwarf -lelf -lc++fileno -lboost_regex
+	$(CXX) -o "$@" "$<" $(CXXFLAGS) $(LDFLAGS) $(LDLIBS)
 
 exec-test-%: test-% test-input
 	gdb --eval-command run --args ./test-$* test-input

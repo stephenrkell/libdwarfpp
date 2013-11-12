@@ -142,6 +142,9 @@ namespace boost
 	{
 		// copied from encap_sibling_graph.hpp (inheritance doesn't work for some reason...)
 		typedef dwarf::encap::basic_die *vertex_descriptor;
+		
+		static vertex_descriptor null_vertex() { return nullptr; }
+		
 		typedef dwarf::encap::attribute_value::weak_ref edge_descriptor;
 
 		typedef dwarf::encap::die_base_ptr_iterator vertex_iterator;

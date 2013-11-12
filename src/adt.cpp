@@ -2067,10 +2067,17 @@ namespace dwarf
 // 				next_cu_handle = std::move(core::Die::try_construct(cu_iter));
 // 				if (!next_cu_handle) cerr << " seems not to exist." << endl;
 // 				else cerr << endl;
+
+				bool cu_move_succeeded = get_root().move_to_next_sibling(cu_iter);
+				if (cu_move_succeeded) 
+				{
+					i = core::iterator_base(core::Die::try_construct(cu_iter), /* depth */ 2, get_root());
+					++cus_moved;
+				} else {
+					break;
+				}
 				
-			} while (get_root().move_to_next_sibling(cu_iter) 
-				&& ((i = core::iterator_base(core::Die::try_construct(cu_iter), 2, get_root())), 
-				     ++cus_moved, true));
+			} while (true);
 			
 			// if we got here, we really hit the end
 			return make_pair(cur_off, end);

@@ -147,7 +147,11 @@ namespace dwarf
 						switch (version_stamp)
 						{
 							// FIXME: more here
-							case 2: m_ds.p_spec = &dwarf::spec::dwarf3; break;
+							case 4:
+								m_ds.p_spec = &dwarf::spec::dwarf4; break; // FIXME: DWARF4
+							case 2:
+								m_ds.p_spec = &dwarf::spec::dwarf3; break; // FIXME: DWARF42?
+							
 							default: throw std::string("Unsupported DWARF version stamp!");
 						}
 					}

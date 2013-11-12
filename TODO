@@ -54,6 +54,12 @@ other bits of DWARF:
 line number program
 
 possible future stuff:
+
+
+
+
+
+
 -------------------------ARCHIVE interest only
 make operator* on iterators dereference pointers too? arguments...
  -- YES. analogue with  containers

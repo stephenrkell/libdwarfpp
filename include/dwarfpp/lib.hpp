@@ -336,14 +336,16 @@ namespace dwarf
 			iterator_base parent(const iterator_base& it);
 			iterator_base first_child(const iterator_base& it);
 			iterator_base next_sibling(const iterator_base& it);
-			// NOTE: we *don't* put named_child and move_to_named_child here, because
-			// we want to allow exploitation of in-payload data, which might support
-			// faster-than-linear search. So to do name lookups, we want to
-			// call a method on the *iterator* (which knows whether it has payload).
-			// It's okay to implement resolve() et al here, because they will call
-			// into the iterator method.
-			// BUT we do put a special find_named_child method, emphasising the linear
-			// search (slow). This the fallback implementation used by the iterator.
+			/* 
+			 * NOTE: we *don't* put named_child and move_to_named_child here, because
+			 * we want to allow exploitation of in-payload data, which might support
+			 * faster-than-linear search. So to do name lookups, we want to
+			 * call a method on the *iterator* (which knows whether it has payload).
+			 * It's okay to implement resolve() et al here, because they will call
+			 * into the iterator method.
+			 * BUT we do put a special find_named_child method, emphasising the linear
+			 * search (slow). This the fallback implementation used by the iterator.
+			 */
 			iterator_base find_named_child(const iterator_base& start, const string& name);
 			
 			// libdwarf has this weird stateful CU API
@@ -637,7 +639,15 @@ namespace dwarf
 			}
 			
 			// move assignment
-			iterator_base& operator=(iterator_base&& arg) = default;
+			iterator_base& operator=(iterator_base&& arg)
+			{
+				this->cur_handle = std::move(arg.cur_handle);
+				this->cur_payload = std::move(arg.cur_payload);
+				this->state = std::move(arg.state);
+				this->m_depth = std::move(arg.m_depth);
+				this->p_root = std::move(p_root);
+				return *this;
+			}
 			
 			/* BUT note: these constructors are not enough, because unless we want
 			 * users to construct raw handles, the user has no nice way of constructing
@@ -989,7 +999,7 @@ namespace dwarf
 		extern dwarf3_factory_t dwarf3_factory;
 		inline factory& factory::for_spec(dwarf::spec::abstract_def& def)
 		{
-			if (&def == &dwarf::spec::dwarf3_def::inst) return dwarf3_factory;
+			if (&def == &dwarf::spec::dwarf3) return dwarf3_factory;
 			assert(false); // FIXME support more specs
 		}
 
@@ -1109,18 +1119,25 @@ namespace dwarf
 				auto first_child = get_root().first_child(this->base_reference()); 
 				//   ^-- might be END
 				
+				// we ALWAYS enqueue the first child
+				if (first_child != iterator_base::END) m_queue.push_back(first_child);
+				
 				if (get_root().move_to_next_sibling(this->base_reference()))
 				{
-					// success, so enqueue the first child if there is one
-					if (first_child != iterator_base::END) m_queue.push_back(first_child);
-				}
-				else if (m_queue.size() > 0)
-				{
-					this->base_reference() = m_queue.front(); m_queue.pop_front();
+					// success
+					return;
 				}
 				else
 				{
-					this->base_reference() = iterator_base::END;
+					// no more siblings; use the queue
+					if (m_queue.size() > 0)
+					{
+						this->base_reference() = m_queue.front(); m_queue.pop_front();
+					}
+					else
+					{
+						this->base_reference() = iterator_base::END;
+					}
 				}
 			}
 			
@@ -1130,16 +1147,21 @@ namespace dwarf
 				 * of the current node. */
 				if (get_root().move_to_next_sibling(this->base_reference()))
 				{
+					// TEMP debugging hack: make sure we have a valid DIE
+					assert(!is_real_die_position() || offset_here() > 0);
+					
 					// success -- don't enqueue children
 					return;
 				}
 				else if (m_queue.size() > 0)
 				{
 					this->base_reference() = m_queue.front(); m_queue.pop_front();
+					assert(!is_real_die_position() || offset_here() > 0);
 				}
 				else
 				{
 					this->base_reference() = iterator_base::END;
+					assert(!is_real_die_position() || offset_here() > 0);
 				}
 			}
 			
@@ -1673,7 +1695,9 @@ friend class factory;
 			 * scenarios (deletions). 
 			 */
 			root_die& r = get_root(opt_r);
-			return r.find_named_child(r.find(get_offset()), name); 
+			Dwarf_Off off = get_offset();
+			auto start_iter = r.find(off);
+			return r.find_named_child(start_iter, name); 
 		}
 
 		// now compile_unit_die is complete...
@@ -1717,6 +1741,7 @@ friend class factory;
 				switch(p_cu->version_stamp)
 				{
 					case 2: return ::dwarf::spec::dwarf3;
+					case 4: return ::dwarf::spec::dwarf3; // HACK: dwarf3 == uber-DWARF for now 
 					default: 
 						cerr << "Warning: saw unexpected DWARF version stamp " 
 							<< p_cu->version_stamp << endl;
@@ -1925,10 +1950,23 @@ friend class factory;
 			
 			/* I think we want bf traversal with a smart subtree-skipping test. */
 			iterator_bf<typename Iter::DerefType> pos = begin();
+			cerr << "Searching for offset " << std::hex << off << std::dec << endl;
+			cerr << "Beginning search at 0x" << std::hex << pos.offset_here() << std::dec << endl;
 			while (pos != iterator_base::END && pos.offset_here() != off)
 			{
 				/* What's next in the breadth-first order? */
-				iterator_bf<typename Iter::DerefType> next_pos = pos; next_pos.increment();
+				assert(((void)pos.offset_here(), true));
+				cerr << "Began loop body; pos is 0x" 
+					<< std::hex << pos.offset_here() << std::dec;
+				iterator_bf<typename Iter::DerefType> next_pos = pos; 
+				assert(((void)pos.offset_here(), true));
+				next_pos.increment();
+				assert(((void)pos.offset_here(), true));
+				cerr << ", next_pos is ";
+				if (next_pos != iterator_base::END) {
+					cerr << std::hex << next_pos.offset_here() << std::dec;
+				} else cerr << "(END)";
+				cerr << endl;
 				 
 				/* Does the move pos->next_pos skip over (enqueue) a subtree? 
 				 * If so, the depth will stay the same. 
@@ -1936,25 +1974,63 @@ friend class factory;
 				 * node out of the queue (i.e. descended instead of skipped-over). */
 				if (next_pos != iterator_base::END && next_pos.depth() == pos.depth())
 				{
+					cerr << "next_pos is at same depth..." << endl;
 					// if I understand correctly....
 					assert(next_pos.offset_here() > pos.offset_here());
 					
 					/* Might that subtree contain off? */
 					if (off < next_pos.offset_here() && off > pos.offset_here())
 					{
-						/* Yes. We want that subtree. */
-						do { pos.increment(); } while (pos.offset_here() > off); //  cut straight to that subtree?
-						continue;
+						cerr << "We think that target is in subtree ..." << endl;
+						/* Yes. We want that subtree. 
+						 * We don't want to move_to_first_child, 
+						 * because that will put the bfs traversal in a weird state
+						 * (s.t. next_pos might take us *upwards* not just across/down). 
+						 * But we don't want to increment through everything, 
+						 * because that will be slow. 
+						 * Instead, 
+						 * - create a new bf iterator at pos (with empty queue); 
+						 * - increment it once normally, so that the subtree is enqueued; 
+						 * - continue the loop. */
+						iterator_bf<typename Iter::DerefType> new_pos 
+						 = static_cast<iterator_base>(pos); 
+						new_pos.increment();
+						if (new_pos != iterator_base::END) {
+							//  previously I had the following slow code: 
+							// //do { pos.increment(); } while (pos.offset_here() > off); 
+							pos = new_pos;
+							cerr << "Fast-forwarded pos to " 
+								<< std::hex << pos.offset_here() << std::dec << std::endl;
+							continue;
+						} 
+						else 
+						{
+							// subtree is empty -- we have failed
+							pos = iterator_base::END;
+							continue;
+						}
+						
 					}
 					else // off >= next_pos.offset_here() || off <= pos.offset_here()
 					{
+						cerr << "Subtree between pos and next_pos cannot possibly contain target..." << endl;
 						/* We can't possibly want that subtree. */
 						pos.increment_skipping_subtree();
 						continue;
 					}
 				}
-				pos.increment();
+				else 
+				{ 
+					// next is END, or is at a different (lower) depth than pos
+					pos.increment(); 
+					continue; 
+				}
+				assert(false); // i.e. the above cases must cover everything
 			}
+			cerr << "Search returning "; 
+			if (pos == iterator_base::END) cerr << "(END)";
+			else cerr << std::hex << pos.offset_here() << std::dec; 
+			cerr << endl;
 			return pos;
 		}
 		inline Attribute::handle_type 
@@ -2074,7 +2150,7 @@ friend class factory;
 					case DW_FORM_udata: {
 						Dwarf_Unsigned ranges_off;
 						ret = dwarf_formudata(a.handle.get(), &ranges_off, &core::current_dwarf_error); 
-						return (ret == DW_DLV_OK) ? ranges_off : (Dwarf_Unsigned)-1;
+						return (ret == DW_DLV_OK) ? ranges_off : (Dwarf_Unsigned) -1;
 					}
 					case DW_FORM_data4: {
 						Dwarf_Signed ref;

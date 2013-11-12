@@ -45,11 +45,11 @@ namespace dwarf
 			 * So we have to interpret it that way. If we want to encode 
 			 * "no location", e.g. in with_dynamic_location_die::get_dynamic_location(),
 			 * we use an empty loclist. */
-	        const dwarf::spec::abstract_def& spec;
+			const dwarf::spec::abstract_def& spec;
 			Dwarf_Addr hipc;
 			Dwarf_Addr lopc;
 			/*std::vector<expr_instr>& m_expr;*/ 
-			loc_expr(const spec::abstract_def& spec = spec::dwarf3) 
+			loc_expr(spec::abstract_def& spec = spec::dwarf3) 
             : spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
 			loc_expr(const Dwarf_Locdesc& desc, const spec::abstract_def& spec = spec::dwarf3) : 
                 std::vector<expr_instr>(desc.ld_s, desc.ld_s + desc.ld_cents),
