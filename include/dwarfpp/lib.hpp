@@ -815,7 +815,7 @@ namespace dwarf
 						filtered_iterator(std::move(in_seq.first), iterator_base::END),
 						filtered_iterator(std::move(in_seq.second), iterator_base::END)
 					);
-				}			
+				}
 			};
 			// specialization for is_a, adding downcast transformer
 			template <typename Iter, typename Payload>
@@ -2111,7 +2111,6 @@ friend class factory;
 			copy_list();
 		}
 		
-		
 		inline LocdescList::handle_type 
 		LocdescList::try_construct(const Attribute& a)
 		{
@@ -2305,8 +2304,8 @@ friend class factory;
 		class global;
 		class block;
 		class loclist;
-        class aranges;
-        class ranges;
+		class aranges;
+		class ranges;
 		class evaluator;
 		class srclines;
 		
@@ -2365,8 +2364,8 @@ friend class factory;
 				Dwarf_Half address_size,
 				Dwarf_Unsigned next_cu_header);
 				
-            // libdwarf has a weird stateful API for getting compile unit DIEs.
-            int clear_cu_context(cu_callback_t cb = 0, void *arg = 0);
+			// libdwarf has a weird stateful API for getting compile unit DIEs.
+			int clear_cu_context(cu_callback_t cb = 0, void *arg = 0);
 
 			// TODO: forbid copying or assignment by adding private definitions 
 		public:
@@ -2426,10 +2425,10 @@ friend class factory;
 				Dwarf_Off in_cu_header_offset,
 				Dwarf_Off * out_cu_die_offset,
 				Dwarf_Error *error = 0);
-                
-            int get_elf(Elf **out_elf, Dwarf_Error *error = 0);
-            
-            aranges& get_aranges() { if (p_aranges) return *p_aranges; else throw No_entry(); }
+				
+			int get_elf(Elf **out_elf, Dwarf_Error *error = 0);
+			
+			aranges& get_aranges() { if (p_aranges) return *p_aranges; else throw No_entry(); }
 		};
 
 		class die {
@@ -2660,72 +2659,72 @@ friend class factory;
 
 			virtual ~global_array() { dwarf_globals_dealloc(f.get_dbg(), p_globals, cnt); }
 		};
-        
-        class aranges
-        {
-        	file &f;
+		
+		class aranges
+		{
+			file &f;
 		public: // temporary HACK
-            Dwarf_Error *const p_last_error;
+			Dwarf_Error *const p_last_error;
 		//private:
-            Dwarf_Arange *p_aranges;
-            Dwarf_Signed cnt;
-            // TODO: forbid copying or assignment
-        public:
-        	aranges(file& f, Dwarf_Error *error = 0) : f(f), p_last_error(error ? error : &f.last_error)
-            {
-            	if (error == 0) error = p_last_error;
-                int retval = dwarf_get_aranges(f.get_dbg(), &p_aranges, &cnt, error);
-                if (retval == DW_DLV_NO_ENTRY) { cnt = 0; p_aranges = 0; }
-                else if (retval != DW_DLV_OK) throw Error(*error, f.get_dbg());
+			Dwarf_Arange *p_aranges;
+			Dwarf_Signed cnt;
+			// TODO: forbid copying or assignment
+		public:
+			aranges(file& f, Dwarf_Error *error = 0) : f(f), p_last_error(error ? error : &f.last_error)
+			{
+				if (error == 0) error = p_last_error;
+				int retval = dwarf_get_aranges(f.get_dbg(), &p_aranges, &cnt, error);
+				if (retval == DW_DLV_NO_ENTRY) { cnt = 0; p_aranges = 0; }
+				else if (retval != DW_DLV_OK) throw Error(*error, f.get_dbg());
 				cerr << "Constructed an aranges from block at " << p_aranges 
 					<< ", count " << cnt << endl;
-            }
+			}
 			Dwarf_Signed count() { return cnt; }		
 			int get_info(int i, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
 				Dwarf_Error *error = 0);
 			int get_info_for_addr(Dwarf_Addr a, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
 				Dwarf_Error *error = 0);
 			void *arange_block_base() const { return p_aranges; }
-            virtual ~aranges()
-            {
-            	// FIXME: uncomment this after dwarf_dealloc segfault bug fixed
-                
-            	//for (int i = 0; i < cnt; ++i) dwarf_dealloc(f.dbg, p_aranges[i], DW_DLA_ARANGE);
+			virtual ~aranges()
+			{
+				// FIXME: uncomment this after dwarf_dealloc segfault bug fixed
+				
+				//for (int i = 0; i < cnt; ++i) dwarf_dealloc(f.dbg, p_aranges[i], DW_DLA_ARANGE);
 				//dwarf_dealloc(f.dbg, p_aranges, DW_DLA_LIST);
-            }
-        };
+			}
+		};
 
-        class ranges
-        {
-            const die& d;
-            Dwarf_Error *const p_last_error;
-            Dwarf_Ranges *p_ranges;
-            Dwarf_Signed cnt;
-            // TODO: forbid copying or assignment
-        public:
-        	ranges(const attribute& a, Dwarf_Off range_off, Dwarf_Error *error = 0) 
-            : d(a.p_a->d), p_last_error(error ? error : &d.f.last_error)
-            {
-            	if (error == 0) error = p_last_error;
-                Dwarf_Unsigned bytes;
-                int res;
-                res = dwarf_get_ranges_a(d.f.dbg, range_off, 
-                	d.my_die, &p_ranges, &cnt, &bytes, error);
-                if (res == DW_DLV_NO_ENTRY) throw No_entry();
-                assert(res == DW_DLV_OK);
-            }
-            
-            Dwarf_Ranges operator[](Dwarf_Signed i)
-            { assert(i < cnt); return p_ranges[i]; }
-            Dwarf_Ranges *begin() { return p_ranges; }
-            Dwarf_Ranges *end() { return p_ranges + cnt; }
-            
+		class ranges
+		{
+			const die& d;
+			Dwarf_Error *const p_last_error;
+			Dwarf_Ranges *p_ranges;
+			Dwarf_Signed cnt;
+			// TODO: forbid copying or assignment
+		public:
+			ranges(const attribute& a, Dwarf_Off range_off, Dwarf_Error *error = 0) 
+			: d(a.p_a->d), p_last_error(error ? error : &d.f.last_error)
+			{
+				if (error == 0) error = p_last_error;
+				Dwarf_Unsigned bytes;
+				int res;
+				res = dwarf_get_ranges_a(d.f.dbg, range_off, 
+					d.my_die, &p_ranges, &cnt, &bytes, error);
+				if (res == DW_DLV_NO_ENTRY) throw No_entry();
+				assert(res == DW_DLV_OK);
+			}
+			
+			Dwarf_Ranges operator[](Dwarf_Signed i)
+			{ assert(i < cnt); return p_ranges[i]; }
+			Dwarf_Ranges *begin() { return p_ranges; }
+			Dwarf_Ranges *end() { return p_ranges + cnt; }
+			
 			Dwarf_Signed count() { return cnt; }		
-            virtual ~ranges()
-            {
-            	dwarf_ranges_dealloc(d.f.dbg, p_ranges, cnt);
-            }
-        };
+			virtual ~ranges()
+			{
+				dwarf_ranges_dealloc(d.f.dbg, p_ranges, cnt);
+			}
+		};
 		
 		class srclines
 		{
@@ -2796,18 +2795,18 @@ friend class factory;
 			unsigned count() { return filescount; }
 		};		
 		class Not_supported
-        {
-        	const string& m_msg;
-        public:
-        	Not_supported(const string& msg) : m_msg(msg) {}
-        };
-        
+		{
+			const string& m_msg;
+		public:
+			Not_supported(const string& msg) : m_msg(msg) {}
+		};
+		
 		class regs
-        {
-        public:
-        	virtual Dwarf_Signed get(int regnum) = 0;
-            virtual void set(int regnum, Dwarf_Signed val) 
-            { throw Not_supported("writing registers"); }
+		{
+		public:
+			virtual Dwarf_Signed get(int regnum) = 0;
+			virtual void set(int regnum, Dwarf_Signed val) 
+			{ throw Not_supported("writing registers"); }
 		};
 
 		class evaluator {

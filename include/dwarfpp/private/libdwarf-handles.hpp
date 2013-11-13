@@ -126,7 +126,7 @@
 			inline Dwarf_Off get_offset() const { return offset_here(); }
 			inline Dwarf_Half get_tag() const { return tag_here(); }
 			inline opt<string> get_name() const 
-			{ return opt<string>(string(name_here().get())); }
+			{ return name_here() ? opt<string>(string(name_here().get())) : opt<string>(); }
 			inline unique_ptr<const char, string_deleter> get_raw_name() const
 			{ return name_here(); }
 			inline Dwarf_Off get_enclosing_cu_offset() const 

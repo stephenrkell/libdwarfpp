@@ -10,6 +10,7 @@ CXXFLAGS += -O0 -g3 -fno-eliminate-unused-debug-types
 endif
 CXXFLAGS += -I../include
 CXXFLAGS += -I../include/dwarfpp
+CXXFLAGS += -Wno-deprecated-declarations # TEMPorary HACK
 
 # add dependencies on dynamic libs libdwarfpp.so should pull in
 LDFLAGS += -lboost_serialization # why do we need this?

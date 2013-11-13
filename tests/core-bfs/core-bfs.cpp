@@ -7,9 +7,6 @@ using std::cout;
 using std::endl;
 using namespace dwarf;
 
-/* instantiate the following template, for some reason. */
-//dwarf::core::basic_die::basic_die<dwarf::core::iterator_df<dwarf::core::basic_die> >(dwarf::core::root_die&, dwarf::core::iterator_df<dwarf::core::basic_die> const&);
-
 int static_we_should_find;
 
 int main(int argc, char **argv)
@@ -17,14 +14,22 @@ int main(int argc, char **argv)
 	cout << "Opening " << argv[0] << "..." << endl;
 	std::ifstream in(argv[0]);
 	core::root_die root(fileno(in));
-	cout << root;
 
 	cout << "Searching for variables..." << endl;
 	core::iterator_bf<> i = root.begin();
 	assert(i != root.end());
+	int prev_depth = 0;
 	for (; i != root.end(); ++i)
 	{
-		cerr << "Saw " << i << endl;
+		int cur_depth = i.depth();
+		assert(cur_depth >= prev_depth);
+		if (cur_depth != prev_depth)
+		{
+			cout << "Now at depth "  << cur_depth << endl;
+		}
+		prev_depth = cur_depth;
+		
+		// cerr << "Saw " << i << endl;
 		if (i.tag_here() == DW_TAG_variable
 			&& i.has_attribute_here(DW_AT_location))
 		{

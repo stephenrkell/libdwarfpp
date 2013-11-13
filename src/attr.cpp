@@ -294,7 +294,7 @@ namespace dwarf
 			
 			// find our dwarf spec
 			Dwarf_Off cu_offset = d.enclosing_cu_offset_here();
-			dwarf::spec::abstract_def& spec = r.find(cu_offset).spec_here();
+			dwarf::spec::abstract_def& spec = r.cu_pos(cu_offset).spec_here();
 
 			if (retval != DW_DLV_OK) goto fail; // retval set by whatform() above
 			Dwarf_Half attr; 

@@ -1,6 +1,7 @@
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 root := $(realpath $(dir $(THIS_MAKEFILE))/..)
 CXXFLAGS += -I$(root)/include
+CXXFLAGS += -g
 LDFLAGS += -L$(root)/lib -Wl,-R$(root)/lib
 LDFLAGS += -ldwarfpp -ldwarf -lelf -lsrk31c++ -lc++fileno -lboost_system
 
