@@ -373,7 +373,7 @@
 		struct Fragment ## List \
 		{ \
 			typedef Fragment::raw_handle_type *raw_handle_type; /* What libdwarf returns us. */ \
-			/* don't say opaque_type... \
+			/* don't say opaque_type... */ \
 			/* typedef Fragment::opaque_type *raw_element_type; */ \
 			/* ... because LocDesc doesn't have one. But it does have... */ \
 			typedef Fragment::raw_handle_type raw_element_type; \

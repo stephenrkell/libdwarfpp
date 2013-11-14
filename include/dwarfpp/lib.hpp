@@ -183,15 +183,15 @@ namespace dwarf
 			// and therefore have our own r, we should delegate with that one. 
 			
 			// protected constructor constructing dummy instances only
-			inline basic_die(spec& s): d(nullptr, 0), s(s) {}
+			inline basic_die(spec& s): refcount(0), d(nullptr, 0), s(s) {}
 			// protected constructor that is never actually used, but 
 			// required to avoid special-casing in macros -- see begin_class() macro
-			inline basic_die() : d(nullptr, nullptr), s(::dwarf::spec::DEFAULT_DWARF_SPEC) 
+			inline basic_die() : refcount(0), d(nullptr, nullptr), s(::dwarf::spec::DEFAULT_DWARF_SPEC) 
 			{ assert(false); }
 			friend struct dwarf3_factory_t;
 		public:
 			inline basic_die(spec& s, Die&& h)
-			 : d(std::move(h)), s(s) {}
+			 : refcount(0), d(std::move(h)), s(s) {}
 			
 			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
 			friend void intrusive_ptr_add_ref(basic_die *p);
@@ -324,7 +324,13 @@ namespace dwarf
 			Iter cu_pos(Dwarf_Off off)
 			{ return pos<Iter>(off, 1, optional<Dwarf_Off>()); }
 			
-			
+		private: // find() helpers
+			template <typename Iter = iterator_df<> >
+			Iter find_downwards(Dwarf_Off off);		
+			template <typename Iter = iterator_df<> >
+			Iter find_upwards(Dwarf_Off off);
+
+		public:
 			::Elf *get_elf(); // hmm: lib-only?
 			Debug& get_dbg() { return dbg; }
 
@@ -626,6 +632,7 @@ namespace dwarf
 					this->state = HANDLE_ONLY;
 					this->m_depth = 0;
 					this->p_root = nullptr;
+					assert(this->is_end_position());
 				}
 				else if (arg.is_root_position())
 				{
@@ -633,6 +640,7 @@ namespace dwarf
 					this->state = HANDLE_ONLY; // the root DIE can get away with this (?)
 					this->m_depth = 0;
 					this->p_root = &arg.get_root();
+					assert(this->is_root_position());
 				} else assert(false);
 
 				return *this;
@@ -645,7 +653,7 @@ namespace dwarf
 				this->cur_payload = std::move(arg.cur_payload);
 				this->state = std::move(arg.state);
 				this->m_depth = std::move(arg.m_depth);
-				this->p_root = std::move(p_root);
+				this->p_root = std::move(arg.p_root);
 				return *this;
 			}
 			
@@ -1048,15 +1056,26 @@ namespace dwarf
 			
 			void increment()
 			{
-				if (get_root().move_to_first_child(base_reference())) return;
+				Dwarf_Off start_offset = offset_here();
+				if (get_root().move_to_first_child(base_reference()))
+				{
+					// our offsets should only go up
+					assert(offset_here() > start_offset);
+					return;
+				}
 				do
 				{
-					if (get_root().move_to_next_sibling(base_reference())) return;
+					if (get_root().move_to_next_sibling(base_reference()))
+					{
+						assert(offset_here() > start_offset);
+						return;
+					}
 				} while (get_root().move_to_parent(base_reference()));
 
 				// if we got here, there is nothing left in the tree...
 				// ... so set us to the end sentinel
 				base_reference() = base_reference().get_root().end/*<self>*/();
+				assert(*this == iterator_base::END);
 			}
 			void decrement()
 			{
@@ -1209,8 +1228,15 @@ namespace dwarf
 			
 			void increment()
 			{
-				if (this->base_reference().get_root().move_to_next_sibling(this->base_reference())) return;
-				else { this->base_reference() = this->base_reference().get_root().end/*<self>*/(); return; }
+				if (this->base_reference().get_root().move_to_next_sibling(this->base_reference()))
+				{
+					return;
+				}
+				else 
+				{ 
+					this->base_reference() = this->base_reference().get_root().end/*<self>*/(); 
+					return; 
+				}
 			}
 			
 			void decrement()
@@ -1930,6 +1956,41 @@ friend class factory;
 			else if (parent_off) parent_of[off] = *parent_off;
 			
 			return Iter(std::move(base));
+		}		
+		
+		template <typename Iter /* = iterator_df<> */ >
+		inline Iter root_die::find_upwards(Dwarf_Off off)
+		{
+			/* Use the parent cache to verify our existence and
+			 * get our depth. */
+			int height = -1;
+			Dwarf_Off cur = off;
+			map<Dwarf_Off, Dwarf_Off>::iterator i_found_parent;
+			do
+			{
+				i_found_parent = parent_of.find(cur);
+				++height;
+			} while (i_found_parent != parent_of.end() && (cur = i_found_parent->second, true));
+			
+			// if we got all the way to the root, cur will be 0
+			if (cur == 0)
+			{
+				return pos(off, height, parent_of[off]);
+			} else return iterator_base::END;
+		}
+		
+		template <typename Iter /* = iterator_df<> */ >
+		inline Iter root_die::find(Dwarf_Off off)
+		{
+			Iter found_up = find_upwards(off);
+			if (found_up != iterator_base::END)
+			{
+				return found_up;
+			} 
+			else
+			{
+				return find_downwards(off);
+			}
 		}
 		
 		/* We use the properties of diesets to avoid a naive depth-first search. 
@@ -1942,7 +2003,7 @@ friend class factory;
 		 * Probably the best way to accommodate this is as a new class
 		 * used in place of Dwarf_Off. */
 		template <typename Iter /* = iterator_df<> */ >
-		inline Iter root_die::find(Dwarf_Off off)
+		inline Iter root_die::find_downwards(Dwarf_Off off)
 		{
 			/* Interesting problem: our iterators don't make searching a subtree 
 			 * easy. I think there is a neat way of expressing this by combining
