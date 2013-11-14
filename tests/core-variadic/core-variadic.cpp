@@ -20,7 +20,6 @@ int main(int argc, char **argv)
 	cout << "Opening " << argv[0] << "..." << endl;
 	std::ifstream in(argv[0]);
 	core::root_die root(fileno(in));
-	cout << root;
 
 	cout << "Searching for variadic functions..." << endl;
 	for (auto i = root.begin(); i != root.end(); ++i)
