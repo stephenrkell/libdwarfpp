@@ -504,7 +504,10 @@ namespace dwarf
 			
 			// this constructor sets us up at begin(), i.e. the root DIE position
 			explicit iterator_base(root_die& r)
-			 : cur_handle(nullptr, nullptr), state(HANDLE_ONLY), m_depth(0), p_root(&r) {}
+			 : cur_handle(nullptr, nullptr), cur_payload(nullptr), state(HANDLE_ONLY), m_depth(0), p_root(&r) 
+			{
+				assert(this->is_root_position());
+			}
 			
 			// this constructor sets us up using a handle -- 
 			// this does the exploitation of the sticky set
@@ -563,7 +566,7 @@ namespace dwarf
 			// : cur_handle(nullptr), state(WITH_PAYLOAD), 
 			//   m_depth(p->get_depth()), p_root(&p->get_root()) {}
 		
-			// iterators must be copyable
+			// copy constructor
 			iterator_base(const iterator_base& arg)
 			 : cur_handle(nullptr, nullptr), 
 			   cur_payload(arg.is_real_die_position() ?
@@ -610,16 +613,19 @@ namespace dwarf
 			/* NO! We don't support the above constructor, because we'd have to 
 			 * get m_depth by searching. We go through root_die::find() instead. */ 
 			
-			// copy assignment			
+			// copy assignment
+			/* FIXME: instead of making payload in copy-construction and copy-assignment, 
+			 * we could delay it so that it only happens on dereference, and use libdwarf's
+			 * offdie to get a fresh handle at the same offset (but CHECK that it really is fresh). */
 			iterator_base& operator=(const iterator_base& arg) // does the upgrade...
 			{ 
-#ifdef DWARFPP_LINEAR_ITERATORS
-				assert(false); // ... which we initially want to avoid (zero-copy)
-#endif
 				// we're a copy, so we can't have a handle
 				this->cur_handle = std::move(Die(nullptr, nullptr));
 				if (arg.is_real_die_position())
 				{
+#ifdef DWARFPP_LINEAR_ITERATORS
+					assert(false); // ... avoid copying if the client asked us to (zero-copy)
+#endif
 					this->cur_payload = arg.get_root().make_payload(arg);
 					this->state = WITH_PAYLOAD;
 					this->m_depth = arg.depth();
@@ -795,6 +801,15 @@ namespace dwarf
 				return is_a_t<Payload>()(*this);
 			}
 			
+			// convenience for checked construction 
+			// of typed iterators
+			template <typename Payload, template <typename InnerPayload> class Iter = iterator_df >
+			inline Iter<Payload> as_a() const
+			{
+				if (this->is_a<Payload>()) return Iter<Payload>(*this);
+				else return END;
+			}
+			
 			// We want to partially specialize a function template, 
 			// which we can't do. So pull out the core into a class
 			// template which we call from the (non-specialised) function template.
@@ -829,6 +844,20 @@ namespace dwarf
 			template <typename Iter, typename Payload>
 			struct subseq_t<Iter, is_a_t<Payload> >
 			{
+				/* HMM. Actually we want to get the transform_iterator type, then 
+				 * mix it in with the original iterator type. Can we use CRTP for this?
+				 * e.g. 
+				 *
+				 *  struct filtered_iterator : Iter, srk31::selective_iterator< is_a_t<Payload>, Iter> 
+					{
+						using selective_iterator< is_a_t<Payload>, Iter>::selective_iterator;
+					}
+				
+				 * The obvious problem here is that we have two copies of the base iterator:
+				 * one deeper in the selective_iterator, and one in the first base class.
+				 * We'd want the selective_iterator to CRTP-downcall its implementation of
+				 * base(), 
+				 * */
 				typedef srk31::selective_iterator< is_a_t<Payload>, Iter> filtered_iterator;
 
 				// transformer is just dynamic_cast, wrapped as a function
@@ -839,11 +868,10 @@ namespace dwarf
 					return dynamic_cast<Payload&>(arg);
 				}
 
+				// HMM: same as above.
 				typedef boost::transform_iterator<transformer, filtered_iterator >
 					transformed_iterator;
-				
-				/* HMM. Actually we want to get the transform_iterator type, then 
-				 * mix it in with the original iterator type. Can we use CRTP for this? */
+
 				pair<transformed_iterator, transformed_iterator> 
 				operator()(const pair<Iter, Iter>& in_seq)
 				{
@@ -936,25 +964,28 @@ namespace dwarf
 			{
 				if (!p_root && !arg.p_root) return true; // END
 				// now we're either root or "real". Handle the case where we're root. 
-				if (!cur_handle.handle.get() 
-					&& !arg.cur_handle.handle.get()) return p_root == arg.p_root;
-				// now at least one of us is "real"...
-				//if (state == HANDLE_ONLY)
-				//{
-				//	// ... and we can't be equal because we should be unique // NO, WRONG; see below
-				//	else return false;
-				//}
-				//else
-				//{
-				// NOTE: the above logic is wrong because we can ask libdwarf for a 
-				// fresh handle at the same offset, and it will be distinct.
-				
-					return this->p_root == arg.p_root
-						&& this->offset_here() == arg.offset_here();
-				//}
+				if (state == HANDLE_ONLY && !cur_handle.handle.get() 
+					&& arg.state == HANDLE_ONLY && !arg.cur_handle.handle.get()) return p_root == arg.p_root;
+				if (m_depth != arg.m_depth) return false;
+				// NOTE: we can't compare handles or payload addresses, because 
+				// we can ask libdwarf for a fresh handle at the same offset, 
+				// and it might be distinct.
+				return p_root == arg.p_root
+					&& offset_here() == arg.offset_here();
 			}
 			bool operator!=(const iterator_base& arg) const	
 			{ return !(*this == arg); }
+			
+			operator bool() const
+			{ return *this != END; }
+			
+			/* iterator_adaptor implements <, <=, >, >= using distance_to. 
+			 * This is too expensive to compute in general, so we hide this 
+			 * by defininig our own comparison simply as offset comparison. */
+			bool operator<(const iterator_base& arg) const
+			{
+				return this->offset_here() < arg.offset_here();
+			}
 			
 			basic_die& dereference() const 
 			{
@@ -964,36 +995,6 @@ namespace dwarf
 			friend std::ostream& operator<<(std::ostream& s, const iterator_base& it);
 		}; 
 		/* END class iterator_base */
-	} namespace spec {
-		template <>
-		struct opt< core::iterator_base > : core::iterator_base
-		{
-			typedef core::iterator_base super;
-			opt() : super() {}
-			opt( none_t none_ ) : super(/*none_*/) {}
-			opt ( const iterator_base& val ) : super(val) {}
-			opt ( bool cond, const core::iterator_base& val ) : super(cond ? val : core::iterator_base::END) {}
-#ifndef BOOST_OPTIONAL_NO_CONVERTING_COPY_CTOR
-			template<class U>
-			explicit opt ( opt<U> const& rhs )
-			  :
-			  super()
-			{
-			  if ( rhs.is_initialized() )
-				*this = rhs.get(); //this->construct(rhs.get());
-			}
-#endif
-#ifndef BOOST_OPTIONAL_NO_INPLACE_FACTORY_SUPPORT
-			template<class Expr>
-			explicit opt ( Expr const& expr ) : super(expr,boost::addressof(expr)) {}
-#endif
-			opt(const opt< core::iterator_base >& arg) : super((const super&)arg) {}
-			opt< core::iterator_base >& operator=(const opt<core::iterator_base >& arg) 
-			{ *((super *) this) = (const super&) arg; return *this; }
-		};
-	} namespace core {
-		/* END specialization for opt<iterator_base<DerefAs> > */
-		using ::dwarf::spec::opt;
 		
 		std::ostream& operator<<(std::ostream& s, const iterator_base& it);
 		std::ostream& operator<<(std::ostream& s, const AttributeList& attrs);
@@ -1086,7 +1087,11 @@ namespace dwarf
 			DerefAs& dereference() const
 			{ return dynamic_cast<DerefAs&>(this->iterator_base::dereference()); }
 		};
-		
+		/* assert that our opt<> specialization for subclasses of iterator_base 
+		 * has had its effect. */
+		static_assert(std::is_base_of<core::iterator_base, opt<iterator_base> >::value, "opt<iterator_base> specialization error");
+		static_assert(std::is_base_of<core::iterator_base, opt<core::iterator_df<> > >::value, "opt<iterator_base> specialization error");
+	
 		template <typename DerefAs /* = basic_die */>
 		struct iterator_bf : public iterator_base,
 		                     public boost::iterator_facade<
@@ -1343,11 +1348,42 @@ struct regs;
 			void *arg /* = 0 */) const;
 	};
 
-	struct with_type_describing_layout_die : public virtual basic_die
+	struct with_named_children_die : public virtual basic_die
+	{
+		/* We most most of the resolution stuff into iterator_base, 
+		 * but leave this here so that payload implementations can
+		 * provide a faster-than-default (i.e. faster than linear search)
+		 * way to look up named children (e.g. hash table). */
+		virtual 
+		inline iterator_base
+		named_child(const std::string& name, optional_root_arg) const;
+	};
+
+/* program_element_die */
+begin_class(program_element, base_initializations(basic), declare_base(basic))
+		attr_optional(decl_file, unsigned)
+		attr_optional(decl_line, unsigned)
+		attr_optional(decl_column, unsigned)
+		attr_optional(prototyped, flag)
+		attr_optional(declaration, flag)
+		attr_optional(external, flag)
+		attr_optional(visibility, unsigned)
+		attr_optional(artificial, flag)
+end_class(program_element)
+/* type_die */
+begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
+		attr_optional(byte_size, unsigned)
+		virtual opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
+		// virtual bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
+		virtual iterator_df<type_die> get_concrete_type(optional_root_arg) const;
+		virtual iterator_df<type_die> get_unqualified_type(optional_root_arg) const;
+end_class(type)
+/* with_type_describing_layout_die */
+	struct with_type_describing_layout_die : public virtual program_element_die
 	{
 		virtual opt<iterator_df<type_die> > get_type(optional_root_arg) const = 0;
 	};
-
+/* with_dynamic_location_die */
 	struct with_dynamic_location_die : public virtual with_type_describing_layout_die
 	{
 		virtual opt<Dwarf_Off> spans_addr(
@@ -1382,6 +1418,11 @@ struct regs;
 			root_die& r,
 			Dwarf_Off dieset_relative_ip,
 			dwarf::lib::regs *p_regs = 0) const = 0;
+			
+		/** This gets an offset in an enclosing object. NOTE that it's only 
+		    defined for members and inheritances (and not even all of those), 
+		    but it's here for convenience. */
+		virtual opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(optional_root_arg) const;
 
 		/** This gets a location list describing the location of the thing, 
 			assuming that the instantiating_instance_location has been pushed
@@ -1406,42 +1447,17 @@ struct regs;
 			Dwarf_Off dieset_relative_ip,
 			dwarf::lib::regs *p_regs = 0) const;*/
 	};
-
-	struct with_named_children_die : public virtual basic_die
-	{
-		/* We most most of the resolution stuff into iterator_base, 
-		 * but leave this here so that payload implementations can
-		 * provide a faster-than-default (i.e. faster than linear search)
-		 * way to look up named children (e.g. hash table). */
-		virtual 
-		inline iterator_base
-		named_child(const std::string& name, optional_root_arg) const;
-	};
-
-/* program_element_die */
-begin_class(program_element, base_initializations(basic), declare_base(basic))
-		attr_optional(decl_file, unsigned)
-		attr_optional(decl_line, unsigned)
-		attr_optional(decl_column, unsigned)
-		attr_optional(prototyped, flag)
-		attr_optional(declaration, flag)
-		attr_optional(external, flag)
-		attr_optional(visibility, unsigned)
-		attr_optional(artificial, flag)
-end_class(program_element)
-/* type_die */
-begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
-		attr_optional(byte_size, unsigned)
-		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
-		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
-		iterator_df<type_die> get_concrete_type(optional_root_arg) const;
-		iterator_df<type_die> get_unqualified_type(optional_root_arg) const;
-end_class(type)
 /* type_chain_die */
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
         attr_optional(type, refdie_is_type)
         opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
         iterator_df<type_die> get_concrete_type(optional_root_arg) const;
+end_class(type_chain)
+/* address_holding_type_die */
+begin_class(address_holding_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
+        attr_optional(address_class, unsigned)
+        iterator_df<type_die> get_concrete_type(optional_root_arg) const;
+        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
 end_class(type_chain)
 /* qualified_type_die */
 begin_class(qualified_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
@@ -1499,36 +1515,31 @@ end_class(with_data_members)
 		has_stack_based_location
 #define extra_decls_array_type \
 		opt<Dwarf_Unsigned> element_count(optional_root_arg) const; \
-        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
-        bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; \
+		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */ \
 		iterator_df<type_die> ultimate_element_type(optional_root_arg) const; \
-		opt<Dwarf_Unsigned> ultimate_element_count(optional_root_arg) const; 
+		opt<Dwarf_Unsigned> ultimate_element_count(optional_root_arg) const; \
+		iterator_df<type_die> get_concrete_type(optional_root_arg) const;
 #define extra_decls_pointer_type \
-		iterator_df<type_die> get_concrete_type(optional_root_arg) const; \
-        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
-        bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
+        /* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_reference_type \
-		iterator_df<type_die> get_concrete_type(optional_root_arg) const; \
-        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
-        bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
+        /* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_base_type \
-		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_structure_type \
 		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
-		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; 
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_union_type \
-		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; 
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_class_type \
-		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; 
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_enumeration_type \
-		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_subroutine_type \
-		bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_member \
-		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(optional_root_arg) const; \
 		has_object_based_location
 #define extra_decls_inheritance \
-		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(optional_root_arg) const; \
 		has_object_based_location
 
 #define extra_decls_compile_unit \
@@ -1804,7 +1815,7 @@ friend class factory;
 		Die::try_construct(root_die& r, const iterator_base& it) /* siblingof */
 		{
 			raw_handle_type returned;
-			auto tmp = dynamic_cast<Die *>(&it.get_handle());
+			// auto tmp = dynamic_cast<Die *>(&it.get_handle());
 			int ret
 			 = dwarf_siblingof(r.dbg.handle.get(), dynamic_cast<Die&>(it.get_handle()).handle.get(), 
 			 	&returned, &current_dwarf_error);
@@ -1842,12 +1853,6 @@ friend class factory;
 		{
 			raw_handle_type returned;
 			root_die& r = it.get_root();
-			auto tmp0 = &it.get_handle();
-			auto tmp = dynamic_cast<core::Die *>(&it.get_handle());
-			auto tmp1 = dynamic_cast<core::iterator_base *>(&it.get_handle());
-			auto tmp2 = dynamic_cast<core::basic_die *>(&it.get_handle());
-			//auto tmp3 = dynamic_cast<core::Die *>(&it.get_handle());
-			//auto tmp4 = dynamic_cast<core::Die *>(&it.get_handle());
 			int ret = dwarf_child(dynamic_cast<Die&>(it.get_handle()).handle.get(), &returned, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
 			{
@@ -2011,23 +2016,23 @@ friend class factory;
 			
 			/* I think we want bf traversal with a smart subtree-skipping test. */
 			iterator_bf<typename Iter::DerefType> pos = begin();
-			cerr << "Searching for offset " << std::hex << off << std::dec << endl;
-			cerr << "Beginning search at 0x" << std::hex << pos.offset_here() << std::dec << endl;
+			// cerr << "Searching for offset " << std::hex << off << std::dec << endl;
+			// cerr << "Beginning search at 0x" << std::hex << pos.offset_here() << std::dec << endl;
 			while (pos != iterator_base::END && pos.offset_here() != off)
 			{
 				/* What's next in the breadth-first order? */
 				assert(((void)pos.offset_here(), true));
-				cerr << "Began loop body; pos is 0x" 
-					<< std::hex << pos.offset_here() << std::dec;
+				// cerr << "Began loop body; pos is 0x" 
+				// 	<< std::hex << pos.offset_here() << std::dec;
 				iterator_bf<typename Iter::DerefType> next_pos = pos; 
 				assert(((void)pos.offset_here(), true));
 				next_pos.increment();
 				assert(((void)pos.offset_here(), true));
-				cerr << ", next_pos is ";
-				if (next_pos != iterator_base::END) {
-					cerr << std::hex << next_pos.offset_here() << std::dec;
-				} else cerr << "(END)";
-				cerr << endl;
+				// cerr << ", next_pos is ";
+				// if (next_pos != iterator_base::END) {
+				// 	cerr << std::hex << next_pos.offset_here() << std::dec;
+				//} else cerr << "(END)";
+				// cerr << endl;
 				 
 				/* Does the move pos->next_pos skip over (enqueue) a subtree? 
 				 * If so, the depth will stay the same. 
@@ -2035,14 +2040,14 @@ friend class factory;
 				 * node out of the queue (i.e. descended instead of skipped-over). */
 				if (next_pos != iterator_base::END && next_pos.depth() == pos.depth())
 				{
-					cerr << "next_pos is at same depth..." << endl;
+					// cerr << "next_pos is at same depth..." << endl;
 					// if I understand correctly....
 					assert(next_pos.offset_here() > pos.offset_here());
 					
 					/* Might that subtree contain off? */
 					if (off < next_pos.offset_here() && off > pos.offset_here())
 					{
-						cerr << "We think that target is in subtree ..." << endl;
+						// cerr << "We think that target is in subtree ..." << endl;
 						/* Yes. We want that subtree. 
 						 * We don't want to move_to_first_child, 
 						 * because that will put the bfs traversal in a weird state
@@ -2060,8 +2065,8 @@ friend class factory;
 							//  previously I had the following slow code: 
 							// //do { pos.increment(); } while (pos.offset_here() > off); 
 							pos = new_pos;
-							cerr << "Fast-forwarded pos to " 
-								<< std::hex << pos.offset_here() << std::dec << std::endl;
+							// cerr << "Fast-forwarded pos to " 
+							// 	<< std::hex << pos.offset_here() << std::dec << std::endl;
 							continue;
 						} 
 						else 
@@ -2074,7 +2079,7 @@ friend class factory;
 					}
 					else // off >= next_pos.offset_here() || off <= pos.offset_here()
 					{
-						cerr << "Subtree between pos and next_pos cannot possibly contain target..." << endl;
+						// cerr << "Subtree between pos and next_pos cannot possibly contain target..." << endl;
 						/* We can't possibly want that subtree. */
 						pos.increment_skipping_subtree();
 						continue;
@@ -2088,9 +2093,9 @@ friend class factory;
 				}
 				assert(false); // i.e. the above cases must cover everything
 			}
-			cerr << "Search returning "; 
-			if (pos == iterator_base::END) cerr << "(END)";
-			else cerr << std::hex << pos.offset_here() << std::dec; 
+			// cerr << "Search returning "; 
+			// if (pos == iterator_base::END) cerr << "(END)";
+			// else cerr << std::hex << pos.offset_here() << std::dec; 
 			cerr << endl;
 			return pos;
 		}
@@ -2172,6 +2177,23 @@ friend class factory;
 			copy_list();
 		}
 		
+		inline Locdesc::handle_type
+		Locdesc::try_construct(const Attribute& a)
+		{
+			Dwarf_Unsigned exprlen;
+			Dwarf_Ptr block_ptr;
+			int ret = dwarf_formexprloc(a.handle.get(), &exprlen, &block_ptr, 
+				&core::current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			
+			Dwarf_Locdesc *raw_handle;
+			Dwarf_Signed listlen; // will be set to 1
+			ret = dwarf_loclist_from_expr(a.get_dbg(), block_ptr, exprlen, &raw_handle, &listlen, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+
+			return handle_type(raw_handle, deleter(a.get_dbg()));
+		}
+		
 		inline LocdescList::handle_type 
 		LocdescList::try_construct(const Attribute& a)
 		{
@@ -2192,8 +2214,7 @@ friend class factory;
 				 * We will make unique_ptrs out of each of them, but only when
 				 * we upgrade this handle and copy the array. */
 				return handle_type(block_start, deleter(a.get_dbg(), count));
-			}
-			else return handle_type(nullptr, deleter(nullptr, 0));
+			} else return handle_type(nullptr, deleter(nullptr, 0));
 		}
 		inline Dwarf_Unsigned 
 		RangeList::get_rangelist_offset(const Attribute& a)
@@ -2310,7 +2331,11 @@ friend class factory;
 			/* The first DIE is always the root.
 			 * We denote an iterator pointing at the root by
 			 * a Debug but no Die. */
-			return Iter(iterator_base(*this));
+			iterator_base base(*this);
+			assert(base.is_root_position());
+			Iter it(base);
+			assert(it.is_root_position());
+			return it;
 		}
 
 		template <typename Iter /* = iterator_df<> */ >

@@ -29,6 +29,9 @@ namespace dwarf
 		using srk31::concatenating_sequence;
 		using srk31::concatenating_iterator;
 		using std::clog;
+		using boost::filter_iterator;
+		using boost::transform_iterator;
+		using boost::dynamic_pointer_cast;
 		
 		class compile_unit_die;
 		class program_element_die;
@@ -588,65 +591,6 @@ namespace dwarf
 				sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
 				void *arg = 0) const;*/
 		};
-		
-		struct with_type_describing_layout_die : public virtual basic_die
-		{
-			virtual opt<std::shared_ptr<spec::type_die> > get_type() const = 0;
-		};
-
-		struct with_dynamic_location_die : public virtual with_type_describing_layout_die
-		{
-			virtual opt<Dwarf_Off> contains_addr(
-					Dwarf_Addr absolute_addr,
-					Dwarf_Signed instantiating_instance_addr,
-					Dwarf_Off dieset_relative_ip,
-					dwarf::lib::regs *p_regs = 0) const = 0;
-			/* We define two variants of the contains_addr logic: 
-			 * one suitable for stack-based locations (fp/variable)
-			 * and another for object-based locations (member/inheritance)
-			 * and each derived class should pick one! */
-		protected:
-			opt<Dwarf_Off> contains_addr_on_stack(
-					Dwarf_Addr absolute_addr,
-					Dwarf_Signed instantiating_instance_addr,
-					Dwarf_Off dieset_relative_ip,
-					dwarf::lib::regs *p_regs = 0) const;
-			opt<Dwarf_Off> contains_addr_in_object(
-					Dwarf_Addr absolute_addr,
-					Dwarf_Signed instantiating_instance_addr,
-					Dwarf_Off dieset_relative_ip,
-					dwarf::lib::regs *p_regs = 0) const;
-		public:
-			virtual std::shared_ptr<spec::program_element_die> 
-			get_instantiating_definition() const;
-			
-			virtual Dwarf_Addr calculate_addr(
-				Dwarf_Addr instantiating_instance_location,
-				Dwarf_Off dieset_relative_ip,
-				dwarf::lib::regs *p_regs = 0) const = 0;
-			
-			/** This gets a location list describing the location of the thing, 
-			    assuming that the instantiating_instance_location has been pushed
-			    onto the operand stack. */
-			virtual encap::loclist get_dynamic_location() const = 0;
-		protected:
-			/* ditto */
-			virtual Dwarf_Addr calculate_addr_on_stack(
-				Dwarf_Addr instantiating_instance_location,
-				Dwarf_Off dieset_relative_ip,
-				dwarf::lib::regs *p_regs = 0) const;
-			virtual Dwarf_Addr calculate_addr_in_object(
-				Dwarf_Addr instantiating_instance_location,
-				Dwarf_Off dieset_relative_ip,
-				dwarf::lib::regs *p_regs = 0) const;
-		public:
-			
-			/* virtual Dwarf_Addr calculate_addr(
-				Dwarf_Signed frame_base_addr,
-				Dwarf_Off dieset_relative_ip,
-				dwarf::lib::regs *p_regs = 0) const;*/
-		};
-                
 	    struct with_named_children_die : public virtual basic_die
         {
             virtual 
@@ -703,7 +647,8 @@ namespace dwarf
             insert(Dwarf_Off key, std::shared_ptr<spec::basic_die> val) = 0;
         };
 
-        
+		// still in namespace spec!
+
 /****************************************************************/
 /* begin generated ADT includes                                 */
 /****************************************************************/
@@ -955,7 +900,65 @@ begin_class(program_element, base_initializations(initialize_base(basic)), decla
         attr_optional(visibility, unsigned)
         attr_optional(artificial, flag)
 end_class(program_element)
-/* type_die */
+/* with_type_describing_layout_die */		
+		struct with_type_describing_layout_die : public virtual program_element_die
+		{
+			virtual opt<std::shared_ptr<spec::type_die> > get_type() const = 0;
+		};
+/* with_dynamic_location_die */
+		struct with_dynamic_location_die : public virtual with_type_describing_layout_die
+		{
+			virtual opt<Dwarf_Off> contains_addr(
+					Dwarf_Addr absolute_addr,
+					Dwarf_Signed instantiating_instance_addr,
+					Dwarf_Off dieset_relative_ip,
+					dwarf::lib::regs *p_regs = 0) const = 0;
+			/* We define two variants of the contains_addr logic: 
+			 * one suitable for stack-based locations (fp/variable)
+			 * and another for object-based locations (member/inheritance)
+			 * and each derived class should pick one! */
+		protected:
+			opt<Dwarf_Off> contains_addr_on_stack(
+					Dwarf_Addr absolute_addr,
+					Dwarf_Signed instantiating_instance_addr,
+					Dwarf_Off dieset_relative_ip,
+					dwarf::lib::regs *p_regs = 0) const;
+			opt<Dwarf_Off> contains_addr_in_object(
+					Dwarf_Addr absolute_addr,
+					Dwarf_Signed instantiating_instance_addr,
+					Dwarf_Off dieset_relative_ip,
+					dwarf::lib::regs *p_regs = 0) const;
+		public:
+			virtual std::shared_ptr<spec::program_element_die> 
+			get_instantiating_definition() const;
+			
+			virtual Dwarf_Addr calculate_addr(
+				Dwarf_Addr instantiating_instance_location,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs = 0) const = 0;
+			
+			/** This gets a location list describing the location of the thing, 
+			    assuming that the instantiating_instance_location has been pushed
+			    onto the operand stack. */
+			virtual encap::loclist get_dynamic_location() const = 0;
+		protected:
+			/* ditto */
+			virtual Dwarf_Addr calculate_addr_on_stack(
+				Dwarf_Addr instantiating_instance_location,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs = 0) const;
+			virtual Dwarf_Addr calculate_addr_in_object(
+				Dwarf_Addr instantiating_instance_location,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs = 0) const;
+		public:
+			
+			/* virtual Dwarf_Addr calculate_addr(
+				Dwarf_Signed frame_base_addr,
+				Dwarf_Off dieset_relative_ip,
+				dwarf::lib::regs *p_regs = 0) const;*/
+		};
+ /* type_die */
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
         attr_optional(byte_size, unsigned)
         virtual opt<Dwarf_Unsigned> calculate_byte_size() const;
@@ -967,6 +970,12 @@ end_class(type)
 /* type_chain_die */
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
         attr_optional(type, refdie_is_type)
+        opt<Dwarf_Unsigned> calculate_byte_size() const;
+        std::shared_ptr<type_die> get_concrete_type() const;
+end_class(type_chain)
+/* address_holding_type_die */
+begin_class(address_holding_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
+        attr_optional(address_class, unsigned)
         opt<Dwarf_Unsigned> calculate_byte_size() const;
         std::shared_ptr<type_die> get_concrete_type() const;
 end_class(type_chain)
@@ -1034,14 +1043,11 @@ end_class(with_data_members)
         opt<Dwarf_Unsigned> calculate_byte_size() const; \
         bool is_rep_compatible(std::shared_ptr<type_die> arg) const; \
 		shared_ptr<type_die> ultimate_element_type() const; \
-		opt<Dwarf_Unsigned> ultimate_element_count() const; 
+		opt<Dwarf_Unsigned> ultimate_element_count() const;  \
+		std::shared_ptr<type_die> get_concrete_type() const;
 #define extra_decls_pointer_type \
-		std::shared_ptr<type_die> get_concrete_type() const; \
-        opt<Dwarf_Unsigned> calculate_byte_size() const; \
-        bool is_rep_compatible(std::shared_ptr<type_die> arg) const;
+         bool is_rep_compatible(std::shared_ptr<type_die> arg) const;
 #define extra_decls_reference_type \
-		std::shared_ptr<type_die> get_concrete_type() const; \
-        opt<Dwarf_Unsigned> calculate_byte_size() const; \
         bool is_rep_compatible(std::shared_ptr<type_die> arg) const;
 #define extra_decls_base_type \
 		bool is_rep_compatible(std::shared_ptr<type_die> arg) const;

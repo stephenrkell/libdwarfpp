@@ -132,6 +132,7 @@ namespace dwarf
 			 * address data type. */
 			{ 
 				Dwarf_Addr addr; 
+				address(Dwarf_Addr val) { this->addr = val; }
 				bool operator==(const address& arg) const { return this->addr == arg.addr; }
 				bool operator!=(const address& arg) const { return !(*this == arg); }
 				bool operator<(const address& arg) const { return this->addr < arg.addr; }
@@ -214,11 +215,17 @@ namespace dwarf
 		public:
 			
 			Dwarf_Bool get_flag() const { assert(f == FLAG); return v_flag; }
-			Dwarf_Unsigned get_unsigned() const { assert(f == UNSIGNED); return v_u; }
-			Dwarf_Signed get_signed() const { assert(f == SIGNED); return v_s; }
+			// allow mix-and-match among signed and unsigned
+			Dwarf_Unsigned get_unsigned() const 
+			{ assert(f == UNSIGNED || f == SIGNED); return (f == UNSIGNED) ? v_u : static_cast<Dwarf_Unsigned>(v_s); }
+			Dwarf_Signed get_signed() const 
+			{ assert(f == SIGNED || f == UNSIGNED); return (f == SIGNED) ? v_s : static_cast<Dwarf_Signed>(v_u); }
 			const std::vector<unsigned char> *get_block() const { assert(f == BLOCK); return v_block; }
 			const std::string& get_string() const { assert(f == STRING); return *v_string; }
-			address get_address() const { assert(f == ADDR); return v_addr; }
+			/* I added the tolerance of UNSIGNED here because sometimes high_pc is an address, 
+			 * other times it's unsigned... BUT it means something different in the latter 
+			 * case (lopc-relative) so it's best to handle this difference higher up. */
+			address get_address() const { assert(f == ADDR/* || f == UNSIGNED*/); return/* (f == ADDR) ?*/ v_addr /*: address(static_cast<Dwarf_Addr>(v_u))*/; }
 			const loclist& get_loclist() const { assert(f == LOCLIST); return *v_loclist; }
 			const rangelist& get_rangelist() const { assert(f == RANGELIST); return *v_rangelist; }
 

@@ -13,7 +13,7 @@
 
 namespace dwarf
 {
-	namespace core { struct LocdescList; struct RangesList; }
+	namespace core { struct LocdescList; struct Locdesc; struct RangesList; }
 	namespace encap
     {
     	using namespace dwarf::lib;
@@ -105,7 +105,7 @@ namespace dwarf
               
 			/* This template parses a location expression out of an array of unsigneds. */
 			template<size_t s> 
-            loc_expr(Dwarf_Unsigned (&arr)[s], Dwarf_Addr lopc, Dwarf_Addr hipc,
+            loc_expr(Dwarf_Unsigned const (&arr)[s], Dwarf_Addr lopc, Dwarf_Addr hipc,
             	const spec::abstract_def& spec = spec::dwarf3) 
             : spec(spec), hipc(hipc), lopc(lopc)
 			{
@@ -189,15 +189,15 @@ namespace dwarf
 			friend class ::dwarf::lib::evaluator;
 			friend class attribute_value;
 			static loclist NO_LOCATION;
-		private:
-			loclist() {}
-		public:
+
+			loclist() {} // empty loclist
 			loclist(const dwarf::lib::loclist& dll);
 			/* We can construct a loc_expr from a Loc_Desc. 
 			 * So we can construct a loclist from a LocdescList. */
 			loclist(const core::LocdescList& ll); 
 			// would ideally repeat all vector constructors
 			template <class In> loclist(In first, In last) : std::vector<loc_expr>(first, last) {}
+			loclist(const core::Locdesc& l); 
 			loclist(const std::vector<loc_expr>& v) : std::vector<loc_expr>(v) {}
 			loclist(const loc_expr& loc) : std::vector<loc_expr>(1, loc) {}
 			//bool operator==(const loclist& oll) const { return *this == oll; }

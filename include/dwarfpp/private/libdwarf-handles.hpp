@@ -193,7 +193,11 @@
 		 * are allocated by libdwarf, however. Threfore, our "handle" is the
 		 * address of one of these non-opaque types. But we are still responsible
 		 * for deallocating *both* the embedded pointer *and* the libdwarf-allocated
-		 * non-opaque object. So there is an extra level of indirection in all this. */
+		 * non-opaque object. So there is an extra level of indirection in all this.
+		 *
+		 * Also, we can construct Locdescs either as part of a list using dwarf_loclist_n, 
+		 * or as single instances e.g. with dwarf_loclist_from_expr.
+		  */
 		struct Locdesc
 		{
 			typedef Dwarf_Locdesc *raw_handle_type;
@@ -212,9 +216,11 @@
 			handle_type handle;
 			Dwarf_Debug get_dbg() const { return handle.get_deleter().dbg; }
 
-			/* There is *no* try_construct. Only LocdescList can create
-			 * individual Locdescs. */
+			/* LocdescList can create individual Locdescs in a list. */
 			inline Locdesc(handle_type h) : handle(std::move(h)) {}
+			/* Individual Locdescs can be constructed too. */
+			static inline handle_type 
+			try_construct(const Attribute& a);
 			
 			raw_handle_type raw_handle()       { return handle.get(); }
 			raw_handle_type raw_handle() const { return handle.get(); }

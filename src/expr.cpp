@@ -68,8 +68,7 @@ namespace dwarf
 			/* Dump something about the vaddr. */
 			cerr << "Vaddr 0x" << std::hex << vaddr << std::dec
 				<< " is not covered by any loc expr in " << loclist << endl;
-			assert(false);
-			//throw No_entry();
+			throw No_entry();
 		}
 	}
 	namespace encap
@@ -163,6 +162,10 @@ namespace dwarf
 			{
 				push_back(*i->get());
 			}
+		}
+		loclist::loclist(const core::Locdesc& l)
+		{
+			push_back(*l.handle.get());
 		}
 		rangelist::rangelist(const core::RangeList& rl)
 		{

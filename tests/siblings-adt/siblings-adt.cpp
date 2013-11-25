@@ -20,7 +20,7 @@ main(int argc,char*argv[])
     std::set<dwarf::lib::Dwarf_Off> seen_offsets;
     
     std::vector<std::string> name_to_resolve;
-    name_to_resolve.push_back("test-siblings-adt-input.c");
+    name_to_resolve.push_back("siblings-adt.cpp");
     name_to_resolve.push_back("main");
     auto found = ds.toplevel()->resolve(name_to_resolve.begin(), name_to_resolve.end());
     assert(found);

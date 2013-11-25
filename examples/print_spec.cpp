@@ -3,5 +3,5 @@
 
 int main(int argc, char **argv)
 {
-	std::cout << dwarf::spec::dwarf3_def::inst;
+	std::cout << dwarf::spec::dwarf4;
 }

@@ -194,7 +194,7 @@ namespace dwarf
     namespace encap {
 		void attribute_value::print_as(std::ostream& s, int cls) const
 		{
-			switch(cls)
+			switch(cls & ~spec::interp::FLAGS)
 			{
 				case spec::interp::address: switch(f)
 				{
@@ -279,6 +279,7 @@ namespace dwarf
 		attribute_value::attribute_value(const dwarf::core::Attribute& a, 
 			const core::Die& d,
 			root_die& r)
+			: p_ds(nullptr)
 		{
 			int retval;
 			orig_form = 0;
@@ -302,7 +303,7 @@ namespace dwarf
 			if (retval != DW_DLV_OK) goto fail;
 			
 			cls = spec.get_interp(attr, orig_form);
-			switch(cls)
+			switch(cls & ~spec::interp::FLAGS)
 			{
 				case spec::interp::string:
 					dwarf_formstring(a.handle.get(), &str, &core::current_dwarf_error);
@@ -339,38 +340,63 @@ namespace dwarf
 					break;
 				}
 				as_if_unsigned:
+				{
+					int ret = dwarf_formudata(a.handle.get(), &u, &core::current_dwarf_error);
+					assert(ret == DW_DLV_OK);
+					this->f = UNSIGNED;
+					this->v_u = u;
+					break;
+				}
+				
+				as_if_signed: 
+				{
+					int ret = dwarf_formsdata(a.handle.get(), &s, &core::current_dwarf_error);
+					assert(ret == DW_DLV_OK);
+					this->f = SIGNED;
+					this->v_s = s;
+					break;
+				}				
 				case spec::interp::constant:
-					if (orig_form == DW_FORM_sdata
-					 || orig_form == DW_FORM_data1
+					if (orig_form == DW_FORM_sdata) goto as_if_signed;
+					else if (orig_form == DW_FORM_udata) goto as_if_unsigned; // NOTE: there is no FORM_udata{1,2,4,9}
+					else  if (orig_form == DW_FORM_data1
 					 || orig_form == DW_FORM_data2
 					 || orig_form == DW_FORM_data4
 					 || orig_form == DW_FORM_data8
 					 )
 					{
-						int ret = dwarf_formsdata(a.handle.get(), &s, &core::current_dwarf_error);
-						assert(ret == DW_DLV_OK);
-						this->f = SIGNED;
-						this->v_s = s;					
-					}
-					else if (orig_form == DW_FORM_udata) // NOTE: there is no FORM_udata{1,2,4,9}
+						/* We don't know whether these are signed or unsigned. */
+						if (cls & spec::interp::SIGNED)
+						{
+							goto as_if_signed;
+						} else { // assume unsigned
+							goto as_if_unsigned;
+						}
+					} else if (orig_form == DW_FORM_sec_offset)
+					// TODO: need to handle ref{1,2,4,8,_udata} here?
 					{
-						int ret = dwarf_formudata(a.handle.get(), &u, &core::current_dwarf_error);
-						assert(ret == DW_DLV_OK);
-						this->f = UNSIGNED;
-						this->v_u = u;
+						goto as_reference;
 					}
-					else if (orig_form == DW_FORM_sec_offset)
-						// TODO: need to handle ref{1,2,4,8,_udata} here?
-					{
+					else assert(false);
+					break;
+				as_reference: {
 						Dwarf_Off ref;
 						int ret = dwarf_global_formref(a.handle.get(), &ref, &core::current_dwarf_error); 
 						assert(ret == DW_DLV_OK);
 						u = ref;
 						this->f = UNSIGNED;
 						this->v_u = u;
-					}
-					else assert(false);
-					break;
+						} break;
+				case spec::interp::constant_to_make_location_expr:
+				{
+					/* we read a unsigned (FIXME: signed or unsigned?) value, but 
+					 * for uniformity, we turn it into a location expr which
+					 * pushes the value onto the stack. */
+					int ret = dwarf_formudata(a.handle.get(), &u, &core::current_dwarf_error);
+					assert(ret == DW_DLV_OK);
+					this->f = LOCLIST;
+					this->v_loclist = new loclist(loc_expr((Dwarf_Unsigned[]) { DW_OP_plus_uconst, u }, 0, 0, spec));
+				} break;
 				case spec::interp::block_as_dwarf_expr: // dwarf_loclist_n works for both of these
 				case spec::interp::loclistptr:
 					try
@@ -392,30 +418,9 @@ namespace dwarf
 					try
 					{
 						this->f = LOCLIST; 
-						Dwarf_Unsigned exprlen;
-						Dwarf_Ptr block_ptr;
-						int ret = dwarf_formexprloc(a.handle.get(), &exprlen, &block_ptr, 
-							&core::current_dwarf_error);
-						assert(ret == DW_DLV_OK);
-						this->v_loclist = new loclist(
-							loc_expr(
-								std::vector<expr_instr>(
-									static_cast<Dwarf_Loc*>(block_ptr), // HMM
-									static_cast<Dwarf_Loc*>(block_ptr) + exprlen 
-								)
-								
-// 								vector<Dwarf_Locdesc>(1, 
-// 									(Dwarf_Locdesc) {
-// 										/* ld_lopc */ 0, /* see libdwarf2.1.pdf sec 2.3.2 */
-// 										/* ld_hipc */ 0, 
-// 										/* ld_cents */ exprlen, 
-// 										/* ld_s */ (Dwarf_Loc*) block_ptr, // HMM
-// 										/* ld_from_loclist */ 0, // FIXME
-// 										/* ld_section_offset */ 0 // FIXME
-// 									}
-// 								)
-							)
-						);
+						core::Locdesc l(core::Locdesc::try_construct(a));
+						this->v_loclist = new loclist(l);
+						break;
 					}
 					catch (...)
 					{
@@ -429,6 +434,7 @@ namespace dwarf
 					this->v_rangelist = new rangelist(core::RangeList(a, d));
 				} break;
 				case spec::interp::lineptr:
+					goto as_reference;
 				case spec::interp::macptr:
 					goto as_if_unsigned;
 				fail:
@@ -548,7 +554,7 @@ namespace dwarf
 			if (retval != DW_DLV_OK) goto fail;
 			cls = ds.get_spec().get_interp(attr, orig_form);
 						
-			switch(cls)
+			switch(cls & ~spec::interp::FLAGS)
 			{
 				case spec::interp::string:
 					a.formstring(&str);
@@ -639,7 +645,7 @@ namespace dwarf
 							assert(retval == DW_DLV_OK);
 							break;
 						case DW_FORM_sec_offset: 
-							retval = a.formref(static_cast<Dwarf_Off*>(&u)); 
+							retval = a.formref_global(static_cast<Dwarf_Off*>(&u)); 
 							assert(retval == DW_DLV_OK);
 							break;
 						default:

@@ -14,7 +14,7 @@ using std::vector;
 int
 main(int argc,char*argv[])
 {
-	FILE* f = fopen("../src/libdwarfpp.so", "r");
+	FILE* f = fopen("../../src/libdwarfpp.so", "r");
 	assert(f);
 
 	// construct a dwarf::encap::file

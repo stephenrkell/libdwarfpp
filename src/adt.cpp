@@ -966,8 +966,8 @@ namespace dwarf
 				case DW_LANG_C_plus_plus:
 				case DW_LANG_C99: {
 					const char *attempts[] = { "signed int", "int" };
-					auto total_attempts = sizeof attempts / sizeof attempts[0];
-					for (auto i_attempt = 0; i_attempt < total_attempts; ++i_attempt)
+					size_t total_attempts = sizeof attempts / sizeof attempts[0];
+					for (unsigned i_attempt = 0; i_attempt < total_attempts; ++i_attempt)
 					{
 						auto found = nonconst_this->named_child(attempts[i_attempt]);
 						if (found) return dynamic_pointer_cast<type_die>(found);
@@ -1068,7 +1068,9 @@ namespace dwarf
         {
         	// pointer and reference *must* override us -- they do not follow chain
         	assert(this->get_tag() != DW_TAG_pointer_type
-            	&& this->get_tag() != DW_TAG_reference_type);
+            	&& this->get_tag() != DW_TAG_reference_type
+				&& this->get_tag() != DW_TAG_rvalue_reference_type
+				&& this->get_tag() != DW_TAG_array_type);
 
             if (!this->get_type()) 
             {
@@ -1077,22 +1079,18 @@ namespace dwarf
             }
             else return const_cast<type_chain_die*>(this)->get_type()->get_concrete_type();
         }
+/* from spec::array_type_die */  
+        std::shared_ptr<type_die> array_type_die::get_concrete_type() const 
+        {
+        	return std::dynamic_pointer_cast<type_die>(get_this()); 
+        }
+/* from spec::address_holding_type_die */  
+        std::shared_ptr<type_die> address_holding_type_die::get_concrete_type() const 
+        {
+        	return std::dynamic_pointer_cast<type_die>(get_this()); 
+        }
 /* from spec::pointer_type_die */  
-        std::shared_ptr<type_die> pointer_type_die::get_concrete_type() const 
-        {
-        	return std::dynamic_pointer_cast<pointer_type_die>(get_this()); 
-        }
-        opt<Dwarf_Unsigned> pointer_type_die::calculate_byte_size() const 
-        {
-			if (this->get_byte_size()) return this->get_byte_size();
-			else return this->enclosing_compile_unit()->get_address_size();
-        }
-/* from spec::reference_type_die */  
-        std::shared_ptr<type_die> reference_type_die::get_concrete_type() const 
-        {
-        	return std::dynamic_pointer_cast<reference_type_die>(get_this()); 
-        }
-        opt<Dwarf_Unsigned> reference_type_die::calculate_byte_size() const 
+        opt<Dwarf_Unsigned> address_holding_type_die::calculate_byte_size() const 
         {
 			if (this->get_byte_size()) return this->get_byte_size();
 			else return this->enclosing_compile_unit()->get_address_size();
@@ -1487,31 +1485,29 @@ namespace dwarf
         	return *p_ds;
         }
         
-        std::map<Dwarf_Half, encap::attribute_value> basic_die::get_attrs() 
-        {
-        	std::map<Dwarf_Half, encap::attribute_value> ret;
-            //if (this->p_d)
-            //{
-			    attribute_array arr(*const_cast<basic_die*>(this));
-                int retval;
-			    for (int i = 0; i < arr.count(); i++)
-			    {
-				    Dwarf_Half attr; 
-				    dwarf::lib::attribute a = arr.get(i);
-				    retval = a.whatattr(&attr);
-					try
-					{
-				    	ret.insert(std::make_pair(attr, encap::attribute_value(this->get_ds(), a)));
-					} 
-					catch (dwarf::lib::Not_supported)
-					{
-						/* This means we didn't recognise the attribute_value. Skip over it silently. */
-						// we could print a warning....
-					}
-			    } // end for
-            //}
-            return ret;
-        }
+		std::map<Dwarf_Half, encap::attribute_value> basic_die::get_attrs() 
+		{
+			std::map<Dwarf_Half, encap::attribute_value> ret;
+			attribute_array arr(*const_cast<basic_die*>(this));
+			int retval;
+			for (int i = 0; i < arr.count(); i++)
+			{
+				Dwarf_Half attr; 
+				dwarf::lib::attribute a = arr.get(i);
+				retval = a.whatattr(&attr);
+				assert(retval == DW_DLV_OK);
+				try
+				{
+					ret.insert(std::make_pair(attr, encap::attribute_value(this->get_ds(), a)));
+				} 
+				catch (dwarf::lib::Not_supported)
+				{
+					/* This means we didn't recognise the attribute_value. Skip over it silently. */
+					// we could print a warning....
+				}
+			} // end for
+			return ret;
+		}
 
 /* from lib::compile_unit_die */
 		Dwarf_Half compile_unit_die::get_address_size() const
@@ -1910,12 +1906,12 @@ namespace dwarf
 				// refactored a bit: the actual search is done by a different function,
 				pair<Dwarf_Off, visible_grandchildren_iterator> found
 				 = next_visible_grandchild_with_name(name, start_iter, vg_seq->end());
-				Dwarf_Off last_seen_offset = found.first;
+				// Dwarf_Off last_seen_offset = found.first;
 				visible_grandchildren_iterator found_vg = found.second;
 				
 				if (found_vg != vg_seq->end())
 				{
-					Dwarf_Off cur_off = (*found_vg)->get_offset();
+					// Dwarf_Off cur_off = (*found_vg)->get_offset();
 					string cur_name = *(*found_vg)->get_name();
 					
 					// ensure we have a vector in the cache to write to
@@ -2545,6 +2541,7 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 			// also update (if null) or check (if nonnull) p_spec
 			switch (version_stamp)
 			{
+				case 4: // FIXME
 				case 2: 
 					if (!p_spec) p_spec = &dwarf::spec::dwarf3; 
 					else if (p_spec != &dwarf::spec::dwarf3) throw std::string(
@@ -2678,7 +2675,8 @@ case DW_TAG_ ## name: return dynamic_pointer_cast<basic_die>(my_make_shared<lib:
 
 			switch (version_stamp)
 			{
-				case 2: p_spec = &dwarf::spec::dwarf3; break;
+				case 4: p_spec = &dwarf::spec::dwarf4; break;
+				case 2: p_spec = &dwarf::spec::dwarf4; break; // FIXME: reinstate DWARF 2/3
 				default: throw std::string("Unsupported DWARF version stamp!");
 			}
 			prev_version_stamp = version_stamp;

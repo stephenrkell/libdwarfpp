@@ -43,7 +43,7 @@ attr_types = [ \
 ("artificial", "flag" ), \
 ("base_types", "refdie" ), \
 ("calling_convention", "unsigned" ), \
-("const_value", "flag"), \
+("const_value", "signed"), \
 ("count", "unsigned" ), \
 ("data_member_location", "loclist" ), \
 ("decl_column", "unsigned" ), \
@@ -105,11 +105,12 @@ artificial_tags = [ \
 ("with_instances", ([], [], ["program_element"])), \
 ("type", ([("byte_size", False )], [], ["with_instances"]) ), \
 ("type_chain", ([("type", False)],  [], ["type"]) ), \
+("address_holding_type", ([("type", False)],  [], ["type_chain"]) ), \
 ("qualified_type", ([], [], ["type_chain"]) ), \
 ("with_named_children", ([], [], ["basic"])), \
 ("with_static_location", ([], [], ["basic"])), \
 ("with_dynamic_location", ([], [], ["with_type_describing_layout"])), \
-("with_type_describing_layout", ([("type", False)], [], ["basic"])), \
+("with_type_describing_layout", ([("type", False)], [], ["program_element"])), \
 ("with_data_members", ([], ["member"], ["type"]))
 ]
 artificial_tag_map = dict(artificial_tags)
@@ -177,7 +178,7 @@ member_types = [ "class_type", "typedef", "structure_type", "enumeration_type", 
 # totally abuses them for its own purposes. In particular, const_value is inappropriate.
 
 tags = [ \
-("array_type", ( [("type", False)], ["subrange_type"], ["type"] ) ), \
+("array_type", ( [], ["subrange_type"], ["type_chain"] ) ), \
 ("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["with_data_members", "with_named_children"] ) ), \
 ("entry_point", ( [], [] , ["basic"] ) ), \
 ("enumeration_type", ( [("type", False)], ["enumerator"] , ["type", "with_named_children"] ) ), \
@@ -186,12 +187,13 @@ tags = [ \
 ("label", ( [], [], ["basic"]  ) ), \
 ("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_static_location"] ) ), \
 ("member", ( [("data_member_location", False)], [], ["program_element", "with_dynamic_location"]  ) ), \
-("pointer_type", ( [("pure", False)], [], ["type_chain"]  ) ), \
-("reference_type", ( [], [], ["type_chain"]  ) ), \
+("pointer_type", ( [("pure", False), ("address_class", False)], [], ["address_holding_type"]  ) ), \
+("reference_type", ( [("address_class", False)], [], ["address_holding_type"]  ) ), \
+("rvalue_reference_type", ( [("address_class", False)], [], ["address_holding_type"]  ) ), \
 ("compile_unit", ( [ ("language", True), ("comp_dir", False), ("producer", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False), ("calling_convention", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_static_location"]  ) ), \
 ("string_type", ( [], [], ["type"]  ) ), \
 ("structure_type", ( [], [ "member", "access_declaration", "inheritance" ] + member_types, ["with_data_members", "with_named_children"]  ) ), \
-("subroutine_type", ( [("type", False), ("calling_convention", False), ("pure", False)], ["formal_parameter", "unspecified_parameters"], ["type"]  ) ), \
+("subroutine_type", ( [("type", False), ("calling_convention", False), ("pure", False), ("address_class", False)], ["formal_parameter", "unspecified_parameters"], ["type"]  ) ), \
 ("typedef", ( [], [], ["type_chain"]  ) ), \
 ("union_type", ([], [ "member" ], ["with_data_members", "with_named_children"]  ) ), \
 ("unspecified_parameters", ( [], [], ["program_element"]  ) ), \
@@ -210,7 +212,7 @@ tags = [ \
 ("catch_block", ( [], [], ["basic"]  ) ), \
 ("const_type", ( [], [], ["qualified_type"]  ) ), \
 ("constant", ( [], [] , ["program_element"] ) ), \
-("enumerator", ( [], [], ["basic"]  ) ), \
+("enumerator", ( [("const_value", False)], [], ["program_element"] ) ), \
 ("file_type", ( [], [], ["type"]  ) ), \
 ("friend", ( [], [], ["basic"]  ) ), \
 ("namelist", ( [], [], ["basic"]  ) ), \

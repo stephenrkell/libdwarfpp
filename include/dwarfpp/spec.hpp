@@ -121,7 +121,11 @@ namespace dwarf
 				macptr,
 				rangelistptr,
 				exprloc, 
-				block_as_dwarf_expr = 0x20
+				block_as_dwarf_expr = 0x20, 
+				constant_to_make_location_expr, 
+				FLAGS = 0x7f000000,
+				UNSIGNED = 0x01000000, 
+				SIGNED = 0x02000000
 			};
 		};
 		
@@ -394,7 +398,7 @@ namespace dwarf
 				o << DefWithMaps::attr_lookup(i->first) << ": ";
 				for (const int *p = i->second; *p != interp::EOL; p++)				
 				{
-					o << DefWithMaps::interp_lookup(*p);
+					o << DefWithMaps::interp_lookup(*p && ~interp::FLAGS);
 					if (*(p+1) != interp::EOL) o << ", ";
 				}
 				o << std::endl;
@@ -408,7 +412,7 @@ namespace dwarf
 				o << DefWithMaps::form_lookup(i->first) << ": ";
 				for (const int *p = i->second; *p != interp::EOL; p++)				
 				{
-					o << DefWithMaps::interp_lookup(*p);
+					o << DefWithMaps::interp_lookup(*p && ~interp::FLAGS);
 					if (*(p+1) != interp::EOL) o << ", ";
 				}
 				o << std::endl;

@@ -1,29 +1,17 @@
-THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
-root := $(realpath $(dir $(THIS_MAKEFILE))/..)
-CXXFLAGS += -I$(root)/include
-CXXFLAGS += -g
-LDFLAGS += -L$(root)/lib -Wl,-R$(root)/lib
-LDFLAGS += -ldwarfpp -ldwarf -lelf -lsrk31c++ -lc++fileno -lboost_system
+TESTS_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 
-export CXXFLAGS
-export LDFLAGS
-export LDLIBS
+CXXFLAGS += -std=gnu++11
+CXXFLAGS += -I$(HOME)/opt/include 
+CXXFLAGS += -I$(HOME)/scratch/opt/include 
+CXXFLAGS += -I$(realpath $(TESTS_DIR)/..)/include 
+CXXFLAGS += -I$(realpath $(TESTS_DIR)/../..)/libsrk31c++/include 
+CXXFLAGS += -I.
+CXXFLAGS += -I$(HOME)/opt/include 
+CXXFLAGS += -I$(realpath $(TESTS_DIR)/../..)/libc++fileno/include
 
-cases := $(wildcard [a-z]*)
+LDFLAGS += -L$(realpath $(TESTS_DIR)/..)/src 
+LDFLAGS += -L$(realpath $(TESTS_DIR)/../..)/libsrk31c++/lib 
+LDFLAGS += -L$(HOME)/opt/lib  
+LDFLAGS += -L$(realpath $(TESTS_DIR)/../..)/libc++fileno/lib
 
-run-%: # run the test case with itself as input
-	$(MAKE) -C "$*" "$*" && ( cd "$*" && ./$* ./$* )
-
-gdbrun-%: # run the test case with itself as input
-	$(MAKE) -C "$*" "$*" && ( cd "$*" && gdb --args ./$* ./$* )
-
-cleanrun-%:
-	rm -f $*/$* && $(MAKE) run-$*
-
-gdbcleanrun-%:
-	rm -f $*/$* && $(MAKE) gdbrun-$*
-
-default:
-	for case in $(cases); do \
-            $(MAKE) run-$$case; \
-        done
+include $(TESTS_DIR)/Makerules

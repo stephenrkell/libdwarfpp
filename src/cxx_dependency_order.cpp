@@ -85,7 +85,7 @@ void dwarfidl_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 	auto i_d = p_d->iterator_here();
 	
 	map< vector<string>, shared_ptr<spec::basic_die> > toplevel_decls_emitted;
-	Dwarf_Off o = 0UL;
+	// Dwarf_Off o = 0UL;
 	for (abstract_dieset::iterator cu = p_d->children_begin(); 
 				cu != p_d->children_end(); ++cu)
 	{ 
@@ -95,7 +95,7 @@ void dwarfidl_cxx_target::emit_all_decls(shared_ptr<spec::file_toplevel_die> p_d
 				i != order.topsorted_container.end(); 
 				i++) 
 		{ 
-			o = (*i)->get_offset();
+			// o = (*i)->get_offset();
 			//if (!spec::file_toplevel_die::is_visible()(p_d)) continue; 
 			dispatch_to_model_emitter( 
 				out,
@@ -304,7 +304,7 @@ template <class Edge, class Graph>
 void cycle_handler::print_back_edge_and_cycle(Edge e, Graph& g, PathMap& paths)
 {
 	encap::basic_die *my_source = source(e, g);
-	encap::basic_die *my_target = target(e, g);
+	// encap::basic_die *my_target = target(e, g);
 	assert(e.p_ds != 0);
 	
 	/* If we have a back-edge u-->v, 
@@ -351,9 +351,9 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 		 = [g, this]
 		 (Edge candidate_e)
 		{
-			auto e_source_projected = source(candidate_e, g);
-			auto e_source_ultimate = dynamic_pointer_cast<encap::basic_die>(
-				(*candidate_e.p_ds)[candidate_e.referencing_off]).get();
+			// auto e_source_projected = source(candidate_e, g);
+			// auto e_source_ultimate = dynamic_pointer_cast<encap::basic_die>(
+			//	(*candidate_e.p_ds)[candidate_e.referencing_off]).get();
 			auto e_target_projected = target(candidate_e, g);
 			auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
 				(*candidate_e.p_ds)[candidate_e.off]).get();
@@ -415,17 +415,17 @@ void cycle_handler::back_edge(Edge e, Graph& g)
 		 * If we see a structure type */
 
 		bool removed = false;
-		bool been_round_once_already = false;
+		// bool been_round_once_already = false;
 		encap::pointer_type_die *coming_from_pointer;
 		
 		auto process_one_edge
 		 = [&coming_from_pointer, &removed, &g, this, &remove_edge_if_fwddeclable](Edge e) {
-			auto e_source_projected = source(e, g);
+			// auto e_source_projected = source(e, g);
 			auto e_source_ultimate = dynamic_pointer_cast<encap::basic_die>(
 				(*e.p_ds)[e.referencing_off]).get();
-			auto e_target_projected = target(e, g);
-			auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
-				(*e.p_ds)[e.off]).get();
+			// auto e_target_projected = target(e, g);
+			// auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
+			//	(*e.p_ds)[e.off]).get();
 			
 			if (e_source_ultimate->get_tag() == DW_TAG_pointer_type
 			 && e.referencing_attr == DW_AT_type)
@@ -523,11 +523,11 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 	bool do_topsort = !getenv("DWARFIDL_NO_TOPSORT");
 	if (do_topsort)
 	{
-		unsigned old_total_edges_skipped = 0;
-		unsigned new_total_edges_skipped = -1;
-		unsigned cycle_count = 0;
+		int old_total_edges_skipped = 0;
+		int new_total_edges_skipped = -1;
+		int cycle_count = 0;
 
-		unsigned initial_graph_edge_count = 0;
+		int initial_graph_edge_count = 0;
 		auto vs = boost::vertices(parent);
 		for (boost::graph_traits<encap::basic_die>::vertex_iterator i_v =
 				vs.first; i_v != vs.second; i_v++)
@@ -545,7 +545,7 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 			cycle_handler cycle_hnd(/*paths,*/ new_forward_decls, new_skipped_edges);
 
 			// DEBUG: print all edges
-			unsigned pre_graph_edge_count = 0;
+			int pre_graph_edge_count = 0;
 			auto vs = vertices(*this);
 			for (auto i_v = vs.first; i_v != vs.second; i_v++)
 			{
@@ -573,7 +573,7 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 				i_forward_decl++) forward_decls.insert(*i_forward_decl);
 
 			// count edges in the de-cycled graph
-			unsigned post_graph_edge_count = 0;
+			int post_graph_edge_count = 0;
 			auto wvs = vertices(*this);
 			//std::cerr << "diagraph Blah { " << std::endl;
 			for (auto i_v = wvs.first; i_v != wvs.second; i_v++)
@@ -591,7 +591,7 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 				<< post_graph_edge_count << " edges "
 				<< "having skipped another "
 				<< new_skipped_edges.size() << " edges." << endl;
-			assert(post_graph_edge_count + skipped_edges.size() == initial_graph_edge_count);
+			assert(post_graph_edge_count + (signed) skipped_edges.size() == initial_graph_edge_count);
 
 			++cycle_count;
 		}
@@ -678,8 +678,8 @@ cpp_dependency_order::cpp_dependency_order(dwarf::encap::basic_die& parent)
 			{
 				auto e_source_ultimate = dynamic_pointer_cast<encap::basic_die>(
 					(*(*i_edge).p_ds)[(*i_edge).referencing_off]).get();
-				auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
-					(*(*i_edge).p_ds)[(*i_edge).off]).get();
+				// auto e_target_ultimate = dynamic_pointer_cast<encap::basic_die>(
+				//	(*(*i_edge).p_ds)[(*i_edge).off]).get();
 
 				if (e_source_ultimate->get_tag() == DW_TAG_member
 				 && (*i_edge).referencing_attr == DW_AT_type)

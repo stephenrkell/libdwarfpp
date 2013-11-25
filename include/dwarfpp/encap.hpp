@@ -695,9 +695,9 @@ namespace dwarf {
 				for (auto i = p_seq->begin(/*p_seq*/); i != p_seq->end(/*p_seq*/); i++)
 				{
 					Dwarf_Off target = i->second.get_ref().off;
-					bool abs = i->second.get_ref().abs;
-					
-					//assert(abs);
+
+					// bool abs = i->second.get_ref().abs;
+					// assert(abs);
 					
 					bool is_valid = this->get_ds().map_find(target) != this->get_ds().map_end();
 					retval &= is_valid;

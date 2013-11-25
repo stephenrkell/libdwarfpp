@@ -212,8 +212,7 @@ namespace dwarf
 			bool move_to_next_sibling(iterator_base& arg)
 			{
 				// handle root DIE specially
-				int start_depth = arg.path_from_root.size() - 1;
-				assert(start_depth >= 0);
+				unsigned start_depth = arg.path_from_root.size() - 1;
 				if (arg.p_d->get_offset() == 0) return false;
 				// handle CU DIEs specially
 				assert(start_depth >= 1);

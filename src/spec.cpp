@@ -53,7 +53,7 @@ namespace dwarf
 			&& (form_possible_classes == 0 || form_possible_classes[0] == interp::EOL))
 			{
 				if (attr_possible_classes[1] == interp::EOL) //return attr_possible_classes[0];
-					possibles.push_back(attr_possible_classes[0]);
+					possibles.push_back(attr_possible_classes[0] & ~interp::FLAGS);
 			}
 			else
 			{
@@ -67,7 +67,7 @@ namespace dwarf
 					for (const int *p_form_cls = form_possible_classes;
 						p_form_cls != 0 && *p_form_cls != interp::EOL; ++p_form_cls)
 					{
-						if (*p_form_cls == *p_attr_cls) possibles.push_back(*p_form_cls);
+						if (*p_form_cls == (*p_attr_cls & ~interp::FLAGS)) possibles.push_back(*p_form_cls);
 					}
 				}
 			}
@@ -276,97 +276,97 @@ pair_type name[] = { \
 				|| tag == DW_TAG_imported_unit;	
 		}			
 
-		/* DWARF3: attributes */
+		/* DWARF4: attributes */
 		#define ATTR_DECL_LIST(make_decl, last_decl) \
 							make_decl(DW_AT_sibling, interp::reference ) \
-							make_decl(DW_AT_location, interp::block, interp::loclistptr ) \
+							make_decl(DW_AT_location, interp::loclistptr, /* GNU HACK */ interp::block, interp::exprloc ) \
 							make_decl(DW_AT_name, interp::string ) \
-							make_decl(DW_AT_ordering, interp::constant ) \
-							make_decl(DW_AT_byte_size, interp::block, interp::constant, interp::reference ) \
-							make_decl(DW_AT_bit_offset, interp::block, interp::constant, interp::reference ) \
-							make_decl(DW_AT_bit_size, interp::block, interp::constant, interp::reference ) \
+							make_decl(DW_AT_ordering, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_byte_size, interp::constant|interp::UNSIGNED, interp::reference, interp::exprloc ) \
+							make_decl(DW_AT_bit_offset, interp::constant|interp::UNSIGNED, interp::reference, interp::exprloc ) \
+							make_decl(DW_AT_bit_size, interp::constant|interp::UNSIGNED, interp::reference, interp::exprloc ) \
 							make_decl(DW_AT_stmt_list, interp::lineptr ) \
 							make_decl(DW_AT_low_pc, interp::address ) \
-							make_decl(DW_AT_high_pc, interp::address ) \
-							make_decl(DW_AT_language, interp::constant ) \
+							make_decl(DW_AT_high_pc, interp::address, interp::constant ) \
+							make_decl(DW_AT_language, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_discr, interp::reference ) \
-							make_decl(DW_AT_discr_value, interp::constant ) \
-							make_decl(DW_AT_visibility, interp::constant ) \
+							make_decl(DW_AT_discr_value, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_visibility, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_import, interp::reference ) \
-							make_decl(DW_AT_string_length, interp::block, interp::loclistptr ) \
+							make_decl(DW_AT_string_length, interp::loclistptr, interp::exprloc ) \
 							make_decl(DW_AT_common_reference, interp::reference ) \
 							make_decl(DW_AT_comp_dir, interp::string ) \
-							make_decl(DW_AT_const_value, interp::block, interp::constant, interp::string ) \
+							make_decl(DW_AT_const_value, interp::block, interp::constant|interp::UNSIGNED, interp::string ) \
 							make_decl(DW_AT_containing_type, interp::reference ) \
 							make_decl(DW_AT_default_value, interp::reference ) \
-							make_decl(DW_AT_inline, interp::constant ) \
+							make_decl(DW_AT_inline, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_is_optional, interp::flag ) \
-							make_decl(DW_AT_lower_bound, interp::block, interp::constant, interp::reference ) \
+							make_decl(DW_AT_lower_bound, interp::constant|interp::UNSIGNED, interp::reference, interp::exprloc ) \
 							make_decl(DW_AT_producer, interp::string ) \
 							make_decl(DW_AT_prototyped, interp::flag ) \
-							make_decl(DW_AT_return_addr, interp::block, interp::loclistptr ) \
-							make_decl(DW_AT_start_scope, interp::constant ) \
-							make_decl(DW_AT_bit_stride, interp::constant ) \
-							make_decl(DW_AT_upper_bound, interp::block, interp::constant, interp::reference ) \
+							make_decl(DW_AT_return_addr, interp::loclistptr, interp::exprloc ) \
+							make_decl(DW_AT_start_scope, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_bit_stride, interp::constant|interp::UNSIGNED, interp::exprloc ) \
+							make_decl(DW_AT_upper_bound, interp::constant|interp::UNSIGNED, interp::reference, interp::exprloc ) \
 							make_decl(DW_AT_abstract_origin, interp::reference ) \
-							make_decl(DW_AT_accessibility, interp::constant ) \
-							make_decl(DW_AT_address_class, interp::constant ) \
+							make_decl(DW_AT_accessibility, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_address_class, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_artificial, interp::flag ) \
 							make_decl(DW_AT_base_types, interp::reference ) \
-							make_decl(DW_AT_calling_convention, interp::constant ) \
-							make_decl(DW_AT_count, interp::block, interp::constant, interp::reference ) \
-							make_decl(DW_AT_data_member_location, interp::block, interp::loclistptr, interp::constant ) \
-							make_decl(DW_AT_decl_column, interp::constant ) \
-							make_decl(DW_AT_decl_file, interp::constant ) \
-							make_decl(DW_AT_decl_line, interp::constant ) \
+							make_decl(DW_AT_calling_convention, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_count, interp::constant|interp::UNSIGNED, interp::reference, interp::exprloc ) \
+							make_decl(DW_AT_data_member_location, interp::loclistptr, interp::constant|interp::UNSIGNED, interp::exprloc, /* GNU HACK */ interp::block ) \
+							make_decl(DW_AT_decl_column, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_decl_file, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_decl_line, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_declaration, interp::flag ) \
 							make_decl(DW_AT_discr_list, interp::block ) \
-							make_decl(DW_AT_encoding, interp::constant ) \
+							make_decl(DW_AT_encoding, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_external, interp::flag ) \
-							make_decl(DW_AT_frame_base, interp::block, interp::loclistptr ) \
+							make_decl(DW_AT_frame_base, interp::loclistptr, interp::exprloc ) \
 							make_decl(DW_AT_friend, interp::reference ) \
-							make_decl(DW_AT_identifier_case, interp::constant ) \
+							make_decl(DW_AT_identifier_case, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_macro_info, interp::macptr ) \
-							make_decl(DW_AT_namelist_item, interp::block ) \
+							make_decl(DW_AT_namelist_item, interp::reference ) \
 							make_decl(DW_AT_priority, interp::reference ) \
-							make_decl(DW_AT_segment, interp::block, interp::loclistptr ) \
+							make_decl(DW_AT_segment, interp::loclistptr, interp::exprloc ) \
 							make_decl(DW_AT_specification, interp::reference ) \
-							make_decl(DW_AT_static_link, interp::block, interp::loclistptr ) \
+							make_decl(DW_AT_static_link, interp::loclistptr, interp::exprloc ) \
 							make_decl(DW_AT_type, interp::reference ) \
-							make_decl(DW_AT_use_location, interp::block, interp::loclistptr ) \
+							make_decl(DW_AT_use_location, interp::loclistptr, interp::exprloc ) \
 							make_decl(DW_AT_variable_parameter, interp::flag ) \
-							make_decl(DW_AT_virtuality, interp::constant ) \
-							make_decl(DW_AT_vtable_elem_location, interp::block, interp::loclistptr ) \
-							make_decl(DW_AT_allocated, interp::block, interp::constant, interp::reference ) \
-							make_decl(DW_AT_associated, interp::block, interp::constant, interp::reference ) \
-							make_decl(DW_AT_data_location, interp::block ) \
-							make_decl(DW_AT_byte_stride, interp::block, interp::constant, interp::reference ) \
+							make_decl(DW_AT_virtuality, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_vtable_elem_location, interp::loclistptr, interp::exprloc ) \
+							make_decl(DW_AT_allocated, interp::constant|interp::UNSIGNED, interp::reference ) \
+							make_decl(DW_AT_associated, interp::constant|interp::UNSIGNED, interp::reference, interp::exprloc ) \
+							make_decl(DW_AT_data_location, interp::exprloc ) \
+							make_decl(DW_AT_byte_stride, interp::constant|interp::UNSIGNED, interp::reference, interp::exprloc ) \
 							make_decl(DW_AT_entry_pc, interp::address ) \
 							make_decl(DW_AT_use_UTF8, interp::flag ) \
 							make_decl(DW_AT_extension, interp::reference ) \
 							make_decl(DW_AT_ranges, interp::rangelistptr ) \
 							make_decl(DW_AT_trampoline, interp::address, interp::flag, interp::reference, interp::string ) \
-							make_decl(DW_AT_call_column, interp::constant ) \
-							make_decl(DW_AT_call_file, interp::constant ) \
-							make_decl(DW_AT_call_line, interp::constant ) \
+							make_decl(DW_AT_call_column, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_call_file, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_call_line, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_description, interp::string ) \
-							make_decl(DW_AT_binary_scale, interp::constant ) \
-							make_decl(DW_AT_decimal_scale, interp::constant ) \
+							make_decl(DW_AT_binary_scale, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_decimal_scale, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_small, interp::reference ) \
-							make_decl(DW_AT_decimal_sign, interp::constant ) \
-							make_decl(DW_AT_digit_count, interp::constant ) \
+							make_decl(DW_AT_decimal_sign, interp::constant|interp::UNSIGNED ) \
+							make_decl(DW_AT_digit_count, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_picture_string, interp::string ) \
 							make_decl(DW_AT_mutable, interp::flag ) \
 							make_decl(DW_AT_threads_scaled, interp::flag ) \
 							make_decl(DW_AT_explicit, interp::flag ) \
 							make_decl(DW_AT_object_pointer, interp::reference ) \
-							make_decl(DW_AT_endianity, interp::constant ) \
+							make_decl(DW_AT_endianity, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_elemental, interp::flag ) \
 							make_decl(DW_AT_pure, interp::flag ) \
 							make_decl(DW_AT_recursive, interp::flag ) \
 							make_decl(DW_AT_signature, interp::reference ) \
 							make_decl(DW_AT_main_subprogram, interp::flag ) \
-							make_decl(DW_AT_data_bit_offset, interp::constant ) \
+							make_decl(DW_AT_data_bit_offset, interp::constant|interp::UNSIGNED ) \
 							make_decl(DW_AT_const_expr, interp::flag ) \
 							make_decl(DW_AT_enum_class, interp::flag ) \
 							last_decl(DW_AT_linkage_name, interp::string )
@@ -394,12 +394,12 @@ pair_type name[] = { \
 		MAKE_LOOKUP(attr_class_mapping_t, attr_class_tbl, make_attr_associative_entry, last_attr_associative_entry, ATTR_DECL_LIST);
 
 		#define FORM_DECL_LIST(make_decl, last_decl) \
-							make_decl(DW_FORM_addr, interp::address)  \
+							make_decl(DW_FORM_addr, interp::address, interp::constant|interp::UNSIGNED)  \
 							make_decl(DW_FORM_block2, interp::block)  \
 							make_decl(DW_FORM_block4, interp::block)  \
 							make_decl(DW_FORM_data2, interp::constant)  \
-							make_decl(DW_FORM_data4, interp::constant, interp::lineptr, interp::loclistptr, interp::macptr, interp::rangelistptr)  \
-							make_decl(DW_FORM_data8, interp::constant, interp::lineptr, interp::loclistptr, interp::macptr, interp::rangelistptr)  \
+							make_decl(DW_FORM_data4, interp::constant, /* GNU HACK */ interp::loclistptr, interp::rangelistptr, interp::lineptr, interp::macptr)  \
+							make_decl(DW_FORM_data8, interp::constant, /* GNU HACK */ interp::loclistptr, interp::rangelistptr, interp::lineptr, interp::macptr)  \
 							make_decl(DW_FORM_string, interp::string)  \
 							make_decl(DW_FORM_block, interp::block)  \
 							make_decl(DW_FORM_block1, interp::block)  \
@@ -416,7 +416,7 @@ pair_type name[] = { \
 							make_decl(DW_FORM_ref_udata, interp::reference)  \
 							make_decl(DW_FORM_indirect, interp::EOL) \
 							make_decl(DW_FORM_sec_offset, interp::lineptr, interp::loclistptr, interp::macptr, interp::rangelistptr) \
-							make_decl(DW_FORM_exprloc, /*interp::exprloc*/ interp::EOL ) \
+							make_decl(DW_FORM_exprloc, interp::exprloc, interp::EOL ) \
 							make_decl(DW_FORM_flag_present, interp::flag ) \
 							last_decl(DW_FORM_ref_sig8, interp::reference ) 
 
@@ -667,11 +667,16 @@ pair_type name[] = { \
 			switch(cls)
 			{
 				case interp::block:
-					if (attr_describes_location(attr))
+					if (attr_describes_location(attr)) return spec::interp::block_as_dwarf_expr;
+					else return cls;
+				case interp::constant:
+					if (attr == DW_AT_data_member_location)
 					{
-						return spec::interp::block_as_dwarf_expr;
-					}
-					// else fall through
+						/* In DWARF4, DW_AT_data_member_locations can be 
+						 * encoded as simple offsets. We turn them into
+						 * location expressions. */
+						return spec::interp::constant_to_make_location_expr;
+					} else return cls;
 				default:
 					return cls;
 			}
@@ -683,12 +688,14 @@ pair_type name[] = { \
 		  * problem -- client programmers must get the link order correct so that 
 		  * initialization of client objects happens after this library is init'd. */
 		
-		DEFINE_MAPS(dwarf4_t)
-		
 		empty_def_t empty_def_t::inst;
+
+		DEFINE_MAPS(dwarf4_t)
 		dwarf4_t dwarf4_t::inst;
 		dwarf4_t& dwarf4 = dwarf4_t::inst;
+		
 		abstract_def& dwarf3 = dwarf4_t::inst; /* HACK */
+		
 		abstract_def& DEFAULT_DWARF_SPEC = dwarf4;
 		abstract_def& DEFAULT_SPEC = dwarf4;
 	

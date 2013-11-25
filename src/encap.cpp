@@ -529,6 +529,7 @@ namespace dwarf
 				{
 					dwarf::lib::attribute a = arr.get(i);
 					retval = a.whatattr(&attr);
+					assert(retval == DW_DLV_OK);
 					m_attrs.insert(make_pair(attr, attribute_value(m_ds, a)));
 				}
 				catch (Not_supported) 

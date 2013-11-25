@@ -151,6 +151,7 @@ namespace dwarf { namespace tool {
 	};
 	const char *cxx_compiler::base_typename_equivs_long_double[] = {
 		"long double",
+		"double long",
 		NULL
 	};
 	const char *cxx_compiler::base_typename_equivs_bool[] = {
