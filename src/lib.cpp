@@ -276,7 +276,7 @@ namespace dwarf
 				if (i_child.get_raw_name() != nullptr
 					&& 0 == strcmp(i_child.get_raw_name().get(), name.c_str()))
 				{
-					return i_child;
+					return std::move(i_child);
 				}
 			}
 			return iterator_base::END;
@@ -484,7 +484,7 @@ namespace dwarf
 				
 				if (it.tag_here() != DW_TAG_compile_unit)
 				{
-					cerr << "Warning: made payload for non-CU " << it << endl;
+					cerr << "Warning: made payload for non-CU at 0x" << std::hex << it.offset_here() << std::dec << endl;
 				}
 				
 				return it.cur_payload;

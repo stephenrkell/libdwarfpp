@@ -34,7 +34,7 @@ int main(int argc, char **argv)
 	auto children = found.children_here();
 	for (auto i = children.first; i != children.second; ++i)
 	{
-		cout << *i;
+		cout << i;
 	}
 	
 	cout << "struct Foo's DW_TAG_member children are..." << endl;
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
 	int count = 0;
 	for (auto i = member_children.first; i != member_children.second; ++i, ++count)
 	{
-		cout << *i;
+		cout << i.base().base();
 	}
 	assert(count >= 2);
 	

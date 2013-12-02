@@ -15,6 +15,19 @@ $(warning LD_LIBRARY_PATH is ${LD_LIBRARY_PATH})
 
 cases := $(wildcard [a-z]*)
 
+default:
+	for case in $(cases); do \
+            $(MAKE) run-$$case; \
+        done
+
+clean:
+	for case in $(cases); do \
+            $(MAKE) clean-$$case; \
+        done
+
+clean-%: 
+	rm -f $*/$*
+
 run-%: # run the test case with itself as input
 	$(MAKE) -C "$*" "$*" && ( cd "$*" && ./$* ./$* )
 
@@ -27,7 +40,3 @@ cleanrun-%:
 gdbcleanrun-%:
 	rm -f $*/$* && $(MAKE) gdbrun-$*
 
-default:
-	for case in $(cases); do \
-            $(MAKE) run-$$case; \
-        done
