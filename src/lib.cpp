@@ -119,7 +119,7 @@ namespace dwarf
 			return s;
 		}
 		
-		/* Attribute access within basic_die */
+		/* Individual attribute access within basic_die */
 		encap::attribute_map  basic_die::all_attrs(optional_root_arg_decl) const
 		{
 			return encap::attribute_map(AttributeList(d), d, get_root(opt_r));
@@ -128,6 +128,45 @@ namespace dwarf
 		{
 			Attribute attr(d, a);
 			return encap::attribute_value(attr, d, get_root(opt_r));
+		}
+		void basic_die::left_merge_attrs(encap::attribute_map& m, const encap::attribute_map& arg)
+		{
+			for (auto i_attr = arg.begin(); i_attr != arg.end(); ++i_attr)
+			{
+				auto found = m.find(i_attr->first);
+				if (found == m.end()) m.insert(make_pair(i_attr->first, i_attr->second));
+			}
+		}
+		/* The same, but seeing through DW_AT_abstract_origin and DW_AT_specification references. */
+		encap::attribute_map basic_die::find_all_attrs(optional_root_arg_decl) const
+		{
+			encap::attribute_map m(AttributeList(d), d, get_root(opt_r));
+			// merge with attributes of abstract_origin and specification
+			if (has_attr(DW_AT_abstract_origin))
+			{
+				encap::attribute_map origin_m = attr(DW_AT_abstract_origin, opt_r).get_refiter()->all_attrs();
+				left_merge_attrs(m, origin_m);
+			}
+			else if (has_attr(DW_AT_specification))
+			{
+				encap::attribute_map spec_m = attr(DW_AT_abstract_origin, opt_r).get_refiter()->all_attrs();
+				left_merge_attrs(m, spec_m);
+			}
+			return m;
+		}
+		encap::attribute_value basic_die::find_attr(Dwarf_Half a, optional_root_arg_decl) const
+		{
+			Attribute::handle_type handle = Attribute::try_construct(d, a);
+			if (handle) { return encap::attribute_value(Attribute(std::move(handle)), d, get_root(opt_r)); }
+			else if (has_attr(DW_AT_abstract_origin))
+			{
+				return attr(DW_AT_abstract_origin, opt_r).get_refiter()->find_attr(a, opt_r);
+			}
+			else if (has_attr(DW_AT_specification))
+			{
+				return attr(DW_AT_specification, opt_r).get_refiter()->find_attr(a, opt_r);
+			}
+			return encap::attribute_value(); // a.k.a. a NO_ATTR-valued attribute_value
 		}
 		
 		/* Moving around, there are a few concerns to deal with. 
@@ -1472,6 +1511,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						std::cerr << "Error: unrecognised opcode: " << spec.op_lookup(i->lr_atom) << std::endl;
 						throw Not_supported("unrecognised opcode");
 					no_regs:
+						std::cerr << "Warning: asked to evaluate register-dependent expression with no registers." << std::endl;
 						throw No_entry();
 					logic_error:
 						std::cerr << "Logic error in DWARF expression evaluator";

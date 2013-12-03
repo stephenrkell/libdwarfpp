@@ -61,6 +61,7 @@ namespace dwarf
 				friend std::ostream& dwarf::spec::operator<<(std::ostream& o, const dwarf::spec::basic_die& d);                
 				friend class encap::die; // for the "convert to strong references" hack
 				friend class encap::dieset;
+				friend class core::basic_die; // for use of the NO_ATTR constructor in find_attr
 		public: 
 			struct weak_ref { 
 				friend class attribute_value;
@@ -174,19 +175,15 @@ namespace dwarf
 				std::string *v_string;
 				weak_ref *v_ref;
 				encap::loclist *v_loclist;
-                encap::rangelist *v_rangelist;
+				encap::rangelist *v_rangelist;
 			};
 			// -- the operator<< is a friend
 			friend std::ostream& ::dwarf::lib::operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
 
 			static form dwarf_form_to_form(const Dwarf_Half form); // helper hack
 
-			/*attribute_value() : orig_form(0), f(NO_ATTR) { v_u = 0U; } // FIXME: this zero value can still be harmful when clients do get_ on wrong type
-				// ideally the return values of get_() methods should return some Option-style type,
-				// which I think boost provides... i.e. Some of value | None*/
-			static const attribute_value *dne_val;
-			
 		private:
+			attribute_value() : orig_form(0), f(NO_ATTR) { v_u = 0U; }
 			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned data, Dwarf_Half o_form) 
 				: p_ds(&ds), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
 			// the following constructor is a HACK to re-use formatting logic when printing Dwarf_Locs

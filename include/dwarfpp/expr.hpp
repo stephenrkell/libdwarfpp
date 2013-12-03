@@ -13,7 +13,7 @@
 
 namespace dwarf
 {
-	namespace core { struct LocdescList; struct Locdesc; struct RangesList; }
+	namespace core { struct LocdescList; struct Locdesc; struct RangesList; struct FrameSection; }
 	namespace encap
     {
     	using namespace dwarf::lib;
@@ -209,6 +209,7 @@ namespace dwarf
 		
 		/* Utility function for loclists. */
 		loclist absolute_loclist_to_additive_loclist(const loclist& l);
+		loclist rewrite_loclist_in_terms_of_cfa(const loclist& l, const FrameSection& fs);
 	}
 }
 

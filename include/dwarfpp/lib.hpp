@@ -104,7 +104,7 @@ namespace dwarf
 			virtual Dwarf_Off get_enclosing_cu_offset() const = 0;
 			virtual bool has_attr(Dwarf_Half attr) const = 0;
 			inline bool has_attribute(Dwarf_Half attr) const { return has_attr(attr); }
-			virtual encap::attribute_map copy_attrs(opt<root_die&> opt_r/*, spec& s = DEFAULT_DWARF_SPEC*/) const = 0;
+			virtual encap::attribute_map copy_attrs(opt<root_die&> opt_r) const = 0;
 			/* HMM. Can we make this non-virtual? 
 			 * Just move the code from Die (and get rid of that method)? */
 			virtual spec& get_spec(root_die& r) const = 0;
@@ -153,10 +153,18 @@ namespace dwarf
   opt<root_die&> opt_r 
 #define optional_root_arg \
   optional_root_arg_decl = opt<root_die&>()
+			// helper
+			static void left_merge_attrs(encap::attribute_map& m, const encap::attribute_map& arg);
 			virtual bool has_attr(Dwarf_Half attr) const 
 			{ assert(d.handle); return d.has_attr_here(attr); }
+			// get all attrs in one go
 			virtual encap::attribute_map all_attrs(optional_root_arg) const;
+			// get a single attr
 			virtual encap::attribute_value attr(Dwarf_Half a, optional_root_arg) const;
+			// get all attrs in one go, seeing through abstract_origin / specification links
+			virtual encap::attribute_map find_all_attrs(optional_root_arg) const;
+			// get a single attr, seeing through abstract_origin / specification links
+			virtual encap::attribute_value find_attr(Dwarf_Half a, optional_root_arg) const;
 			root_die& get_root(opt<root_die&> opt_r) const // NOT defaulted!
 			{ 
 				return opt_r 
@@ -209,13 +217,15 @@ namespace dwarf
 			{ assert(d.handle); return d.name_here(); }
 			inline Dwarf_Off get_enclosing_cu_offset() const 
 			{ assert(d.handle); return d.enclosing_cu_offset_here(); }
-			//inline bool has_attr(Dwarf_Half attr) const 
-			//{ assert(d.handle); return d.has_attr_here(attr); }
+			/* The same as all_attrs, but comes from abstract_die. */
 			inline encap::attribute_map copy_attrs(opt<root_die&> opt_r) const
-			{ return encap::attribute_map(core::AttributeList(d), d, 
-			  opt_r ? *opt_r : d.get_constructing_root(), s); }
+			{ return all_attrs(opt_r); }
 			inline spec& get_spec(root_die& r) const 
 			{ assert(d.handle); return d.spec_here(r); }
+			
+			/* The same as find_all_attrs. FIXME: do we really need this gather_ API? */
+			inline encap::attribute_map gather_attrs(opt<root_die&> opt_r) const
+			{ return find_all_attrs(opt_r); }
 		};	
 		std::ostream& operator<<(std::ostream& s, const basic_die& d);
 		inline void intrusive_ptr_add_ref(basic_die *p)
@@ -856,7 +866,8 @@ namespace dwarf
 				 * The obvious problem here is that we have two copies of the base iterator:
 				 * one deeper in the selective_iterator, and one in the first base class.
 				 * We'd want the selective_iterator to CRTP-downcall its implementation of
-				 * base(), 
+				 * base(), rather than containing it directly. This is now implemented in 
+				 * selective_iterator_mixin. 
 				 * */
 				typedef srk31::selective_iterator< is_a_t<Payload>, Iter> filtered_iterator;
 
@@ -1307,14 +1318,23 @@ namespace dwarf
 #define attr_optional(name, stored_t) \
 	opt<stored_type_ ## stored_t> get_ ## name(optional_root_arg) const \
     { if (has_attr(DW_AT_ ## name)) return attr(DW_AT_ ## name, opt_r).get_ ## stored_t (); \
+      else return opt<stored_type_ ## stored_t>(); } \
+	opt<stored_type_ ## stored_t> find_ ## name(optional_root_arg) const \
+    { encap::attribute_value found = find_attr(DW_AT_ ## name, opt_r); \
+      if (found.get_form() != encap::attribute_value::NO_ATTR) return found.get_ ## stored_t (); \
       else return opt<stored_type_ ## stored_t>(); }
 
 #define super_attr_optional(name, stored_t) attr_optional(name, stored_t)
 
 #define attr_mandatory(name, stored_t) \
 	stored_type_ ## stored_t get_ ## name(optional_root_arg) const \
-    { assert (d.has_attr_here(DW_AT_ ## name)); \
-      return attr(DW_AT_ ## name, opt_r).get_ ## stored_t (); }
+    { assert(has_attr(DW_AT_ ## name)); \
+      return attr(DW_AT_ ## name, opt_r).get_ ## stored_t (); } \
+	stored_type_ ## stored_t find_ ## name(optional_root_arg) const \
+    { encap::attribute_value found = find_attr(DW_AT_ ## name, opt_r); \
+      assert(found.get_form() != encap::attribute_value::NO_ATTR); \
+      return found.get_ ## stored_t (); }
+
 
 #define super_attr_mandatory(name, stored_t) attr_mandatory(name, stored_t)
 #define child_tag(arg)
@@ -1382,6 +1402,7 @@ end_class(type)
 	struct with_type_describing_layout_die : public virtual program_element_die
 	{
 		virtual opt<iterator_df<type_die> > get_type(optional_root_arg) const = 0;
+		virtual opt<iterator_df<type_die> > find_type(optional_root_arg) const = 0;
 	};
 /* with_dynamic_location_die */
 	struct with_dynamic_location_die : public virtual with_type_describing_layout_die

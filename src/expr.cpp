@@ -199,6 +199,11 @@ namespace dwarf
 			}
 			return new_ll;
 		}
+		loclist rewrite_loclist_in_terms_of_cfa(const loclist& l, const FrameSection& fs)
+		{
+			// FIXME:
+			return loclist();
+		}
 		
 		loclist loclist::NO_LOCATION;
 	}

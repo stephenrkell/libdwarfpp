@@ -439,9 +439,11 @@
 #define DEALLOC_TOKEN_Error     DW_DLA_ERROR
 #define DEALLOC_TOKEN_Abbrev    DW_DLA_ABBREV
 
-/* These guys are grabbed by the same call, dwarf_get_fde_list */
-#define DEALLOC_TOKEN_Fde       DW_DLA_FDE
-#define DEALLOC_TOKEN_Cie       DW_DLA_CIE
+/* These guys are grabbed by the same call, dwarf_get_fde_list, but are deprecated 
+ * in libdwarf because the relevant API is leaky. There's a separate dwarf_fde_cie_list_dealloc
+ * call instead, so we don't need these. */
+// #define DEALLOC_TOKEN_Fde       DW_DLA_FDE
+// #define DEALLOC_TOKEN_Cie       DW_DLA_CIE
 
 		/* Do the basic handles -- commenting out the SGI-specific ones for now */
 		basic_handle(Line, const iterator_base& it) /* dwarf_srclines -- allocates a block; free each line, free block */
@@ -498,7 +500,7 @@
 			RangesList(const Attribute& a, const Die& d) : handle(try_construct(a, d)) 
 			{ if (!handle) throw Error(current_dwarf_error, 0); }
 		};
-		/* FIXME: fde/cie handles */
+
 
 		
 		/* srcfiles, which is a list of strings */

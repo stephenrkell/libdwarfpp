@@ -290,8 +290,6 @@ namespace dwarf
 			// backlinks aren't necessarily stored, so support search for parent
 			virtual Dwarf_Off find_parent_offset_of(Dwarf_Off off) = 0;
 
-			shared_ptr<type_die> canonicalise_type(shared_ptr<type_die> p_t,
-				dwarf::tool::cxx_compiler& compiler);
 			template <typename Action>
 			void
 			for_all_identical_types(
@@ -303,7 +301,7 @@ namespace dwarf
 
 			shared_ptr<basic_die> operator[](Dwarf_Off off)
 			{ return const_cast<const abstract_dieset&>(*this)[off]; }
-		   
+		
 			struct iterator
 			: public boost::iterator_adaptor<iterator, // Derived
 					iterator_base,		// Base
