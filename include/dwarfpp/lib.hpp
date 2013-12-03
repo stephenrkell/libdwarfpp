@@ -437,7 +437,7 @@ namespace dwarf
 		struct iterator_base : private virtual abstract_die
 		{
 			/* Everything that calls a libdwarf constructor-style function
-			 * needs to be a friend, so that it can get_raw_handle() to supply
+			 * needs to be a friend, so that it can raw_handle() to supply
 			 * the argument to libdwarf.  */
 			friend struct Die;
 			friend struct Attribute;
@@ -482,7 +482,7 @@ namespace dwarf
 				}
 			}
 		private:
-			//Die::raw_handle_type get_raw_handle() const
+			//Die::raw_handle_type raw_handle() const
 			//{
 			//	return get_handle().raw_handle();
 			//}
@@ -2339,6 +2339,23 @@ friend class factory;
 		inline Block::Block(const Attribute& a) : handle(try_construct(a)) 
 		{ 
 			if (!handle) throw Error(current_dwarf_error, 0);
+		}
+		
+		inline FrameSection::handle_type
+		FrameSection::try_construct(const Debug& dbg)
+		{
+			Dwarf_Fde *out_fdes;
+			Dwarf_Signed fde_count;
+			Dwarf_Cie *out_cies;
+			Dwarf_Signed cie_count;
+			
+			int ret = dwarf_get_fde_list(dbg.raw_handle(), &out_cies, &cie_count, 
+				&out_fdes, &fde_count, &current_dwarf_error);
+			
+			if (ret == DW_DLV_OK)
+			{
+				return handle_type(out_cies, deleter(dbg.raw_handle(), cie_count, out_fdes, fde_count));
+			} else return handle_type(nullptr, deleter(nullptr, 0, nullptr, 0));
 		}
 
 		// FIXME: what does this constructor do? Can we get rid of it?

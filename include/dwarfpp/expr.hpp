@@ -209,7 +209,12 @@ namespace dwarf
 		
 		/* Utility function for loclists. */
 		loclist absolute_loclist_to_additive_loclist(const loclist& l);
-		loclist rewrite_loclist_in_terms_of_cfa(const loclist& l, const FrameSection& fs);
+		loclist rewrite_loclist_in_terms_of_cfa(
+			const loclist& l, 
+			const core::FrameSection& fs, 
+			const boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned>& containing_intervals,
+			dwarf::spec::opt<const loclist&> opt_fbreg // fbreg is special -- loc exprs can refer to it
+			);
 	}
 }
 
