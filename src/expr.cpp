@@ -8,8 +8,7 @@
 #include <limits>
 #include <map>
 #include <set>
-#include <boost/optional.hpp>
-#include <boost/icl/interval_map.hpp>
+#include <srk31/endian.hpp>
 
 #include "lib.hpp"
 #include "expr.hpp" 
@@ -21,9 +20,7 @@ using std::set;
 using std::string;
 using std::cerr;
 using std::endl;
-using dwarf::core::FrameSection;
 using dwarf::spec::opt;
-using boost::icl::interval;
 
 namespace dwarf
 {
@@ -120,7 +117,18 @@ namespace dwarf
 			}
 			s << ")";
 			return s;
-		}		
+		}
+		loc_expr::loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec /* = spec::dwarf3 */)
+			: spec(spec)
+		{
+			auto loc = core::Locdesc::try_construct(dbg, instrs, len);
+			assert(loc);
+			core::Locdesc ld(std::move(loc));
+			*static_cast<vector<expr_instr> *>(this) = vector<expr_instr>(ld.raw_handle()->ld_s, ld.raw_handle()->ld_s + ld.raw_handle()->ld_cents);
+			this->hipc = ld.raw_handle()->ld_hipc;
+			this->lopc = ld.raw_handle()->ld_lopc;
+		}			
+		
         std::vector<std::pair<loc_expr, Dwarf_Unsigned> > loc_expr::pieces() const
         {
             /* Split the loc_expr into pieces, and return pairs
@@ -214,139 +222,5 @@ namespace dwarf
 			}
 			return new_ll;
 		}
-		
-		// FIXME temporary helper
-		static
-		boost::icl::interval_map<Dwarf_Addr, map<int /* regnum */, pair< int /* == regnum */, int /* + offset */ > > >
-		decode_fde(Dwarf_Fde fde)
-		{
-			return boost::icl::interval_map<Dwarf_Addr, map<int /* regnum */, pair< int /* == regnum */, int /* + offset */ > > >(); 
-		}
-		loclist rewrite_loclist_in_terms_of_cfa(
-			const loclist& l, 
-			const FrameSection& fs, 
-			const boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned>& containing_intervals,
-			dwarf::spec::opt<const loclist&> opt_fbreg // fbreg is special -- loc exprs can refer to it
-			)
-		{
-			/* First
-			
-			 * - compute a map from vaddrs to CFA expressions of the form (reg + offset). 
-			 * - for some vaddrs, CFA might not expressible this way 
-			 
-			 * Then for each vaddr range in the locexpr
-			 
-			 * - note any breg(n) opcodes
-			 * - see if we can compute them from CFA instead
-			 * - if so, rewrite them as a { cfa, push, plus } operation
-			 
-			 * HMM. In general we seem to be building a constraint graph
-			 * s.t. two nodes (n1, n2) are connected by an edge labelled k
-			 * if n2 == n1 + k.
-			 *
-			 * NOTE that every edge has an opposite-direction edge whose weight
-			 * is the negation of the first weight.
-			 
-			 * NOTE that in general, this graph changes with each instruction. 
-			 * So what we are labelling the intervals with is really the edge set.
-			 
-			 * Can we relate all registers this way, including cfa as a pseudo-reg, 
-			 * then look for a path from cfa to the referenced register?
-			 
-			 * YES, this is a nice formulation.
-			 
-			 * We also add the loc expr of interest itself, as another node, from which
-			 * we will try to find paths to the CFA.
-			 
-			 * We still have to collapse identical vaddr ranges at the end, because edge
-			 * sets refer to *all* regs and we only care about one (the loc expr).
-			 
-			 * What about fbreg? It is just another node (with definition providing the edges)
-			 */
-			
-			struct edge
-			{
-				int from_reg;
-				int to_reg;
-				int difference;
-				
-				edge(const pair<const int /* regnum */, pair< int /* == regnum */, int /* + offset */ > >& map_entry)
-				{
-					from_reg = map_entry.first;
-					to_reg = map_entry.second.first;
-					difference = map_entry.second.second;
-				}
-				
-				bool operator<(const edge& e) const
-				{
-					return make_pair(from_reg, make_pair(to_reg, difference)) < make_pair(e.from_reg, make_pair(e.to_reg, e.difference));
-				}
-				
-				bool operator!=(const edge& e) const
-				{
-					return e < *this || *this < e;
-				}
-				bool operator==(const edge& e) const { return !(*this != e); }
-			};
-			
-			boost::icl::interval_map<Dwarf_Addr, set< edge > > edges;
-			
-			/* Walk our FDEs starting from the lowest addr in the interval. */
-			
-			Dwarf_Fde current = 0;
-			Dwarf_Addr hipc = 0;
-			for (auto i_int = containing_intervals.begin(); i_int != containing_intervals.end(); ++i_int)
-			{
-				assert((hipc == 0  && current == 0) || hipc > i_int->first.lower());
-				Dwarf_Addr lopc;
-				
-				// walk all FDEs that overlap this interval
-				
-				if (current == 0)
-				{
-					// we don't have a FDE that overlaps this interval
-					Dwarf_Addr lopc;
-					int ret = dwarf_get_fde_at_pc(fs.handle.get_deleter().fde_data, i_int->first.lower(), &current, &lopc, &hipc, &core::current_dwarf_error);
-					assert(ret == DW_DLV_OK);
-				}
-				
-				// while there is some overlap with our interval
-				while (lopc < i_int->first.upper() && hipc > i_int->first.lower())
-				{
-					// decode the table into rows
-					// FIXME: instead of this naive map, need to encode that a reg might be defined by a DWARF expr...
-					boost::icl::interval_map<Dwarf_Addr, map<int /* regnum */, pair< int /* == regnum */, int /* + offset */ > > > rows
-					 = decode_fde(current);
-					
-					// process each row
-					for (auto i_row = rows.begin(); i_row != rows.end(); ++i_row)
-					{
-						// add an entry to our interval map
-						edges += make_pair(
-								interval<Dwarf_Addr>::right_open(
-									/* intersection of this interval and the *row*'s (not FDE's) interval */
-									std::max(lopc, i_int->first.lower()), 
-									std::min(hipc, i_int->first.upper())
-								), 
-								/* set of edge definitions in this row */
-								std::set<edge>(i_row->second.begin(), i_row->second.end()) // i.e. pair<int, pair<int, int> > i.e. (src, dst, weight)
-							);
-					}
-					
-					// get the next FDE
-					int ret = dwarf_get_fde_at_pc(fs.handle.get_deleter().fde_data, hipc, &current, &lopc, &hipc, &core::current_dwarf_error);
-					assert(ret == DW_DLV_OK);
-				}
-				
-				// leave 'current' since it might be useful on the next iteration
-				
-			} // end for interval
-
-			// FIXME: now do the rewrites and coalesce
-
-			return l; // FIXME
-		}
-		
-		loclist loclist::NO_LOCATION;
 	}
 }

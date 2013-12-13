@@ -1,8 +1,8 @@
 /* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
  * 
- * lib.hpp: basic C++ wrapping of libdwarf C API.
+ * lib.hpp: basic C++ wrapping of libdwarf C API (info section).
  *
- * Copyright (c) 2008--12, Stephen Kell.
+ * Copyright (c) 2008--13, Stephen Kell.
  */
 
 #ifndef DWARFPP_LIB_HPP_
@@ -112,7 +112,7 @@ namespace dwarf
 		};
 			
 #include "private/libdwarf-handles.hpp"
-		
+
 		// now we can define factory
 		struct factory
 		{
@@ -275,12 +275,13 @@ namespace dwarf
 			map<Dwarf_Off, ptr_type > sticky_dies; // compile_unit_die is always sticky
 			Debug dbg;
 			Dwarf_Off current_cu_offset; // 0 means none
+			::Elf *returned_elf;
 
 			virtual ptr_type make_payload(const iterator_base& it)/* = 0*/;
 			virtual bool is_sticky(const abstract_die& d) /* = 0*/;
 			
 		public:
-			root_die(int fd) : dbg(fd), current_cu_offset(0UL) {}
+			root_die(int fd) : dbg(fd), current_cu_offset(0UL), returned_elf(nullptr) {}
 			// we don't provide this constructor because sharing the CU state is a bad idea
 			//root_die(lib::file& f) : dbg(f.dbg), current_cu_offset
 		
@@ -339,7 +340,7 @@ namespace dwarf
 			Iter find_downwards(Dwarf_Off off);		
 			template <typename Iter = iterator_df<> >
 			Iter find_upwards(Dwarf_Off off);
-
+			
 		public:
 			::Elf *get_elf(); // hmm: lib-only?
 			Debug& get_dbg() { return dbg; }
@@ -2211,8 +2212,21 @@ friend class factory;
 			Dwarf_Signed listlen; // will be set to 1
 			ret = dwarf_loclist_from_expr(a.get_dbg(), block_ptr, exprlen, &raw_handle, &listlen, &current_dwarf_error);
 			assert(ret == DW_DLV_OK);
+			assert(listlen == 1);
 
 			return handle_type(raw_handle, deleter(a.get_dbg()));
+		}
+		
+		inline Locdesc::handle_type
+		Locdesc::try_construct(Dwarf_Debug dbg, Dwarf_Ptr bytes_in, Dwarf_Unsigned bytes_len)
+		{
+			Dwarf_Locdesc *raw_handle;
+			Dwarf_Signed listlen; // will be set to 1
+			int ret = dwarf_loclist_from_expr(dbg, bytes_in, bytes_len, &raw_handle, &listlen, &current_dwarf_error);
+			assert(ret == DW_DLV_OK);
+			assert(listlen == 1);
+
+			return handle_type(raw_handle, deleter(dbg));
 		}
 		
 		inline LocdescList::handle_type 
@@ -2341,23 +2355,6 @@ friend class factory;
 			if (!handle) throw Error(current_dwarf_error, 0);
 		}
 		
-		inline FrameSection::handle_type
-		FrameSection::try_construct(const Debug& dbg)
-		{
-			Dwarf_Fde *out_fdes;
-			Dwarf_Signed fde_count;
-			Dwarf_Cie *out_cies;
-			Dwarf_Signed cie_count;
-			
-			int ret = dwarf_get_fde_list(dbg.raw_handle(), &out_cies, &cie_count, 
-				&out_fdes, &fde_count, &current_dwarf_error);
-			
-			if (ret == DW_DLV_OK)
-			{
-				return handle_type(out_cies, deleter(dbg.raw_handle(), cie_count, out_fdes, fde_count));
-			} else return handle_type(nullptr, deleter(nullptr, 0, nullptr, 0));
-		}
-
 		// FIXME: what does this constructor do? Can we get rid of it?
 		// It seems to be used only for the compile_unit_die constructor.
 		//inline basic_die::basic_die(root_die& r/*, const Iter& i*/)

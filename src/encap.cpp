@@ -699,6 +699,8 @@ namespace dwarf
 //			 return put_attr(attr, attribute_value(
 //			 		target->m_ds,
 //					 r));
-//		 }
+//		 }		
+
+		loclist loclist::NO_LOCATION;
 	} // end namespace encap
 } // end namespace dwarf

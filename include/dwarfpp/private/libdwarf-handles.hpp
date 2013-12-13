@@ -221,6 +221,8 @@
 			/* Individual Locdescs can be constructed too. */
 			static inline handle_type 
 			try_construct(const Attribute& a);
+			static inline handle_type 
+			try_construct(Dwarf_Debug dbg, Dwarf_Ptr bytes_in, Dwarf_Unsigned bytes_len);
 			
 			raw_handle_type raw_handle()       { return handle.get(); }
 			raw_handle_type raw_handle() const { return handle.get(); }
@@ -501,80 +503,6 @@
 			{ if (!handle) throw Error(current_dwarf_error, 0); }
 		};
 
-		struct FrameSection
-		{
-			typedef Dwarf_Cie *raw_handle_type; /* What libdwarf returns us -- 
-			 actually it gives us a Cie* and a Fde*, so pick one abitrarily. */ 
-			typedef Dwarf_Cie raw_element_type; 
-			/* This is a whole-list deleter. */ \
-			struct deleter 
-			{ 
-				Debug::raw_handle_type dbg;
-				Dwarf_Signed cie_element_count;
-				Dwarf_Fde *fde_data;
-				Dwarf_Signed fde_element_count;
-				
-				deleter(Debug::raw_handle_type dbg, Dwarf_Signed cie_element_count, 
-					Dwarf_Fde *fde_data, Dwarf_Signed fde_element_count)
-				 : dbg(dbg), cie_element_count(cie_element_count), fde_data(fde_data), 
-				   fde_element_count(fde_element_count) {} 
-				void operator()(raw_handle_type arg) const
-				{
-					if (arg && arg != (void*)-1) dwarf_fde_cie_list_dealloc(dbg, arg, cie_element_count, 
-						fde_data, fde_element_count);
-					else
-					{
-						assert(cie_element_count == 0);
-						assert(fde_element_count == 0);
-					}
-				}
-			};
-			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; }
-			typedef unique_ptr<raw_element_type, deleter> handle_type;
-			handle_type handle;
-
-			static inline handle_type
-			try_construct(const Debug& dbg);
-
-			FrameSection(handle_type h) : handle(std::move(h)) { /* "upgrade" */
-				if (!handle) throw Error(current_dwarf_error, 0);
-			}
-			FrameSection(const Debug& dbg) : handle(try_construct(dbg)) 
-			{ if (!handle) throw Error(current_dwarf_error, 0); }
-			
-			/* Do I want to abstract Fde and Cie separately?
-			 * They don't need special resource management, so would 
-			 * just be methodified wrappers around Dwarf_Fde and Dwarf_Cie.
-			 * (Don't copy_list, because that it eagerly decoding content;
-			 * keep it lazy.)
-			 */
-			
-			/* "whole section" methods
-			     dwarf_set_frame_rule_table_size (for pre-getting-fde-info table sizing, ABI-dependent)
-			     dwarf_set_frame_rule_initial_value (similar)
-			     dwarf_set_frame_cfa_value (similar)
-			     dwarf_set_frame_same_value (similar)
-			     dwarf_set_frame_undefined_value (similar)
-			     dwarf_get_fde_n
-			     dwarf_get_fde_at_pc
-			
-			   "methods" relevant to an FDE:
-			
-			     dwarf_get_cie_of_fde
-			     dwarf_get_fde_range (also gets CIE)
-			     dwarf_get_fde_instr_bytes
-			     dwarf_get_fde_info_for_reg3
-			     dwarf_get_fde_info_for_cfa_reg3
-			     dwarf_get_fde_info_for_all_regs3
-			
-			   "methods" relevant to a CIE:
-			   
-			     dwarf_get_cie_info (claimed "internal-only")
-			     dwarf_get_cie_index (claimed "little used")
-			     dwarf_expand_frame_instructions (expensive? encap-like)
-			*/
-		};
-		
 		/* srcfiles, which is a list of strings */
 		struct StringList
 		{

@@ -30,6 +30,7 @@ namespace dwarf
 		bool operator==(const Dwarf_Ranges& arg1, const Dwarf_Ranges& arg2);
 		class basic_die; 
 		std::ostream& operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
+		bool operator<(const dwarf::lib::Dwarf_Loc& arg1, const dwarf::lib::Dwarf_Loc& arg2);
 		class attribute;
 	}
 	namespace core

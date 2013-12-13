@@ -13,17 +13,24 @@
 
 namespace dwarf
 {
-	namespace core { struct LocdescList; struct Locdesc; struct RangesList; struct FrameSection; }
+	using std::vector;
+	using std::pair;
+	using std::set;
+	using std::vector;
+	using std::string;
+	
+	namespace core 
+	{ struct Locdesc; struct LocdescList; struct RangesList; struct FrameSection; struct Cie; struct FdeRange; }
 	namespace encap
-    {
-    	using namespace dwarf::lib;
+	{
+		using namespace dwarf::lib;
 		
-		class rangelist : public std::vector<lib::Dwarf_Ranges> 
+		class rangelist : public vector<lib::Dwarf_Ranges> 
 		{
 		public:
 			template <class In> rangelist(In first, In last) 
-			: std::vector<lib::Dwarf_Ranges>(first, last) {}
-			rangelist() : std::vector<lib::Dwarf_Ranges>() {}
+			: vector<lib::Dwarf_Ranges>(first, last) {}
+			rangelist() : vector<lib::Dwarf_Ranges>() {}
 			
 			rangelist(const core::RangesList& rl);
 			
@@ -34,7 +41,7 @@ namespace dwarf
 
 		typedef ::dwarf::lib::Dwarf_Loc expr_instr;
         
-		struct loc_expr : public std::vector<expr_instr>
+		struct loc_expr : public vector<expr_instr>
 		{
 			/* We used to have NO_LOCATION here. But we don't need it! Recap: 
 			 * In DWARF, hipc == 0 && lopc == 0 means an "end of list entry".
@@ -48,24 +55,25 @@ namespace dwarf
 			const dwarf::spec::abstract_def& spec;
 			Dwarf_Addr hipc;
 			Dwarf_Addr lopc;
-			/*std::vector<expr_instr>& m_expr;*/ 
+			/*vector<expr_instr>& m_expr;*/ 
 			loc_expr(spec::abstract_def& spec = spec::dwarf3) 
             : spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
-			loc_expr(const Dwarf_Locdesc& desc, const spec::abstract_def& spec = spec::dwarf3) : 
-                std::vector<expr_instr>(desc.ld_s, desc.ld_s + desc.ld_cents),
+			loc_expr(const lib::Dwarf_Locdesc& desc, const spec::abstract_def& spec = spec::dwarf3) : 
+                vector<expr_instr>(desc.ld_s, desc.ld_s + desc.ld_cents),
                 spec(spec), hipc(desc.ld_hipc), lopc(desc.ld_lopc)/*,
                 m_expr(*this)*/ {}
-            loc_expr(const std::vector<expr_instr>& expr,
+			loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec = spec::dwarf3);
+            loc_expr(const vector<expr_instr>& expr,
             	const spec::abstract_def& spec = spec::dwarf3) 
-            : std::vector<expr_instr>(expr),
+            : vector<expr_instr>(expr),
               spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
             loc_expr(const loc_expr& arg)  // copy constructor
-            : std::vector<expr_instr>(arg.begin(), arg.end()),
+            : vector<expr_instr>(arg.begin(), arg.end()),
               spec(arg.spec), hipc(arg.hipc), lopc(arg.lopc)/*, 
               m_expr(*this)*/ {}
 
             loc_expr piece_for_offset(Dwarf_Off offset) const;
-            std::vector<std::pair<loc_expr, Dwarf_Unsigned> > pieces() const;
+            vector<std::pair<loc_expr, Dwarf_Unsigned> > pieces() const;
 			
 			// this is languishing here because it's a HACK.. should take the value as argument
 			// too, to calculate variable-length encodings correctly
@@ -100,7 +108,7 @@ namespace dwarf
 			
 			template <class In> loc_expr(In first, In last, 
             	const spec::abstract_def& spec = spec::dwarf3) 
-            : std::vector<expr_instr>(first, last),
+            : vector<expr_instr>(first, last),
               spec(spec), /*m_expr(first, last), */hipc(0), lopc(0) {}
               
 			/* This template parses a location expression out of an array of unsigneds. */
@@ -168,14 +176,14 @@ namespace dwarf
 				return hipc == e.hipc &&
 					lopc == e.lopc &&
 					//e1 == e2;
-					static_cast<const std::vector<expr_instr> *>(this)
-                    == static_cast<const std::vector<expr_instr> *>(&e);
+					static_cast<const vector<expr_instr> *>(this)
+                    == static_cast<const vector<expr_instr> *>(&e);
 			}
 			bool operator!=(const loc_expr& e) const { return !(*this == e); }
             loc_expr& operator=(const loc_expr& e) 
             { 
                 assert(&(this->spec) == &(e.spec)); // references aren't assignable
-                *static_cast<std::vector<expr_instr> *>(this) = *static_cast<const std::vector<expr_instr> *>(&e);
+                *static_cast<vector<expr_instr> *>(this) = *static_cast<const vector<expr_instr> *>(&e);
                 this->hipc = e.hipc;
                 this->lopc = e.lopc;
                 return *this;
@@ -184,7 +192,7 @@ namespace dwarf
 		};
 		std::ostream& operator<<(std::ostream& s, const loc_expr& e);
 		
-		struct loclist : public std::vector<loc_expr>
+		struct loclist : public vector<loc_expr>
 		{
 			friend class ::dwarf::lib::evaluator;
 			friend class attribute_value;
@@ -196,10 +204,10 @@ namespace dwarf
 			 * So we can construct a loclist from a LocdescList. */
 			loclist(const core::LocdescList& ll); 
 			// would ideally repeat all vector constructors
-			template <class In> loclist(In first, In last) : std::vector<loc_expr>(first, last) {}
+			template <class In> loclist(In first, In last) : vector<loc_expr>(first, last) {}
 			loclist(const core::Locdesc& l); 
-			loclist(const std::vector<loc_expr>& v) : std::vector<loc_expr>(v) {}
-			loclist(const loc_expr& loc) : std::vector<loc_expr>(1, loc) {}
+			loclist(const vector<loc_expr>& v) : vector<loc_expr>(v) {}
+			loclist(const loc_expr& loc) : vector<loc_expr>(1, loc) {}
 			//bool operator==(const loclist& oll) const { return *this == oll; }
 			//bool operator!=(const loclist& oll) const { return !(*this == oll); }
 			//friend std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll);
@@ -207,15 +215,46 @@ namespace dwarf
 		};
 		std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll);	
 		
+		/* Instruction sequences in a CIE/FDE. */
+		struct frame_instrlist;
+		/* We need this extension so that we can define operator<<, since to construct a 
+		 * loc_expr will require us to pass the Dwarf_Debug. */
+		struct frame_instr : public Dwarf_Frame_Op3
+		{
+			Dwarf_Debug dbg;
+			frame_instr(Dwarf_Debug dbg, const Dwarf_Frame_Op3 arg)
+			 : Dwarf_Frame_Op3(arg), dbg(dbg) {}
+		};
+		std::ostream& operator<<(std::ostream& s, const frame_instr& arg);
+		
+		
+		struct frame_instrlist : public vector<frame_instr>
+		{
+			using vector::vector;
+		
+			frame_instrlist(Dwarf_Debug dbg, int addrlen, const core::Cie& cie, Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len, bool use_host_byte_order = true);
+		};
+		std::ostream& operator<<(std::ostream& s, const frame_instrlist& arg);
+		
 		/* Utility function for loclists. */
 		loclist absolute_loclist_to_additive_loclist(const loclist& l);
+		
 		loclist rewrite_loclist_in_terms_of_cfa(
 			const loclist& l, 
 			const core::FrameSection& fs, 
 			const boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned>& containing_intervals,
 			dwarf::spec::opt<const loclist&> opt_fbreg // fbreg is special -- loc exprs can refer to it
 			);
-	}
+		Dwarf_Unsigned read_uleb128(unsigned char const **cur, unsigned char const *limit);
+		Dwarf_Signed read_sleb128(unsigned char const **cur, unsigned char const *limit);
+		uint64_t read_8byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint32_t read_4byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint16_t read_2byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint64_t read_8byte_be(unsigned char const **cur, unsigned char const *limit);
+		uint32_t read_4byte_be(unsigned char const **cur, unsigned char const *limit);
+		uint16_t read_2byte_be(unsigned char const **cur, unsigned char const *limit);
+		uint16_t read_2byte_be(unsigned char const **cur, unsigned char const *limit);
+	} // end namespace encap
 }
 
 #endif

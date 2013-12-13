@@ -169,6 +169,21 @@ namespace dwarf
 			return encap::attribute_value(); // a.k.a. a NO_ATTR-valued attribute_value
 		}
 		
+		::Elf *root_die::get_elf()
+		{
+			if (returned_elf) return returned_elf;
+			else 
+			{
+				int ret = dwarf_get_elf(dbg.raw_handle(), reinterpret_cast<Elf_opaque_in_libdwarf **>(&returned_elf), &core::current_dwarf_error);
+				if (ret == DW_DLV_ERROR) return nullptr;
+				else 
+				{
+					assert(ret == DW_DLV_OK);
+					return returned_elf;
+				}
+			}
+		}
+		
 		/* Moving around, there are a few concerns to deal with. 
 		 * 1. maintaining the parent cache
 		 * 2. exploiting the parent cache
@@ -556,7 +571,7 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(r), std::move(d.handle));
 				}
 				return p;
 		}
-			
+		
 		compile_unit_die *factory::make_cu_payload(Die::handle_type&& h, root_die& r)
 		{
 			// Key point: we're not allowed to call Die::spec_here() for this handle. 
@@ -1337,6 +1352,15 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			}
 			s << "}";
 			return s;
+		}
+	
+		bool operator<(const dwarf::lib::Dwarf_Loc& arg1, const dwarf::lib::Dwarf_Loc& arg2)
+		{
+			return arg1.lr_atom <  arg2.lr_atom
+			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number <  arg2.lr_number)
+			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number ==  arg2.lr_number && arg1.lr_number2 <  arg2.lr_number2)
+			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number ==  arg2.lr_number && arg1.lr_number2 == arg2.lr_number2 && 
+				arg1.lr_offset < arg2.lr_offset); 
 		}
 		
 		void evaluator::eval()
