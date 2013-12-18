@@ -1,9 +1,12 @@
 #include <fstream>
 #include <sstream>
+#include <cstdio>
+#include <cstring>
 #include <iomanip>
 #include <fileno.hpp>
 #include <dwarfpp/lib.hpp>
 #include <dwarfpp/expr.hpp>
+#include <dwarfpp/frame.hpp>
 #include <dwarfpp/regs.hpp>
 #include <gelf.h>
 
@@ -15,8 +18,7 @@ using std::setfill;
 using std::map;
 using namespace dwarf;
 using dwarf::lib::Dwarf_Addr;
-using dwarf::encap::register_def;
-using dwarf::encap::decode_fde;
+using dwarf::core::Fde;
 
 void print_in_readelf_style(std::ostream& s, const core::FrameSection& fs, core::root_die& r);
 void print_in_readelf_style(std::ostream& s, const encap::loc_expr& expr);
@@ -40,41 +42,68 @@ int main(int argc, char **argv)
 	
 	ostringstream s;
 	print_in_readelf_style(s, fs, root);
-	cout << s.str();
+	string str = s.str();
+	cerr << str;
+	
+	const char *data_start = str.c_str();
+	const char *data_end = data_start + strlen(data_start);
+	const char *data_pos = data_start;
 	
 	// now diff this string against what readelf gives us
-
+	FILE *pipein = popen((string("diff -u /dev/stdin /dev/fd/3 3<<END\n$( readelf -wf ") + argv[0] + ")\nEND").c_str(), "w");
+	assert(pipein);
+	
+	while (data_pos < data_end)
+	{
+		size_t nmemb = data_end - data_pos;
+		int ret = fwrite(data_pos, 1, nmemb, pipein);
+		if (ret < nmemb)
+		{
+			cerr << "Error! " << strerror(errno);
+			break;
+		}
+		data_pos += ret;
+	}
+	
+	// check the status of diff
+	int status = pclose(pipein);
+	assert(status == 0);
+	cout << "Output compares identical to readelf's -- success!" << endl;
+	
 	return 0;
 }
 
-void print_in_readelf_style(std::ostream& s, const core::FrameSection::cie& cie, lib::Dwarf_Off cie_offset)
+void print_in_readelf_style(std::ostream& s, const core::Cie& cie)
 {
 	// first line is section-offset, length-not-including-length-field, zeroes, "CIE"
 	s.width(8);
 	s.fill('0');
-	s 	<< setw(8) << setfill('0') << std::hex << cie_offset 
+	s 	<< setw(8) << setfill('0') << std::hex << cie.get_offset()
 		<< ' ' 
-		<< setw(8) << setfill('0') << std::hex << cie.bytes_in_cie 
+		<< setw(8) << setfill('0') << std::hex << cie.get_bytes_in_cie()
 		<< ' ' 
 		<< setw(8) << setfill('0') << 0 << std::dec
 		<< " CIE"
 		<< endl;
 	// cie fields come next
-	s 	<< "  Version:               " << (int) cie.version                 << endl
-		<< "  Augmentation:          \"" << cie.augmenter << "\""  << endl
-		<< "  Code alignment factor: " << cie.code_alignment_factor << endl
-		<< "  Data alignment factor: " << cie.data_alignment_factor << endl
-		<< "  Return address column: " << cie.return_address_register_rule << endl
-		<< "  Augmentation data:     " << endl;
-	/* "Augmentation data" includes all the data following the "normal" CIE fields
-	 * and within the CIE's extent (specified by its length). BUT libdwarf doesn't
-	 * let us get at those bytes very easily. */
+	s 	<< "  Version:               " << (int) cie.get_version()                 << endl
+		<< "  Augmentation:          \"" << cie.get_augmenter() << "\""  << endl
+		<< "  Code alignment factor: " << cie.get_code_alignment_factor() << endl
+		<< "  Data alignment factor: " << cie.get_data_alignment_factor() << endl
+		<< "  Return address column: " << cie.get_return_address_register_rule() << endl
+		<< "  Augmentation data:     ";
+	auto augbytes = cie.get_augmentation_bytes();
+	for (auto i_byte = augbytes.begin(); i_byte != augbytes.end(); ++i_byte)
+	{
+		if (i_byte != augbytes.begin()) s << ' ';
+		s << std::hex << setw(2) << setfill('0') << (unsigned) *i_byte;
+	}
+	s << std::dec << endl;
 	
 	s << endl;
 	
 	/* Now we need to print the "initial instructions". */
-	encap::frame_instrlist initial_instrs(cie.dbg, /* FIXME */ 8, cie, cie.initial_instructions, 
-		cie.initial_instructions_length);
+	encap::frame_instrlist initial_instrs(cie, /* FIXME */ 8, cie.initial_instructions_seq());
 	print_in_readelf_style(s, initial_instrs, -1);
 }
 
@@ -105,11 +134,11 @@ void print_in_readelf_style(std::ostream& s, const encap::frame_instrlist& instr
 			case DW_CFA_advance_loc2:
 			case DW_CFA_advance_loc4:
 				loc += i_instr->fp_offset_or_block_len;
-				s << ": " << i_instr->fp_offset_or_block_len << " to " << setw(8) << setfill('0') << loc;
+				s << ": " << i_instr->fp_offset_or_block_len << " to " << setw(8) << setfill('0') << std::hex << loc << std::dec;
 				break;
 			case DW_CFA_offset:
 				s << ": " << reg(i_instr->fp_register) 
-					<< " at cfa" << std::showpos << (int) i_instr->fp_offset_or_block_len << std::noshowpos;
+					<< " at cfa" << std::showpos << (lib::Dwarf_Signed)(i_instr->fp_offset_or_block_len) << std::noshowpos;
 				break;
 			case DW_CFA_restore_extended: goto register_only;
 			case DW_CFA_undefined: goto register_only;
@@ -194,90 +223,107 @@ void print_in_readelf_style(std::ostream& s, const encap::loc_expr& expr)
 		}
 	}
 }
-void print_in_readelf_style(std::ostream& s, lib::Dwarf_Fde fde, lib::Dwarf_Debug dbg, lib::Dwarf_Off cie_offset)
+void print_in_readelf_style(std::ostream& s, const core::Fde& fde)
 {
-	core::FrameSection::cie cie(dbg, fde);
-	
 	// auto decoded = decode_fde(dbg, fde);
 	// don't decode -- that's for -wF
 
-	// first line is section-offset, length-not-including-length-field, zeroes, "FDE"
-	core::FrameSection::fde_range fde_range(fde);
+	// first line is section-offset, length-not-including-length-field, id, "FDE"
 	s.width(8);
 	s.fill('0');
-	s 	<< setw(8) << setfill('0') << std::hex << fde_range.fde_offset
+	s 	<< setw(8) << setfill('0') << std::hex << fde.get_fde_offset()
 		<< ' ' 
-		<< setw(8) << setfill('0') << std::hex << fde_range.fde_byte_length
+		<< setw(8) << setfill('0') << std::hex << fde.get_fde_byte_length()
 		<< ' ' 
-		<< setw(8) << setfill('0') << 0 << std::dec
+		<< setw(8) << setfill('0') << fde.get_id() << std::dec
 		<< " FDE cie="
-		<< setw(8) << setfill('0') << std::hex << cie_offset
+		<< setw(8) << setfill('0') << std::hex << fde.find_cie()->get_cie_offset()
 		<< " pc="
-		<< setw(8) << setfill('0') << std::hex << fde_range.low_pc
+		<< setw(8) << setfill('0') << std::hex << fde.get_low_pc()
 		<< ".." 
-		<< setw(8) << setfill('0') << std::hex << (fde_range.low_pc + fde_range.func_length)
+		<< setw(8) << setfill('0') << std::hex << (fde.get_low_pc() + fde.get_func_length())
 		<< endl;
+	auto augbytes = fde.get_augmentation_bytes();
+	if (augbytes.size() > 0) 
+	{
+		s << "  Augmentation data:     ";
+		for (auto i_byte = augbytes.begin(); i_byte != augbytes.end(); ++i_byte)
+		{
+			if (i_byte != augbytes.begin()) s << ' ';
+			s << std::hex << setw(2) << setfill('0') << (unsigned) *i_byte;
+		}
+		s << endl << endl;
+	}
+	s << std::dec;
 	
 	/* Now we need to print the instructions. */
-	lib::Dwarf_Ptr instrbytes;
-	lib::Dwarf_Unsigned len;
-	int fde_ret = dwarf_get_fde_instr_bytes(fde, &instrbytes, &len, &core::current_dwarf_error);
-	assert(fde_ret == DW_DLV_OK);
-	encap::frame_instrlist instrs(cie.dbg, /* FIXME */ 8, cie, instrbytes, len);
-	print_in_readelf_style(s, instrs, fde_range.low_pc);
+	// TODO: eliminate this once the assertion below assures me that it's the same as 
+	// instrbytes etc..
+	auto instr_seq = fde.instr_bytes_seq();
+	encap::frame_instrlist instrs(*fde.find_cie(), /* FIXME */ 8, instr_seq);
+	print_in_readelf_style(s, instrs, fde.get_low_pc());
 }
 
 void print_in_readelf_style(std::ostream& s, const core::FrameSection& fs, core::root_die& r)
 {
-	s << "Contents of the .eh_frame section:\n\n";
-	/* Decode all the CIEs and FDEs in the frame section in a readelf -wF style, 
-	 * and diff them against what that command says. */
-	/* PROBLEM: libdwarf doesn't let us get a CIE's offset, except through an FDE.
-	 * So walk all FDEs now and record the CIE offsets. */
-	map<lib::Dwarf_Off, set<lib::Dwarf_Off> > fde_offsets_by_cie_offset;
-	map<int, int> cie_offsets_by_index;
-	for (auto i_fde = fs.fde_begin(); i_fde != fs.fde_end(); ++i_fde)
-	{
-		core::FdeRange range(*i_fde);
-		fde_offsets_by_cie_offset[range.cie_offset].insert(range.fde_offset);
-		lib::Dwarf_Signed index;
-		lib::Dwarf_Cie cie;
-		int cie_ret = dwarf_get_cie_of_fde(*i_fde, 
-			&cie, &core::current_dwarf_error);
-		assert(cie_ret == DW_DLV_OK);
-		int index_ret = dwarf_get_cie_index(cie, &index, &core::current_dwarf_error);
-		assert(index_ret == DW_DLV_OK);
-		cie_offsets_by_index[index] = range.cie_offset;
-	}
-	// do we have any orphan CIEs?
-	assert(cie_offsets_by_index.size() == fs.cie_end() - fs.cie_begin());
+	typedef core::FrameSection::cie_iterator cie_iterator;
+	typedef core::FrameSection::fde_iterator fde_iterator;
+	/* In what order does readelf print the CIEs and FDEs? 
+	 * Answer: strictly offset order. I seem to be doing it in 
+	 * a crazy order. This is because our FDEs aren't coming out
+	 * in offset order. Sort them first! */
+	std::vector< cie_iterator > cies;
+	for (auto i_cie = fs.cie_begin(); i_cie != fs.cie_end(); ++i_cie) cies.push_back(i_cie);
+	std::vector< fde_iterator > fdes;
+	for (auto i_fde = fs.fde_begin(); i_fde != fs.fde_end(); ++i_fde) fdes.push_back(i_fde);
 	
-	core::FrameSection::cie_iterator i_cie = fs.cie_begin();
-	core::FrameSection::fde_iterator i_fde = fs.fde_begin();
-	while (!(i_cie == fs.cie_end() && i_fde == fs.fde_end()))
+	std::sort(cies.begin(), cies.end(), [&fs](const cie_iterator& arg1, const cie_iterator& arg2) {
+		assert(arg1 != fs.cie_end());
+		assert(arg2 != fs.cie_end());
+		return arg1->get_offset() < arg2->get_offset();
+	});
+	
+	std::sort(fdes.begin(), fdes.end(), [&fs](const fde_iterator& arg1, const fde_iterator& arg2) {
+		assert(arg1 != fs.fde_end());
+		assert(arg2 != fs.fde_end());
+		return arg1->get_offset() < arg2->get_offset();
+	});
+
+	s << "Contents of the .eh_frame section:\n\n";
+	auto i_i_cie = cies.begin();
+	auto i_i_fde = fdes.begin();
+	lib::Dwarf_Off cur_off = 0;
+	unsigned size_of_length_field = fs.is_64bit ? 12 : 4;
+	
+	while (!(i_i_cie == cies.end() && i_i_fde == fdes.end()))
 	{
+		auto i_cie = *i_i_cie; 
+		auto i_fde = *i_i_fde; 
+		
 		// print whichever has the lower offset
-		lib::Dwarf_Off fde_offset = (i_fde == fs.fde_end()) 
-			? std::numeric_limits<lib::Dwarf_Off>::max() : core::FdeRange(*i_fde).fde_offset;
-		lib::Dwarf_Off cie_offset = (i_cie == fs.cie_end())
-			? std::numeric_limits<lib::Dwarf_Off>::max() : cie_offsets_by_index[i_cie - fs.cie_begin()];
+		lib::Dwarf_Off fde_offset = (i_i_fde == fdes.end()) 
+			? std::numeric_limits<lib::Dwarf_Off>::max() : i_fde->get_offset();
+		lib::Dwarf_Off cie_offset = (i_i_cie == cies.end())
+			? std::numeric_limits<lib::Dwarf_Off>::max() : i_cie->get_offset();
 		
 		if (cie_offset < fde_offset)
 		{
-			core::Cie cie(r.get_dbg().raw_handle(), *i_cie);
-			print_in_readelf_style(s, cie, cie_offset);
+			cur_off = cie_offset + size_of_length_field;
+			print_in_readelf_style(s, *i_cie);
 			s << endl;
-			++i_cie;
-		} 
+			++i_i_cie;
+			cur_off += i_cie->get_bytes_in_cie();
+		}
 		else
 		{
-			// now print the FDE
-			auto fde = *i_fde;
-			core::FdeRange fde_range(fde);
-			print_in_readelf_style(s, fde, r.get_dbg().raw_handle(), fde_range.cie_offset);
+			cur_off = fde_offset + size_of_length_field;
+			print_in_readelf_style(s, *i_fde);
 			s << endl;
-			++i_fde;
+			++i_i_fde;
+			cur_off += i_fde->get_fde_byte_length();
 		}
 	}
+	
+	s << setw(8) << setfill('0') << std::hex << cur_off << std::dec << " ZERO terminator" << endl;
 }
 

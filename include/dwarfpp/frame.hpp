@@ -52,16 +52,16 @@ namespace dwarf
 			/* Our iterators transform from Dwarf_Fde to Fde and Dwarf_Cie to Cie. */
 			struct fde_transformer_t
 			{
-				const FrameSection& owner;
-				fde_transformer_t(const FrameSection& owner) : owner(owner) {}
+				const FrameSection *p_owner;
+				fde_transformer_t(const FrameSection& owner) : p_owner(&owner) {}
 				typedef Fde result;
 				
 				inline Fde operator()(Dwarf_Fde fde) const;
 			} fde_transformer;
 			struct cie_transformer_t
 			{
-				const FrameSection& owner;
-				cie_transformer_t(const FrameSection& owner) : owner(owner) {}
+				const FrameSection *p_owner;
+				cie_transformer_t(const FrameSection& owner) : p_owner(&owner) {}
 				
 				inline Cie operator()(Dwarf_Cie cie) const;
 			} cie_transformer;
@@ -115,108 +115,6 @@ namespace dwarf
 			 */	
 			
 			inline fde_iterator find_fde_for_pc(Dwarf_Addr pc) const;
-		};
-		struct Cie
-		{
-			friend struct FrameSection;
-			
-			/* libdwarf "methods" relevant to a CIE:
-			   
-			     dwarf_get_cie_info (claimed "internal-only")
-			     dwarf_get_cie_index (claimed "little used")
-			     dwarf_expand_frame_instructions (expensive? encap-like)
-			 */
-		private:
-			const FrameSection& owner; 
-			
-			Dwarf_Cie m_cie;
-			Dwarf_Unsigned bytes_in_cie;
-			Dwarf_Small version;
-			char *augmenter;
-			Dwarf_Unsigned code_alignment_factor;
-			Dwarf_Signed data_alignment_factor;
-			Dwarf_Half return_address_register_rule;
-			Dwarf_Ptr initial_instructions;
-			Dwarf_Unsigned initial_instructions_length;
-			
-		public:
-			// use sed -r 's/(([a-zA-Z0-9_]+)( *\*)?) *([a-zA-Z0-9_]+)/\1 get_\4() const { return \4; }/'
-			Dwarf_Cie get_cie() const { return m_cie; };
-			Dwarf_Unsigned get_bytes_in_cie() const { return bytes_in_cie; };
-			Dwarf_Small get_version() const { return version; };
-			char * get_augmenter() const { return augmenter; };
-			Dwarf_Unsigned get_code_alignment_factor() const { return code_alignment_factor; };
-			Dwarf_Signed get_data_alignment_factor() const { return data_alignment_factor; };
-			Dwarf_Half get_return_address_register_rule() const { return return_address_register_rule; };
-			Dwarf_Ptr get_initial_instructions() const { return initial_instructions; };
-			Dwarf_Unsigned get_initial_instructions_length() const { return initial_instructions_length; };
-
-		private:
-			Cie(const FrameSection& owner, Dwarf_Cie cie)
-			 : owner(owner), m_cie(cie)
-			{
-				int cie_ret = dwarf_get_cie_info(m_cie, &bytes_in_cie, &version, &augmenter, 
-					&code_alignment_factor, &data_alignment_factor, &return_address_register_rule, 
-					&initial_instructions, &initial_instructions_length, &current_dwarf_error);
-				assert(cie_ret == DW_DLV_OK);
-			}
-
-			Cie(const FrameSection& owner, Dwarf_Fde fde)
-			 : owner(owner)
-			{
-				int cie_ret = dwarf_get_cie_of_fde(fde, &m_cie, &current_dwarf_error);
-				assert(cie_ret == DW_DLV_OK);
-				cie_ret = dwarf_get_cie_info(m_cie, &bytes_in_cie, &version, &augmenter, 
-					&code_alignment_factor, &data_alignment_factor, &return_address_register_rule, 
-					&initial_instructions, &initial_instructions_length, &current_dwarf_error);
-				assert(cie_ret == DW_DLV_OK);
-			}
-			operator Dwarf_Cie() const
-			{ return m_cie; }
-			operator Dwarf_Cie() 
-			{ return m_cie; }
-		};
-
-		struct Fde
-		{
-			friend struct FrameSection;
-			
-			/* libdwarf "methods" relevant to an FDE:
-			
-			     dwarf_get_cie_of_fde
-			     dwarf_get_fde_range (also gets CIE)
-			     dwarf_get_fde_instr_bytes
-			     dwarf_get_fde_info_for_reg3
-			     dwarf_get_fde_info_for_cfa_reg3
-			     dwarf_get_fde_info_for_all_regs3
-			 */
-		private:
-			const FrameSection& owner;
-			Dwarf_Fde m_fde;
-			Dwarf_Addr low_pc;
-			Dwarf_Unsigned func_length;
-			Dwarf_Ptr fde_bytes;
-			Dwarf_Unsigned fde_byte_length;
-			Dwarf_Off m_cie_offset;
-			Dwarf_Signed cie_index;
-			Dwarf_Off fde_offset;
-			
-			operator Dwarf_Fde() { return m_fde; }
-		public:
-			Fde& operator=(const Fde& arg)
-			{
-				assert(&owner == &arg.owner);
-				m_fde = arg.m_fde;
-				low_pc = arg.low_pc;
-				func_length = arg.func_length;
-				fde_bytes = arg.fde_bytes;
-				fde_byte_length = arg.fde_byte_length;
-				m_cie_offset = arg.m_cie_offset;
-				cie_index = arg.cie_index;
-				fde_offset = arg.fde_offset;
-				return *this;
-			}
-		
 			struct register_def
 			{
 				enum kind 
@@ -291,17 +189,171 @@ namespace dwarf
 			{
 				boost::icl::interval_map<Dwarf_Addr, set<pair<int /* regnum */, register_def > > > rows;
 				std::map<int, register_def> unfinished_row;
+				Dwarf_Addr unfinished_row_addr;
 			};
 
-			instrs_results
-			decode() const;
+			// extracted lambda function
+			instrs_results interpret_instructions(const Cie& cie, 
+				Dwarf_Addr initial_row_addr, 
+				Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len,
+				optional< const instrs_results & > initial_instrs_results = optional< const instrs_results & >()) const;
+		};
+		struct Cie
+		{
+			friend struct FrameSection;
+			
+			/* libdwarf "methods" relevant to a CIE:
+			   
+			     dwarf_get_cie_info (claimed "internal-only")
+			     dwarf_get_cie_index (claimed "little used")
+			     dwarf_expand_frame_instructions (expensive? encap-like)
+			 */
+		private:
+			const FrameSection& owner; 
+			
+			Dwarf_Cie m_cie;
+			Dwarf_Unsigned bytes_in_cie;
+			Dwarf_Small version;
+			char *augmenter;
+			Dwarf_Unsigned code_alignment_factor;
+			Dwarf_Signed data_alignment_factor;
+			Dwarf_Half return_address_register_rule;
+			Dwarf_Ptr initial_instructions;
+			Dwarf_Unsigned initial_instructions_length;
+			// init'd in init_augmentation_bytes()
+			unsigned char address_size_in_dwarf;
+			unsigned char segment_size_in_dwarf;
+			// we snarf the augmentation bytes
+			vector<Dwarf_Small> augbytes;
+			
+		public:
+			// use sed -r 's/(([a-zA-Z0-9_]+)( *\*)?) *([a-zA-Z0-9_]+)/\1 get_\4() const { return \4; }/'
+			Dwarf_Cie raw_handle() const { return m_cie; };
+			inline FrameSection::cie_iterator iterator_here() const;
+			Dwarf_Off get_cie_offset() const { 
+				int index = iterator_here() - owner.cie_begin();
+				auto found = owner.cie_offsets_by_index.find(index);
+				assert(found != owner.cie_offsets_by_index.end());
+				return found->second;
+			}
+			const FrameSection& get_owner() const { return owner; }
+			Dwarf_Off get_offset() const { return get_cie_offset(); } // alias
+			Dwarf_Unsigned get_bytes_in_cie() const { return bytes_in_cie; };
+			Dwarf_Small get_version() const { return version; };
+			char * get_augmenter() const { return augmenter; };
+			std::vector<Dwarf_Small>::const_iterator find_augmentation_element(char marker) const;
+			int get_fde_encoding() const;
+			unsigned encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit) const;
+			const std::vector<Dwarf_Small>& get_augmentation_bytes() const { return augbytes; }
+			unsigned char get_address_size() const;
+			unsigned char get_segment_size() const;
+		private:
+			void init_augmentation_bytes();
+		public:
+			Dwarf_Unsigned get_code_alignment_factor() const { return code_alignment_factor; };
+			Dwarf_Signed get_data_alignment_factor() const { return data_alignment_factor; };
+			Dwarf_Half get_return_address_register_rule() const { return return_address_register_rule; };
+			Dwarf_Ptr get_initial_instructions() const { return initial_instructions; };
+			Dwarf_Unsigned get_initial_instructions_length() const { return initial_instructions_length; };
+			pair<unsigned char *, unsigned char *> initial_instructions_seq() const
+			{ return make_pair(
+				(unsigned char *) get_initial_instructions(), 
+				(unsigned char *) get_initial_instructions() + get_initial_instructions_length()
+				);
+			}
+			bool operator==(const Cie& arg) const { return arg.m_cie == this->m_cie; }
+			bool operator!=(const Cie& arg) const { return arg.m_cie != this->m_cie; }
 
+		private:
+			Cie(const FrameSection& owner, Dwarf_Cie cie)
+			 : owner(owner), m_cie(cie)
+			{
+				int cie_ret = dwarf_get_cie_info(m_cie, &bytes_in_cie, &version, &augmenter, 
+					&code_alignment_factor, &data_alignment_factor, &return_address_register_rule, 
+					&initial_instructions, &initial_instructions_length, &current_dwarf_error);
+				assert(cie_ret == DW_DLV_OK);
+				init_augmentation_bytes();
+			}
+
+			Cie(const FrameSection& owner, Dwarf_Fde fde)
+			 : owner(owner)
+			{
+				int cie_ret = dwarf_get_cie_of_fde(fde, &m_cie, &current_dwarf_error);
+				assert(cie_ret == DW_DLV_OK);
+				cie_ret = dwarf_get_cie_info(m_cie, &bytes_in_cie, &version, &augmenter, 
+					&code_alignment_factor, &data_alignment_factor, &return_address_register_rule, 
+					&initial_instructions, &initial_instructions_length, &current_dwarf_error);
+				assert(cie_ret == DW_DLV_OK);
+				init_augmentation_bytes();
+			}
+		};
+
+		struct Fde
+		{
+			friend struct FrameSection;
+			
+			/* libdwarf "methods" relevant to an FDE:
+			
+			     dwarf_get_cie_of_fde
+			     dwarf_get_fde_range (also gets CIE)
+			     dwarf_get_fde_instr_bytes
+			     dwarf_get_fde_info_for_reg3
+			     dwarf_get_fde_info_for_cfa_reg3
+			     dwarf_get_fde_info_for_all_regs3
+			 */
+		private:
+			const FrameSection& owner;
+			Dwarf_Fde m_fde;
+			Dwarf_Addr low_pc;
+			Dwarf_Unsigned func_length;
+			Dwarf_Ptr fde_bytes;
+			Dwarf_Unsigned fde_byte_length;
+			Dwarf_Off m_cie_offset;
+			Dwarf_Signed cie_index;
+			Dwarf_Off fde_offset;
+			
+			std::vector<Dwarf_Small> augbytes;
+			
+		public:
+			Fde& operator=(const Fde& arg)
+			{
+				assert(&owner == &arg.owner);
+				m_fde = arg.m_fde;
+				low_pc = arg.low_pc;
+				func_length = arg.func_length;
+				fde_bytes = arg.fde_bytes;
+				fde_byte_length = arg.fde_byte_length;
+				m_cie_offset = arg.m_cie_offset;
+				cie_index = arg.cie_index;
+				fde_offset = arg.fde_offset;
+				return *this;
+			}
+		
+
+			FrameSection::instrs_results
+			decode() const;
+			
+			Dwarf_Fde raw_handle() const { return m_fde; }
 			Dwarf_Off get_fde_offset() const   { return fde_offset; }
+			Dwarf_Off get_offset() const { return get_fde_offset(); } // alias
 			Dwarf_Signed get_cie_index() const { return cie_index; }
 			Dwarf_Addr get_low_pc() const { return low_pc; }
 			Dwarf_Unsigned get_func_length() const { return func_length; }
 			Dwarf_Ptr get_fde_bytes() const { return fde_bytes; }
-			Dwarf_Unsigned get_fde_byte_length() { return fde_byte_length; }
+			Dwarf_Unsigned get_fde_byte_length() const { return fde_byte_length; }
+			const std::vector<Dwarf_Small>& get_augmentation_bytes() const { return augbytes; }
+		private:
+			void init_augmentation_bytes();
+		public:
+			
+			pair<unsigned char *, unsigned char *> instr_bytes_seq() const 
+			{
+				lib::Dwarf_Ptr instrbytes;
+				lib::Dwarf_Unsigned len;
+				int fde_ret = dwarf_get_fde_instr_bytes(m_fde, &instrbytes, &len, &core::current_dwarf_error);
+				assert(fde_ret == DW_DLV_OK);
+				return make_pair((unsigned char *) instrbytes, (unsigned char *) instrbytes + len);
+			}
 			
 			FrameSection::cie_iterator 
 			find_cie() const
@@ -315,9 +367,34 @@ namespace dwarf
 				assert(found != owner.cie_data + owner.cie_element_count);
 				return FrameSection::cie_iterator(found, owner.cie_transformer);
 			}
+			Dwarf_Off 
+			get_id() const
+			{
+				/* the byte offset from this field to the start of the CIE 
+				  with which this FDE is associated. 
+				  The byte offset goes to the length record of the CIE. 
+				  A positive value goes backward; that is, 
+				  you have to subtract the value of the ID field from the current byte position 
+				  to get the CIE position. */
+
+				// note: FDE and CIE id field have offset  is_64bit ? 12 : 4
+				// CIE length field has offset             is_64bit ? 4  : 0
+
+				auto i_cie = find_cie();
+				Dwarf_Off cie_off = i_cie->get_offset();
+				Dwarf_Off cie_length_off = cie_off + (owner.is_64bit ? 4  : 0);
+				Dwarf_Off fde_id_off = get_offset() + (owner.is_64bit ? 12 : 4);
+				return fde_id_off - cie_length_off;
+			}
 			Dwarf_Off
 			get_cie_offset() const
-			{ return owner.using_eh ? fde_offset + (owner.is_64bit ? 12 : 4) + m_cie_offset : m_cie_offset; }
+			{
+				return owner.using_eh 
+					? fde_offset + (owner.is_64bit ? 12 : 4) - m_cie_offset - (owner.is_64bit ? 4 : 0)
+					: m_cie_offset; 
+			}
+			bool operator==(const Fde& arg) const { return arg.m_fde == this->m_fde; }
+			bool operator!=(const Fde& arg) const { return arg.m_fde != this->m_fde; }
 
 		private: // FrameSection is our friend, and does the constructing
 			Fde(const FrameSection& owner, Dwarf_Fde fde)
@@ -326,16 +403,17 @@ namespace dwarf
 				int fde_ret = dwarf_get_fde_range(fde, &low_pc, &func_length, &fde_bytes, 
 					&fde_byte_length, &m_cie_offset, &cie_index, &fde_offset, &core::current_dwarf_error);
 				assert(fde_ret == DW_DLV_OK);
+				init_augmentation_bytes();
 			}
 		};
 		
 		inline Fde FrameSection::fde_transformer_t::operator()(Dwarf_Fde fde) const
 		{
-			return Fde(owner, fde);
+			return Fde(*p_owner, fde);
 		}
 		inline Cie FrameSection::cie_transformer_t::operator()(Dwarf_Cie cie) const
 		{
-			return Cie(owner, cie);
+			return Cie(*p_owner, cie);
 		}
 		inline FrameSection::fde_iterator FrameSection::fde_begin() const { return fde_iterator(fde_data, fde_transformer); }
 		inline FrameSection::fde_iterator FrameSection::fde_end() const   { return fde_iterator(fde_data + fde_element_count, fde_transformer); }
@@ -369,8 +447,7 @@ namespace dwarf
 				fde_offsets_by_cie_offset[i_fde->get_cie_offset()].insert(i_fde->get_fde_offset());
 				lib::Dwarf_Signed index;
 				lib::Dwarf_Cie cie;
-				int cie_ret = dwarf_get_cie_of_fde(*i_fde, 
-					&cie, &core::current_dwarf_error);
+				int cie_ret = dwarf_get_cie_of_fde(i_fde->raw_handle(), &cie, &core::current_dwarf_error);
 				assert(cie_ret == DW_DLV_OK);
 				int index_ret = dwarf_get_cie_index(cie, &index, &core::current_dwarf_error);
 				assert(index_ret == DW_DLV_OK);
@@ -393,7 +470,12 @@ namespace dwarf
 			assert(hipc - lopc == Fde(*this, fde).get_func_length());
 			return fde_iterator(found, fde_transformer);
 		}
-		
+		inline FrameSection::cie_iterator Cie::iterator_here() const
+		{
+			auto found = std::find(owner.cie_begin(), owner.cie_end(), *this);
+			assert(found != owner.cie_end());
+			return found;
+		}
 	}
 }
 

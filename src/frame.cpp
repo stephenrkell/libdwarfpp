@@ -12,6 +12,7 @@
 #include <boost/optional.hpp>
 #include <boost/icl/interval_map.hpp>
 #include <srk31/endian.hpp>
+#include <gelf.h>
 
 #include "lib.hpp"
 #include "frame.hpp" 
@@ -183,11 +184,11 @@ namespace dwarf
 		}
 		
 
-		frame_instrlist::frame_instrlist(Dwarf_Debug dbg, int addrlen, const core::Cie& cie, Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len, bool use_host_byte_order /* = true */)
+		frame_instrlist::frame_instrlist(const core::Cie& cie, int addrlen, const pair<unsigned char*, unsigned char*>& seq, bool use_host_byte_order /* = true */)
 		{
-			unsigned char *instrs_start = static_cast<unsigned char *>(instrs);
-			const unsigned char *pos = static_cast<unsigned char *>(instrs);
-			const unsigned char *const limit = pos + instrs_len;
+			// unsigned char *instrs_start = seq.first;
+			const unsigned char *pos = seq.first;
+			const unsigned char *const limit = seq.second;
 
 			while (pos < limit)
 			{
@@ -209,7 +210,13 @@ namespace dwarf
 						break;
 					case DW_CFA_offset:
 						decoded.fp_register = opcode_byte & ~0xc0;
-						decoded.fp_offset_or_block_len = cie.get_data_alignment_factor() * read_uleb128(&pos, instrs_start + instrs_len);
+						// NOTE: here we are writing a signed value into an unsigned location
+						decoded.fp_offset_or_block_len = cie.get_data_alignment_factor() * read_uleb128(&pos, seq.second);
+						// ... so assert something that says we can read it back
+						if (cie.get_data_alignment_factor() < 0)
+						{
+							assert((Dwarf_Signed) decoded.fp_offset_or_block_len < 0);
+						}
 						break;
 					case DW_CFA_restore:
 						decoded.fp_register = opcode_byte & ~0xc0;
@@ -222,7 +229,7 @@ namespace dwarf
 					no_args:
 						break;
 					case DW_CFA_set_loc:
-						decoded.fp_offset_or_block_len = read_addr(addrlen, &pos, instrs_start + instrs_len, use_host_byte_order);
+						decoded.fp_offset_or_block_len = read_addr(addrlen, &pos, seq.second, use_host_byte_order);
 						break;
 					case DW_CFA_advance_loc1:
 						decoded.fp_offset_or_block_len = *pos++;
@@ -312,7 +319,7 @@ namespace dwarf
 				} // end switch
 
 				// push the current row
-				push_back(frame_instr(dbg, decoded));
+				push_back(frame_instr(cie.get_owner().get_dbg().raw_handle(), decoded));
 				
 #undef opcode_from_byte
 			} // end while
@@ -320,202 +327,447 @@ namespace dwarf
 	}
 	namespace core
 	{
-		Fde::instrs_results
+		std::vector<Dwarf_Small>::const_iterator Cie::find_augmentation_element(char marker) const
+		{
+			/* FIXME: turn this into a map-style find function, 
+			 * instead of just searching through the keys. 
+			 * We want to generate the key-value mappings as 
+			 * we go along, and return an iterator to a pair. */
+		
+			auto augbytes = get_augmentation_bytes();
+			assert(sizeof(Dwarf_Small) == 1);
+			auto i_byte = augbytes.begin();
+			string augstring = get_augmenter();
+			for (auto i_char = augstring.begin(); i_char != augstring.end(); ++i_char)
+			{
+				// we only understand augstrings beginning 'z'
+				if (i_char == augstring.begin())
+				{
+					assert(*i_char == 'z');
+					continue;
+				}
+				
+				if (marker == *i_char)
+				{
+					return i_byte;
+				}
+				
+				// else advance over this element
+				switch (*i_char)
+				{
+					case 'L': // LSDA encoding
+						++i_byte;
+						break;
+					case 'R': // FDE encoding
+						++i_byte;
+						break;
+					case 'S': // signal frame flag; no byte
+						break;
+					case 'P': { // personality encoding
+						int personality_encoding = *i_byte++;
+						// skip over the personality pointer too
+						i_byte += Cie::encoding_nbytes(personality_encoding, 
+							reinterpret_cast<unsigned char const *>(&*i_byte), 
+							reinterpret_cast<unsigned char const *>(&*augbytes.end()));
+					} break;
+					default:
+						assert(false);
+				}
+			}
+			
+			return augbytes.end();
+		}
+		
+		int Cie::get_fde_encoding() const
+		{
+			auto found = find_augmentation_element('R');
+			assert(found != get_augmentation_bytes().end());
+			
+			return *found;
+		}
+		
+		unsigned char Cie::get_address_size() const
+		{
+			if (address_size_in_dwarf > 0) return address_size_in_dwarf;
+			else 
+			{
+				assert(version == 1);
+				// we have to guess it's an ELF file
+				GElf_Ehdr ehdr;
+				Elf_opaque_in_libdwarf *e;
+				int elf_ret = dwarf_get_elf(owner.dbg.raw_handle(), &e, &core::current_dwarf_error);
+				assert(elf_ret == DW_DLV_OK);
+				GElf_Ehdr *ret = gelf_getehdr(reinterpret_cast< ::Elf *>(e), &ehdr);
+				assert(ret != 0);
+				return (ehdr.e_machine == EM_X86_64) ? 8 : (ehdr.e_machine == EM_386) ? 4 : (assert(false), 4);
+			}
+		}
+		unsigned char Cie::get_segment_size() const
+		{
+			return get_address_size(); // FIXME
+		}
+		
+		void Cie::init_augmentation_bytes()
+		{
+			/* This is the data between the return address register and the 
+			 * instruction bytes.
+			 * To find this, we ask libdwarf for both: 
+			 * - the augmentation string, and 
+			 * - the instruction bytes;
+			 * Then we skip forward a little from the former. */
+			
+			const unsigned char *pos = reinterpret_cast<unsigned char *>(get_augmenter());
+			const unsigned char * instrs_start = (const unsigned char *) get_initial_instructions();
+			
+			// skip the null-terminated augmenter
+			while (*pos++);
+			
+			if (version == 4)
+			{
+				this->address_size_in_dwarf = *pos++;
+				assert(this->address_size_in_dwarf == 4 || this->address_size_in_dwarf == 8);
+				this->segment_size_in_dwarf = *pos++;
+			} else 
+			{
+				this->address_size_in_dwarf = 0;
+				this->segment_size_in_dwarf = 0;
+			}
+
+			// skip the code alignment factor (uleb128)
+			encap::read_uleb128(&pos, instrs_start);
+			
+			// skip the data alignment factor (sleb128)
+			encap::read_sleb128(&pos, instrs_start);
+			
+			// skip the return address register
+			// "In CIE version 1 this is a single byte; in CIE version 3 this is an unsigned LEB128."
+			(get_version() == 1) ? *++pos : (get_version() == 3) ? encap::read_uleb128(&pos, instrs_start)
+			 : (assert(false), 0);
+			
+			// now we're pointing at the beginning of the augmentation data
+			// -- it should be empty if we don't start with a z
+			// -- it should be a uleb128 length if we do start with a z
+			string aug_string(get_augmenter());
+			Dwarf_Unsigned expected_data_length;
+			if (aug_string.length() > 0 && aug_string.at(0) == 'z')
+			{
+				// read a uleb128
+				expected_data_length = encap::read_uleb128(&pos, instrs_start);
+			}
+			else
+			{
+				expected_data_length = 0;
+			}
+			
+			while (pos < instrs_start) augbytes.push_back(*pos++);
+			
+			assert(augbytes.size() == expected_data_length);
+		}
+		
+		unsigned Cie::encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit) const
+		{
+			if (encoding == 0xff) return 0; // skip
+			
+			switch (encoding & ~0xf0) // low-order bytes only
+			{
+				case DW_EH_PE_absptr:
+					return get_address_size();
+				case DW_EH_PE_omit: assert(false); // handled above
+				case DW_EH_PE_uleb128: {
+					unsigned char const *pos = bytes;
+					encap::read_uleb128(&pos, limit);
+					return pos - bytes;
+				}
+				case DW_EH_PE_udata2: return 2;
+				case DW_EH_PE_udata4: return 4;
+				case DW_EH_PE_udata8: return 8;
+				case /* DW_EH_PE_signed */ 0x8: 
+					return get_address_size();
+				case DW_EH_PE_sleb128: {
+					unsigned char const *pos = bytes;
+					encap::read_sleb128(&pos, limit);
+					return pos - bytes;
+				}
+				case DW_EH_PE_sdata2: return 2;
+				case DW_EH_PE_sdata4: return 4;
+				case DW_EH_PE_sdata8: return 8;
+				
+				default: goto unsupported_for_now;
+				
+				unsupported_for_now:
+					assert(false);
+			}
+		}
+
+		void Fde::init_augmentation_bytes()
+		{
+			/* 
+			 * An FDE starts with the length and ID described above, and then continues as follows.
+			
+			 * The starting address to which this FDE applies. 
+			 * This is encoded using the FDE encoding specified by the associated CIE.
+			 * The number of bytes after the start address to which this FDE applies. 
+			 * This is encoded using the FDE encoding.
+			 * If the CIE augmentation string starts with 'z', 
+			 * the FDE next has an unsigned LEB128 which is the total size of the FDE augmentation data. 
+			 * This may be used to skip data associated with unrecognized augmentation characters. 
+			 */
+			 
+			const unsigned char *instrs_start = (const unsigned char *) instr_bytes_seq().first;
+			
+			const Cie& cie = *find_cie();
+			
+			// we need a pointer *before* the instructions.  Q. where?  A. the FDE base addr 
+			const unsigned char *pos = reinterpret_cast<const unsigned char *>(fde_bytes);
+			assert(instrs_start > fde_bytes);
+			
+			// skip the length and id
+			pos += owner.is_64bit ? 12 : 4;
+			pos += 4; // id is always 32 bits
+			
+			// skip the FDE starting address
+			unsigned encoding_nbytes = cie.encoding_nbytes(cie.get_fde_encoding(), pos, instrs_start);
+			pos += encoding_nbytes;
+	
+			// look for the augmentation length-in-bytes
+			string aug_string(cie.get_augmenter());
+			Dwarf_Unsigned expected_data_length;
+			if (aug_string.length() > 0 && aug_string.at(0) == 'z')
+			{
+				// read a uleb128
+				expected_data_length = encap::read_uleb128(&pos, instrs_start);
+			}
+			else
+			{
+				expected_data_length = 0;
+			}
+			
+			while (pos < instrs_start) augbytes.push_back(*pos++);
+			assert(augbytes.size() == expected_data_length);
+
+/*
+			unsigned encoding2 = *pos++;
+			unsigned encoding2_nbytes = cie.encoding_nbytes(encoding2, pos, instrs_start);
+			pos += encoding2_nbytes;
+			
+			// skip the LSDA encoding
+			// "If the CIE does not specify DW_EH_PE_omit as the LSDA encoding, 
+			// the FDE next has a pointer to the LSDA, encoded as specified by the CIE. 
+			auto found_lsda = cie.find_augmentation_element('L');
+			if (found_lsda == cie.get_augmentation_bytes().end())
+			{
+				// assume the default, which is DW_EH_absptr
+				pos += cie.encoding_nbytes(DW_EH_PE_absptr, nullptr, nullptr);
+			} else {
+				// do what it says
+				pos += cie.encoding_nbytes(*found_lsda, pos, instrs_start);
+			}
+			*/
+			
+		}
+		
+		FrameSection::instrs_results
 		Fde::decode() const
 		{
-			boost::icl::interval_map<Dwarf_Addr, set< pair<int /* regnum */, register_def > > > working; 
+			boost::icl::interval_map<Dwarf_Addr, set< pair<int /* regnum */, FrameSection::register_def > > > working; 
+			unsigned char *instr_bytes_begin = instr_bytes_seq().first;
+			unsigned char *instr_bytes_end = instr_bytes_seq().second;
 			
 			/* Get the CIE for this FDE. */
 			const core::Cie& cie = *find_cie();
 
-			/* Get the FDE opcodes. */
-			Dwarf_Ptr instrs;
-			Dwarf_Unsigned len;
-			int fde_ret = dwarf_get_fde_instr_bytes(m_fde, &instrs, &len, &core::current_dwarf_error);
-			assert(fde_ret == DW_DLV_OK);
-
-			Dwarf_Debug dbg = owner.get_dbg().raw_handle();
-			
-			typedef optional< instrs_results > initial_instrs_results_t;
-			map<int /* regnum */, register_def > current_row_defs;
-			Dwarf_Addr current_row_addr = get_low_pc();
-			/* Define the interpreter. */
-			auto interp =   [this, &working, dbg, cie, &current_row_defs, &current_row_addr]
-			                (Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len, 
-			                initial_instrs_results_t initial_instrs_results)
-			{
-				/* Expand the instructions. We would use dwarf_expand_frame_instructions but 
-				 * it seems to be DWARF2-specific, and I don't want to use too many more 
-				 * libdwarf calls. So use our own frame_instrlist. */
-				encap::frame_instrlist instrlist(dbg, /* addrlen -- FIXME */ 8, cie, instrs, instrs_len, /* use_host_byte_order -- FIXME */ true);
-				
-				Dwarf_Addr new_row_addr = -1;
-				if (initial_instrs_results)
-				{
-					current_row_defs = initial_instrs_results->unfinished_row;
-				}
-				std::stack<decltype(current_row_defs)> remembered_row_defs;
-				
-				cerr << "Interpreting instrlist " << instrlist << endl;
-				for (auto i_op = instrlist.begin(); i_op != instrlist.end(); ++i_op)
-				{
-					cerr << "\tInterpreting instruction " << *i_op << endl;
-					switch (i_op->fp_base_op << 6 | i_op->fp_extended_op)
-					{
-						// row creation
-						case DW_CFA_set_loc:
-							new_row_addr = i_op->fp_offset_or_block_len;
-							goto add_new_row;
-						case DW_CFA_advance_loc:
-						case DW_CFA_advance_loc1:
-						case DW_CFA_advance_loc2:
-						case DW_CFA_advance_loc4:
-							new_row_addr = current_row_addr + i_op->fp_offset_or_block_len;
-							goto add_new_row;
-						add_new_row: {
-							// assert greater than current
-							assert(new_row_addr > current_row_addr);
-							set< pair< int, decltype(current_row_defs)::mapped_type > > current_row_defs_set(current_row_defs.begin(), current_row_defs.end());
-							
-							// add the old row to the interval map
-							working += make_pair( 
-								interval<Dwarf_Addr>::right_open(current_row_addr, new_row_addr),
-								current_row_defs_set
-							);
-							} break;
-						// CFA definition
-						case DW_CFA_def_cfa:
-							current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w() = make_pair(i_op->fp_register, i_op->fp_offset_or_block_len);
-							break;
-						case DW_CFA_def_cfa_sf: // signed, factored
-							current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w() = make_pair(i_op->fp_register, i_op->fp_offset_or_block_len);
-							break;
-						case DW_CFA_def_cfa_register:
-							assert(current_row_defs.find(DW_FRAME_CFA_COL3) != current_row_defs.end());
-							// FIXME: also assert that it's a reg+off def, not a locexpr def
-							current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w().first = i_op->fp_register;
-							break;
-						case DW_CFA_def_cfa_offset:
-							assert(current_row_defs.find(DW_FRAME_CFA_COL3) != current_row_defs.end());
-							// FIXME: also assert that it's a reg+off def, not a locexpr def
-							current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w().second = i_op->fp_offset_or_block_len;
-							break;
-						case DW_CFA_def_cfa_offset_sf:
-							assert(current_row_defs.find(DW_FRAME_CFA_COL3) != current_row_defs.end());
-							// FIXME: also assert that it's a reg+off def, not a locexpr def
-							current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w().second = i_op->fp_offset_or_block_len;
-							break;
-						case DW_CFA_def_cfa_expression: 
-							current_row_defs[DW_FRAME_CFA_COL3].saved_at_expr_w() = encap::loc_expr(dbg, i_op->fp_expr_block, i_op->fp_offset_or_block_len);
-							break;
-						// register rule
-						case DW_CFA_undefined:
-							// mark the specified register as undefined
-							current_row_defs[i_op->fp_register].undefined_w();
-							break;
-						case DW_CFA_same_value:
-							current_row_defs[i_op->fp_register].same_value_w();
-							break;
-						case DW_CFA_offset:
-						case DW_CFA_offset_extended:
-						case DW_CFA_offset_extended_sf:
-							current_row_defs[i_op->fp_register].saved_at_offset_from_cfa_w() = i_op->fp_offset_or_block_len;;
-							current_row_defs[i_op->fp_register].saved_at_offset_from_cfa_w() = i_op->fp_offset_or_block_len;;
-							break;
-						case DW_CFA_val_offset: 
-						case DW_CFA_val_offset_sf:
-							current_row_defs[i_op->fp_register].val_is_offset_from_cfa_w() = i_op->fp_offset_or_block_len;
-							break;
-						case DW_CFA_register: // FIXME: second register goes where? I've put it in fp_offset_or_block_len
-							current_row_defs[i_op->fp_register].register_plus_offset_w() = make_pair(i_op->fp_offset_or_block_len, 0);
-							break;
-						case DW_CFA_expression:
-							current_row_defs[i_op->fp_register].saved_at_expr_w() = encap::loc_expr(dbg, i_op->fp_expr_block, i_op->fp_offset_or_block_len);
-							break;
-						case DW_CFA_val_expression:
-							current_row_defs[i_op->fp_register].val_of_expr_w() = encap::loc_expr(dbg, i_op->fp_expr_block, i_op->fp_offset_or_block_len);
-							break;
-						case DW_CFA_restore:
-						case DW_CFA_restore_extended: {
-							// look in the unfinished row
-							auto &initial_results = *initial_instrs_results;
-							register_def *opt_previous_def = nullptr;
-							auto found_in_unfinished = initial_results.unfinished_row.find(i_op->fp_register);
-							if (found_in_unfinished != initial_results.unfinished_row.end())
-							{
-								opt_previous_def = &found_in_unfinished->second;
-							}
-							else 
-							{
-								auto found_row = initial_results.rows.find(current_row_addr);
-								if (found_row != initial_results.rows.end())
-								{
-									// look for the register
-									auto& inner_set = initial_results.rows.find(current_row_addr)->second;
-									// HACK: we build a map, rather than searching the set
-									map<int, register_def> inner_map(inner_set.begin(), inner_set.end());
-									auto found = inner_map.find(i_op->fp_register);
-									if (found != inner_map.end())
-									{
-										opt_previous_def = &found->second;
-									}
-								}
-							}
-							if (opt_previous_def)
-							{
-								current_row_defs[i_op->fp_register] = *opt_previous_def;
-							}
-							else
-							{
-								/* What does it mean if we're not defined in the initial instructions? 
-								 * Let's suppose it means undefined. */
-								current_row_defs[i_op->fp_register] = (register_def) { .k = register_def::UNDEFINED };
-							}
-							
-							} break;
-						// row state
-						case DW_CFA_restore_state:
-							assert(remembered_row_defs.size() > 0);
-							current_row_defs = remembered_row_defs.top(); remembered_row_defs.pop();
-							break;
-						case DW_CFA_remember_state:
-							remembered_row_defs.push(current_row_defs);
-							break;
-						// padding 					
-						case DW_CFA_nop:      // this is a full zero byte
-							break;
-							cerr << "FIXME!" << endl;
-						default: goto unsupported_for_now;
-						unsupported_for_now:
-							assert(false);
-					} // end switch
-				} // end for i_op
-				
-				// don't add any unfinished row; we'll fix it up outside the lambda
-			};
+			typedef optional< const FrameSection::instrs_results & > initial_instrs_results_t;
+			/* Invoke the interpreter. */
 			
 			/* Walk the CIE initial instructions. */
-			interp(cie.get_initial_instructions(), cie.get_initial_instructions_length(), initial_instrs_results_t());
-			/* Save the results after the initial instructions, to support CFA_restore */
-			initial_instrs_results_t initial_instrs_results = (instrs_results) { working, current_row_defs };
-			/* Now clear the current_row_defs. */
-			current_row_defs.clear();
+			auto initial_result = owner.interpret_instructions(cie, get_low_pc(),
+				cie.get_initial_instructions(), cie.get_initial_instructions_length(), initial_instrs_results_t());
 			/* Walk the FDE instructions. */
-			interp(instrs, len, initial_instrs_results);
+			auto final_result = owner.interpret_instructions(cie, initial_result.unfinished_row_addr,
+				instr_bytes_begin, instr_bytes_end - instr_bytes_begin, initial_result);
 			/* Add any unfinished row, using the FDE high pc */
-			if (current_row_defs.size() > 0)
+			if (final_result.rows.size() > 0)
 			{
-				set< pair< int, decltype(current_row_defs)::mapped_type > > current_row_defs_set(current_row_defs.begin(), current_row_defs.end());
-				assert(get_low_pc() + get_func_length() > current_row_addr);
+				set< pair< int, FrameSection::register_def > > current_row_defs_set(
+					final_result.unfinished_row.begin(), final_result.unfinished_row.end());
+				assert(get_low_pc() + get_func_length() > final_result.unfinished_row_addr);
 				working += make_pair( 
-					interval<Dwarf_Addr>::right_open(current_row_addr, get_low_pc() + get_func_length()),
+					interval<Dwarf_Addr>::right_open(final_result.unfinished_row_addr, get_low_pc() + get_func_length()),
 					current_row_defs_set
 				);
 			}
 			
-			// that's it!
-			return (instrs_results) { working, std::map<int, register_def>() };
+			// that's it! (no unfinished rows now)
+			return (FrameSection::instrs_results) { working, std::map<int, FrameSection::register_def>(), 0 };
 		}
+		
+		FrameSection::instrs_results
+		FrameSection::interpret_instructions(const Cie& cie, 
+				Dwarf_Addr initial_row_addr, 
+				Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len,
+				optional< const FrameSection::instrs_results & > initial_instrs_results) const
+		{
+			/* Expand the instructions. We would use dwarf_expand_frame_instructions but 
+			 * it seems to be DWARF2-specific, and I don't want to use too many more 
+			 * libdwarf calls. So use our own frame_instrlist. */
+			encap::frame_instrlist instrlist(cie, cie.get_address_size(), 
+				make_pair(reinterpret_cast<unsigned char *>(instrs), 
+					      reinterpret_cast<unsigned char *>(instrs) + instrs_len),
+					      /* use_host_byte_order -- FIXME */ true);
+			
+			// create container for return values & working storage
+			instrs_results result;
+			auto& working = result.rows;
+			auto& current_row_defs = result.unfinished_row;
+			Dwarf_Addr& current_row_addr = result.unfinished_row_addr;
+			
+			Dwarf_Addr new_row_addr = -1;
+			if (initial_instrs_results)
+			{
+				current_row_defs = initial_instrs_results->unfinished_row;
+				current_row_addr = initial_instrs_results->unfinished_row_addr;
+			}
+			std::stack< map<int, register_def> > remembered_row_defs;
+
+			cerr << "Interpreting instrlist " << instrlist << endl;
+			for (auto i_op = instrlist.begin(); i_op != instrlist.end(); ++i_op)
+			{
+				cerr << "\tInterpreting instruction " << *i_op << endl;
+				switch (i_op->fp_base_op << 6 | i_op->fp_extended_op)
+				{
+					// row creation
+					case DW_CFA_set_loc:
+						new_row_addr = i_op->fp_offset_or_block_len;
+						goto add_new_row;
+					case DW_CFA_advance_loc:
+					case DW_CFA_advance_loc1:
+					case DW_CFA_advance_loc2:
+					case DW_CFA_advance_loc4:
+						new_row_addr = current_row_addr + i_op->fp_offset_or_block_len;
+						goto add_new_row;
+					add_new_row: {
+						// assert greater than current
+						assert(new_row_addr > current_row_addr);
+						set< pair< int, register_def > > current_row_defs_set(current_row_defs.begin(), current_row_defs.end());
+
+						// add the old row to the interval map
+						working += make_pair( 
+							interval<Dwarf_Addr>::right_open(current_row_addr, new_row_addr),
+							current_row_defs_set
+						);
+						} break;
+					// CFA definition
+					case DW_CFA_def_cfa:
+						current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w() = make_pair(i_op->fp_register, i_op->fp_offset_or_block_len);
+						break;
+					case DW_CFA_def_cfa_sf: // signed, factored
+						current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w() = make_pair(i_op->fp_register, i_op->fp_offset_or_block_len);
+						break;
+					case DW_CFA_def_cfa_register:
+						assert(current_row_defs.find(DW_FRAME_CFA_COL3) != current_row_defs.end());
+						// FIXME: also assert that it's a reg+off def, not a locexpr def
+						current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w().first = i_op->fp_register;
+						break;
+					case DW_CFA_def_cfa_offset:
+						assert(current_row_defs.find(DW_FRAME_CFA_COL3) != current_row_defs.end());
+						// FIXME: also assert that it's a reg+off def, not a locexpr def
+						current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w().second = i_op->fp_offset_or_block_len;
+						break;
+					case DW_CFA_def_cfa_offset_sf:
+						assert(current_row_defs.find(DW_FRAME_CFA_COL3) != current_row_defs.end());
+						// FIXME: also assert that it's a reg+off def, not a locexpr def
+						current_row_defs[DW_FRAME_CFA_COL3].register_plus_offset_w().second = i_op->fp_offset_or_block_len;
+						break;
+					case DW_CFA_def_cfa_expression: 
+						current_row_defs[DW_FRAME_CFA_COL3].saved_at_expr_w() = encap::loc_expr(get_dbg().raw_handle(), i_op->fp_expr_block, i_op->fp_offset_or_block_len);
+						break;
+					// register rule
+					case DW_CFA_undefined:
+						// mark the specified register as undefined
+						current_row_defs[i_op->fp_register].undefined_w();
+						break;
+					case DW_CFA_same_value:
+						current_row_defs[i_op->fp_register].same_value_w();
+						break;
+					case DW_CFA_offset:
+					case DW_CFA_offset_extended:
+					case DW_CFA_offset_extended_sf:
+						current_row_defs[i_op->fp_register].saved_at_offset_from_cfa_w() = i_op->fp_offset_or_block_len;;
+						current_row_defs[i_op->fp_register].saved_at_offset_from_cfa_w() = i_op->fp_offset_or_block_len;;
+						break;
+					case DW_CFA_val_offset: 
+					case DW_CFA_val_offset_sf:
+						current_row_defs[i_op->fp_register].val_is_offset_from_cfa_w() = i_op->fp_offset_or_block_len;
+						break;
+					case DW_CFA_register: // FIXME: second register goes where? I've put it in fp_offset_or_block_len
+						current_row_defs[i_op->fp_register].register_plus_offset_w() = make_pair(i_op->fp_offset_or_block_len, 0);
+						break;
+					case DW_CFA_expression:
+						current_row_defs[i_op->fp_register].saved_at_expr_w() = encap::loc_expr(get_dbg().raw_handle(), i_op->fp_expr_block, i_op->fp_offset_or_block_len);
+						break;
+					case DW_CFA_val_expression:
+						current_row_defs[i_op->fp_register].val_of_expr_w() = encap::loc_expr(get_dbg().raw_handle(), i_op->fp_expr_block, i_op->fp_offset_or_block_len);
+						break;
+					case DW_CFA_restore:
+					case DW_CFA_restore_extended: {
+						// look in the unfinished row
+						auto &initial_results = *initial_instrs_results;
+						const register_def *opt_previous_def = nullptr;
+						auto found_in_unfinished = initial_results.unfinished_row.find(i_op->fp_register);
+						if (found_in_unfinished != initial_results.unfinished_row.end())
+						{
+							opt_previous_def = &found_in_unfinished->second;
+						}
+						else 
+						{
+							auto found_row = initial_results.rows.find(current_row_addr);
+							if (found_row != initial_results.rows.end())
+							{
+								// look for the register
+								auto& inner_set = initial_results.rows.find(current_row_addr)->second;
+								// HACK: we build a map, rather than searching the set
+								map<int, register_def> inner_map(inner_set.begin(), inner_set.end());
+								auto found = inner_map.find(i_op->fp_register);
+								if (found != inner_map.end())
+								{
+									opt_previous_def = &found->second;
+								}
+							}
+						}
+						if (opt_previous_def)
+						{
+							current_row_defs[i_op->fp_register] = *opt_previous_def;
+						}
+						else
+						{
+							/* What does it mean if we're not defined in the initial instructions? 
+							 * Let's suppose it means undefined. */
+							current_row_defs[i_op->fp_register] = (register_def) { .k = register_def::UNDEFINED };
+						}
+
+						} break;
+					// row state
+					case DW_CFA_restore_state:
+						assert(remembered_row_defs.size() > 0);
+						current_row_defs = remembered_row_defs.top(); remembered_row_defs.pop();
+						break;
+					case DW_CFA_remember_state:
+						remembered_row_defs.push(current_row_defs);
+						break;
+					// padding 					
+					case DW_CFA_nop:      // this is a full zero byte
+						break;
+						cerr << "FIXME!" << endl;
+					default: goto unsupported_for_now;
+					unsupported_for_now:
+						assert(false);
+				} // end switch
+			} // end for i_op
+
+			// there might be an unfinished row in result.unfinished_row; if so we'll fix it up outside
+			return result;
+		}
+		
 	}
 	namespace encap
 	{
@@ -571,9 +823,9 @@ namespace dwarf
 				int to_reg;
 				int difference;
 				
-				edge(const pair</*const*/ int /* regnum */, Fde::register_def >& map_entry)
+				edge(const pair</*const*/ int /* regnum */, FrameSection::register_def >& map_entry)
 				{
-					assert(map_entry.second.k == Fde::register_def::REGISTER);
+					assert(map_entry.second.k == FrameSection::register_def::REGISTER);
 					from_reg = map_entry.second.register_plus_offset_r().first;
 					to_reg = map_entry.first;
 					difference = map_entry.second.register_plus_offset_r().second;
@@ -617,7 +869,7 @@ namespace dwarf
 				{
 					// decode the table into rows
 					auto results = current->decode();
-					boost::icl::interval_map<Dwarf_Addr, set<pair<int /* regnum */, Fde::register_def > > >& rows = results.rows;
+					boost::icl::interval_map<Dwarf_Addr, set<pair<int /* regnum */, FrameSection::register_def > > >& rows = results.rows;
 					
 					// process each row
 					for (auto i_row = rows.begin(); i_row != rows.end(); ++i_row)

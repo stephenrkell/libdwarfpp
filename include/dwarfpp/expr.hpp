@@ -231,8 +231,8 @@ namespace dwarf
 		struct frame_instrlist : public vector<frame_instr>
 		{
 			using vector::vector;
-		
-			frame_instrlist(Dwarf_Debug dbg, int addrlen, const core::Cie& cie, Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len, bool use_host_byte_order = true);
+
+			frame_instrlist(const core::Cie& cie, int addrlen, const pair<unsigned char*, unsigned char*>& seq, bool use_host_byte_order = true);
 		};
 		std::ostream& operator<<(std::ostream& s, const frame_instrlist& arg);
 		

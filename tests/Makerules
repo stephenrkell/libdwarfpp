@@ -28,6 +28,9 @@ clean:
 clean-%: 
 	rm -f $*/$*
 
+build-%:
+	$(MAKE) -C "$*" "$*"
+
 run-%: # run the test case with itself as input
 	$(MAKE) -C "$*" "$*" && ( cd "$*" && ./$* ./$* )
 
