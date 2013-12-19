@@ -11,6 +11,10 @@
 #include <cassert>
 #include <boost/optional.hpp>
 #include <boost/icl/interval_map.hpp>
+#include <boost/graph/graph_traits.hpp>
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <boost/property_map/property_map.hpp>
 #include <srk31/endian.hpp>
 #include <gelf.h>
 
@@ -569,7 +573,6 @@ namespace dwarf
 		FrameSection::instrs_results
 		Fde::decode() const
 		{
-			boost::icl::interval_map<Dwarf_Addr, set< pair<int /* regnum */, FrameSection::register_def > > > working; 
 			unsigned char *instr_bytes_begin = instr_bytes_seq().first;
 			unsigned char *instr_bytes_end = instr_bytes_seq().second;
 			
@@ -588,17 +591,11 @@ namespace dwarf
 			/* Add any unfinished row, using the FDE high pc */
 			if (final_result.rows.size() > 0)
 			{
-				set< pair< int, FrameSection::register_def > > current_row_defs_set(
-					final_result.unfinished_row.begin(), final_result.unfinished_row.end());
-				assert(get_low_pc() + get_func_length() > final_result.unfinished_row_addr);
-				working += make_pair( 
-					interval<Dwarf_Addr>::right_open(final_result.unfinished_row_addr, get_low_pc() + get_func_length()),
-					current_row_defs_set
-				);
+				final_result.add_unfinished_row(get_low_pc() + get_func_length());
 			}
 			
 			// that's it! (no unfinished rows now)
-			return (FrameSection::instrs_results) { working, std::map<int, FrameSection::register_def>(), 0 };
+			return final_result;
 		}
 		
 		FrameSection::instrs_results
@@ -626,6 +623,11 @@ namespace dwarf
 			{
 				current_row_defs = initial_instrs_results->unfinished_row;
 				current_row_addr = initial_instrs_results->unfinished_row_addr;
+			}
+			else
+			{
+				// others are initialized to empty
+				current_row_addr = initial_row_addr;
 			}
 			std::stack< map<int, register_def> > remembered_row_defs;
 
@@ -655,6 +657,7 @@ namespace dwarf
 							interval<Dwarf_Addr>::right_open(current_row_addr, new_row_addr),
 							current_row_defs_set
 						);
+						current_row_addr = new_row_addr;
 						} break;
 					// CFA definition
 					case DW_CFA_def_cfa:
@@ -741,18 +744,24 @@ namespace dwarf
 						else
 						{
 							/* What does it mean if we're not defined in the initial instructions? 
-							 * Let's suppose it means undefined. */
-							current_row_defs[i_op->fp_register] = (register_def) { .k = register_def::UNDEFINED };
+							 * Answer: "indeterminate" (not "undefined") */
+							current_row_defs[i_op->fp_register] = (register_def) { .k = register_def::INDETERMINATE };
 						}
 
 						} break;
 					// row state
-					case DW_CFA_restore_state:
+					case DW_CFA_restore_state: {
+						auto current_cfa = current_row_defs[DW_FRAME_CFA_COL3];
+						
 						assert(remembered_row_defs.size() > 0);
 						current_row_defs = remembered_row_defs.top(); remembered_row_defs.pop();
-						break;
+						// don't clobber the CFA we had
+						current_row_defs[DW_FRAME_CFA_COL3] = current_cfa;
+					} break;
 					case DW_CFA_remember_state:
 						remembered_row_defs.push(current_row_defs);
+						// do NOT remember CFA!
+						remembered_row_defs.top().erase(DW_FRAME_CFA_COL3);
 						break;
 					// padding 					
 					case DW_CFA_nop:      // this is a full zero byte
@@ -775,6 +784,97 @@ namespace dwarf
 		using core::Cie;
 		using core::Fde;
 		
+		struct register_edge
+		{
+			int from_reg;
+			int to_reg;
+			int difference;
+
+			bool operator<(const register_edge& e) const
+			{
+				return make_pair(from_reg, make_pair(to_reg, difference)) < make_pair(e.from_reg, make_pair(e.to_reg, e.difference));
+			}
+
+			bool operator!=(const register_edge& e) const
+			{
+				return e < *this || *this < e;
+			}
+			bool operator==(const register_edge& e) const { return !(*this != e); }
+		};
+		
+		typedef int /* regnum */ register_node;
+		
+		typedef pair< loclist *, boost::icl::interval<Dwarf_Addr> > register_graph;
+	}
+}
+namespace boost
+{
+	template<>
+	struct graph_traits<dwarf::encap::register_graph> 
+	{
+		// copied from encap_sibling_graph.hpp (inheritance doesn't work for some reason...)
+		typedef dwarf::encap::register_node  vertex_descriptor;
+		
+		static vertex_descriptor null_vertex() 
+		{ return /*make_pair(boost::icl::interval<dwarf::lib::Dwarf_Addr>::right_open(0, 1), -1);*/ -1; }
+		
+		typedef dwarf::encap::register_edge edge_descriptor;
+
+		typedef std::set< dwarf::encap::register_node >::iterator vertex_iterator;
+		
+		typedef directed_tag directed_category;
+		typedef disallow_parallel_edge_tag edge_parallel_category;
+
+		struct traversal_tag :
+		  public virtual vertex_list_graph_tag,
+		  public virtual incidence_graph_tag { };
+		typedef traversal_tag traversal_category;
+		
+		typedef unsigned vertices_size_type;
+		typedef unsigned edges_size_type;
+		typedef unsigned degree_size_type;
+
+		typedef std::set< dwarf::encap::register_edge >::iterator out_edge_iterator;
+	};
+}
+namespace dwarf
+{
+	namespace encap
+	{
+		using boost::graph_traits;
+		using lib::Dwarf_Addr;
+		
+		pair<
+			graph_traits<register_graph>::out_edge_iterator, 
+			graph_traits<register_graph>::out_edge_iterator
+		>
+		out_edges(
+			graph_traits<register_graph>::vertex_descriptor u, 
+			const register_graph& g);
+			
+		pair<
+			graph_traits<register_graph>::vertex_iterator,
+			graph_traits<register_graph>::vertex_iterator >  
+		vertices(const register_graph& g);
+		
+		graph_traits<register_graph>::degree_size_type
+		out_degree(
+			graph_traits<register_graph>::vertex_descriptor u,
+			const register_graph& g);
+		
+		graph_traits<register_graph>::vertex_descriptor
+		source(
+			graph_traits<register_graph>::edge_descriptor e,
+			const register_graph& g);
+		
+		graph_traits<register_graph>::vertex_descriptor
+		target(
+			graph_traits<register_graph>::edge_descriptor e,
+			const register_graph& g);
+		
+		graph_traits<register_graph>::vertices_size_type 
+		num_vertices(const register_graph& g);
+		
 		loclist rewrite_loclist_in_terms_of_cfa(
 			const loclist& l, 
 			const FrameSection& fs, 
@@ -782,123 +882,190 @@ namespace dwarf
 			dwarf::spec::opt<const loclist&> opt_fbreg // fbreg is special -- loc exprs can refer to it
 			)
 		{
-			/* First
-			
-			 * - compute a map from vaddrs to CFA expressions of the form (reg + offset). 
-			 * - for some vaddrs, CFA might not expressible this way 
-			 
-			 * Then for each vaddr range in the locexpr
-			 
-			 * - note any breg(n) opcodes
-			 * - see if we can compute them from CFA instead
-			 * - if so, rewrite them as a { cfa, push, plus } operation
-			 
-			 * HMM. In general we seem to be building a constraint graph
-			 * s.t. two nodes (n1, n2) are connected by an edge labelled k
-			 * if n2 == n1 + k.
+			/* The important points here are that 
 			 *
-			 * NOTE that every edge has an opposite-direction edge whose weight
-			 * is the negation of the first weight.
+			 * - our loclist is a list of loc_exprs, each valid for some vaddr range
+			 * - we want to rewrite as many loc_exprs as possible to avoid using DW_OP_bregn
+			 * - ... and instead use a { cfa, push <const>, plus } sequence
+			 * - we can do this because the FDEs tell us how to compute registers in the CFA. 
+			 * 
+			 * For each breg(n)-containing loc_expr, we
+			 * - duplicate the loc_expr once for each overlapping FDE row, and once for each FDE-uncovered range
+			 * - ... substituting CFA-based sequences for breg(n) ops, wherever such sequences exist
+			 * - ... using the original breg(n) op where they don't.
+			 *
+			 * We identify CFA-based sequences using a graph search.
+			 */
+			
+			map< boost::icl::discrete_interval<Dwarf_Addr>, loc_expr> loclist_intervals;
+			
+			for (auto i_loc_expr = l.begin();	
+				i_loc_expr != l.end();
+				++i_loc_expr)
+			{
+				/* Does this expr contain any bregn opcodes? If not, we 
+				 * add it as-is. */
+				if (std::find_if(i_loc_expr->begin(), i_loc_expr->end(), [](const expr_instr& arg) -> bool {
+					return arg.lr_atom >= DW_OP_breg0 && arg.lr_atom <= DW_OP_breg31;
+				}) == i_loc_expr->end())
+				{
+					loclist_intervals[boost::icl::interval<Dwarf_Addr>::right_open(
+							i_loc_expr->lopc, 
+							i_loc_expr->hipc)] = *i_loc_expr;
+					continue;
+				}
+			
+				/* Enumerate the FDE rows spanning this interval. */
+				boost::icl::interval_map<Dwarf_Addr, set< register_edge > > register_edges;
+
+				/* Walk our FDEs starting from the lowest addr in the interval. */
+				optional<Fde> current;
+				optional<FrameSection::instrs_results> current_decoded;
+				optional<boost::icl::discrete_interval<Dwarf_Addr> > current_fde_overlap_interval;
+				Dwarf_Addr hipc = 0;
+				for (auto i_int = containing_intervals.begin(); i_int != containing_intervals.end(); ++i_int)
+				{
+					assert((hipc == 0  && !current) || hipc > i_int->first.lower());
+					Dwarf_Addr lopc;
+
+					// walk all FDEs that overlap this interval
+					if (!current)
+					{
+						// we don't have a FDE that overlaps this interval
+						auto found = fs.find_fde_for_pc(i_int->first.lower());
+						assert(found != fs.fde_end());
+						*current = *found;
+						*current_decoded = found->decode();
+						*current_fde_overlap_interval = interval<Dwarf_Addr>::right_open(
+										/* intersection of our loc_expr's interval and the FDE's interval */
+										std::max(lopc, i_int->first.lower()), 
+										std::min(hipc, i_int->first.upper())
+									);
+					}
+
+					// while there is some overlap with our interval
+					while (lopc < i_int->first.upper() && hipc > i_int->first.lower())
+					{
+						boost::icl::interval_map<Dwarf_Addr, set<pair<int /* regnum */, FrameSection::register_def > > >& rows = current_decoded->rows;
+
+						// process each row
+						for (auto i_row = rows.begin(); i_row != rows.end(); ++i_row)
+						{	
+							auto row_overlap_interval = interval<Dwarf_Addr>::right_open(
+									/* intersection of our loc_expr's interval and the *row*'s (not FDE's) interval */
+									std::max(i_row->first.lower(), i_int->first.lower()), 
+									std::min(i_row->first.upper(), i_int->first.upper())
+								);
+							
+							// Compute the edge set -- 
+							// we only want register_plus_offset register definitions
+							std::set<register_edge> edges;
+							for (auto i_ent = i_row->second.begin(); i_ent != i_row->second.end(); ++i_ent)
+							{
+								if (i_ent->second.k == FrameSection::register_def::REGISTER)
+								{
+									// add *two* edges: forward and back
+									edges.insert((register_edge){
+										.from_reg = i_ent->second.register_plus_offset_r().first,
+										.to_reg = i_ent->first,
+										.difference = i_ent->second.register_plus_offset_r().second,
+									});
+									edges.insert((register_edge){
+										.from_reg = i_ent->first,
+										.to_reg = i_ent->second.register_plus_offset_r().first,
+										.difference = - i_ent->second.register_plus_offset_r().second,
+									});
+								}
+							}
+							
+							/* For each breg, see if we can find a path to the CFA. */
+							bool success = true;
+							for (auto i_op = i_loc_expr->begin(); i_op != i_loc_expr->end(); ++i_op)
+							{
+								if (!(i_op->lr_atom >= DW_OP_breg0 && i_op->lr_atom <= DW_OP_breg31))
+								{
+									continue;
+								}
+								int regnum = i_op->lr_atom - DW_OP_breg0;
+								
+								// now we've found an op; is there a path in the graph?
+								// the graph is denoted by the current loclist and the interval
+								// auto g = make_pair(&l, row_overlap_interval);
+								
+								// define a weight map that gives equal weight to every edge
+								//struct weight_map_t
+								//{
+								//	int get(const edge_descriptor& e) const { return 1; }
+								//} weight_map;
+								
+								// std::vector<vertex_descriptor> p(num_vertices(g));
+								// std::vector<int> d(num_vertices(g));
+								// dijkstra_shortest_paths(g, /* start at CFA */ DW_FRAME_CFA_COL3,
+								// 	predecessor_map(boost::make_iterator_property_map(p.begin(), get(boost::vertex_index, g))).
+								// 	distance_map(boost::make_iterator_property_map(d.begin(), get(boost::vertex_index, g))));
+								
+								// FIXME: don't bother with the for-loop; just follow predecessors
+								// from the target vertex, a.k.a. regnum
+								// for (boost::tie(vi, vend) = vertices(g); vi != vend; ++vi) {
+								// 	// predecessor of *vi is p[*vi]
+								// }
+								bool found_path = false;
+								
+								// if we found a path, we keep going
+								success &= found_path;
+							}
+							
+							auto rewritten_loc_expr = *i_loc_expr; // FIXME
+							
+							if (success)
+							{
+								// add the rewritten entry to our interval map
+								loclist_intervals[row_overlap_interval] = rewritten_loc_expr;
+							} 
+							else 
+							{
+								// add the old entry to our interval map
+								loclist_intervals[row_overlap_interval] = *i_loc_expr;
+							}
+							
+						} // end for row
+
+						// see if we need to get a new FDE
+						auto found = fs.find_fde_for_pc(hipc);
+						assert(found != fs.fde_end());
+						if (found->get_fde_offset() != current->get_fde_offset())
+						{
+							*current = *found;
+							lopc = current->get_low_pc();
+							hipc = current->get_low_pc() + current->get_func_length();
+							*current_decoded = found->decode();
+							*current_fde_overlap_interval = interval<Dwarf_Addr>::right_open(
+											/* intersection of our loc_expr's interval and the FDE's interval */
+											std::max(lopc, i_int->first.lower()), 
+											std::min(hipc, i_int->first.upper()));
+						}
+					} // end while
+
+					// leave 'current' [current FDE] since it might be useful on the next iteration
+					
+					// FIXME: CHECK for unoverlapped subintervals of this loc expr's interval!
+
+				} // end for interval
+				
+			}
 			 
-			 * NOTE that in general, this graph changes with each instruction. 
-			 * So what we are labelling the intervals with is really the edge set.
 			 
-			 * Can we relate all registers this way, including cfa as a pseudo-reg, 
-			 * then look for a path from cfa to the referenced register?
-			 
-			 * YES, this is a nice formulation.
-			 
-			 * We also add the loc expr of interest itself, as another node, from which
-			 * we will try to find paths to the CFA.
-			 
-			 * We still have to collapse identical vaddr ranges at the end, because edge
+			/* We still have to collapse identical vaddr ranges at the end, because edge
 			 * sets refer to *all* regs and we only care about one (the loc expr).
 			 
 			 * What about fbreg? It is just another node (with definition providing the edges)
 			 */
 			
-			struct edge
-			{
-				int from_reg;
-				int to_reg;
-				int difference;
-				
-				edge(const pair</*const*/ int /* regnum */, FrameSection::register_def >& map_entry)
-				{
-					assert(map_entry.second.k == FrameSection::register_def::REGISTER);
-					from_reg = map_entry.second.register_plus_offset_r().first;
-					to_reg = map_entry.first;
-					difference = map_entry.second.register_plus_offset_r().second;
-				}
-				
-				bool operator<(const edge& e) const
-				{
-					return make_pair(from_reg, make_pair(to_reg, difference)) < make_pair(e.from_reg, make_pair(e.to_reg, e.difference));
-				}
-				
-				bool operator!=(const edge& e) const
-				{
-					return e < *this || *this < e;
-				}
-				bool operator==(const edge& e) const { return !(*this != e); }
-			};
-			
-			boost::icl::interval_map<Dwarf_Addr, set< edge > > edges;
-			
-			/* Walk our FDEs starting from the lowest addr in the interval. */
-			
-			optional<Fde> current;
-			Dwarf_Addr hipc = 0;
-			for (auto i_int = containing_intervals.begin(); i_int != containing_intervals.end(); ++i_int)
-			{
-				assert((hipc == 0  && !current) || hipc > i_int->first.lower());
-				Dwarf_Addr lopc;
-				
-				// walk all FDEs that overlap this interval
-				
-				if (!current)
-				{
-					// we don't have a FDE that overlaps this interval
-					auto found = fs.find_fde_for_pc(i_int->first.lower());
-					assert(found != fs.fde_end());
-					*current = *found;
-				}
-				
-				// while there is some overlap with our interval
-				while (lopc < i_int->first.upper() && hipc > i_int->first.lower())
-				{
-					// decode the table into rows
-					auto results = current->decode();
-					boost::icl::interval_map<Dwarf_Addr, set<pair<int /* regnum */, FrameSection::register_def > > >& rows = results.rows;
-					
-					// process each row
-					for (auto i_row = rows.begin(); i_row != rows.end(); ++i_row)
-					{
-						// add an entry to our interval map
-						edges += make_pair(
-								interval<Dwarf_Addr>::right_open(
-									/* intersection of this interval and the *row*'s (not FDE's) interval */
-									std::max(lopc, i_int->first.lower()), 
-									std::min(hipc, i_int->first.upper())
-								), 
-								/* set of edge definitions in this row */
-								std::set<edge>(i_row->second.begin(), i_row->second.end()) // i.e. pair<int, pair<int, int> > i.e. (src, dst, weight)
-							);
-					}
-					
-					// get the next FDE
-					auto found = fs.find_fde_for_pc(hipc);
-					assert(found != fs.fde_end());
-					*current = *found;
-					lopc = current->get_low_pc();
-					hipc = current->get_low_pc() + current->get_func_length();
-				}
-				
-				// leave 'current' since it might be useful on the next iteration
-				
-			} // end for interval
 
-			// FIXME: now do the rewrites and coalesce
+			/* Now our interval_map is basically a set of graphs, one for each
+			 * distinct interval. For each such graph, we try to rewrite breg sequences
+			 * in the loc_expr. */
+			
 
 			return l; // FIXME
 		}

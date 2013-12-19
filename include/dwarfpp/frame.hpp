@@ -119,7 +119,8 @@ namespace dwarf
 			{
 				enum kind 
 				{
-					UNDEFINED,
+					INDETERMINATE,
+					UNDEFINED, // i.e. explicitly "undefined"
 					SAME_VALUE,
 					SAVED_AT_OFFSET_FROM_CFA,
 					VAL_IS_OFFSET_FROM_CFA,
@@ -190,6 +191,19 @@ namespace dwarf
 				boost::icl::interval_map<Dwarf_Addr, set<pair<int /* regnum */, register_def > > > rows;
 				std::map<int, register_def> unfinished_row;
 				Dwarf_Addr unfinished_row_addr;
+				
+				void add_unfinished_row(Dwarf_Addr high_pc) 
+				{
+					set< pair< int, FrameSection::register_def > > current_row_defs_set(
+						unfinished_row.begin(), unfinished_row.end()
+					);
+					rows += make_pair( 
+						boost::icl::interval<Dwarf_Addr>::right_open(unfinished_row_addr, high_pc),
+						current_row_defs_set
+					);
+					unfinished_row.clear();
+					unfinished_row_addr = std::numeric_limits<Dwarf_Addr>::max();
+				}
 			};
 
 			// extracted lambda function
