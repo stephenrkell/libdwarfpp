@@ -222,5 +222,22 @@ namespace dwarf
 			}
 			return new_ll;
 		}
+// 		boost::icl::interval_map<Dwarf_Addr, vector<expr_instr> > 
+// 		loclist::as_interval_map() const
+// 		{
+// 			boost::icl::interval_map<Dwarf_Addr, vector<expr_instr> > working;
+// 			for (auto i_loc_expr = begin(); i_loc_expr != end(); ++i_loc_expr)
+// 			{
+// 				auto interval = boost::icl::discrete_interval<Dwarf_Addr>::right_open(
+// 						i_loc_expr->lopc,
+// 						i_loc_expr->hipc
+// 					);
+// 				working += make_pair(
+// 					interval,
+// 					*i_loc_expr
+// 				);
+// 			}
+// 			return working;
+// 		}
 	}
 }

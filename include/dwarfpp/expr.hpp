@@ -8,6 +8,7 @@
 #ifndef __DWARFPP_EXPR_HPP
 #define __DWARFPP_EXPR_HPP
 
+#include <boost/icl/interval_map.hpp>
 #include "spec.hpp"
 #include "private/libdwarf.hpp"
 
@@ -211,7 +212,20 @@ namespace dwarf
 			//bool operator==(const loclist& oll) const { return *this == oll; }
 			//bool operator!=(const loclist& oll) const { return !(*this == oll); }
 			//friend std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll);
-            loc_expr loc_for_vaddr(Dwarf_Addr vaddr) const;
+			loc_expr loc_for_vaddr(Dwarf_Addr vaddr) const;
+			// boost::icl::interval_map<Dwarf_Addr, vector<expr_instr> > as_interval_map() const;
+			set< boost::icl::discrete_interval<Dwarf_Addr> > intervals() const
+			{ 
+				set< boost::icl::discrete_interval<Dwarf_Addr> > working;
+				for (auto i_expr = begin(); i_expr != end(); ++i_expr)
+				{
+					working.insert(boost::icl::discrete_interval<Dwarf_Addr>::right_open(
+						i_expr->lopc,
+						i_expr->hipc
+						));
+				}
+				return working;
+			}
 		};
 		std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll);	
 		
@@ -242,7 +256,6 @@ namespace dwarf
 		loclist rewrite_loclist_in_terms_of_cfa(
 			const loclist& l, 
 			const core::FrameSection& fs, 
-			const boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned>& containing_intervals,
 			dwarf::spec::opt<const loclist&> opt_fbreg // fbreg is special -- loc exprs can refer to it
 			);
 		Dwarf_Unsigned read_uleb128(unsigned char const **cur, unsigned char const *limit);

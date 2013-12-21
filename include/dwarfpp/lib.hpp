@@ -274,14 +274,19 @@ namespace dwarf
 			map<Dwarf_Off, Dwarf_Off> parent_of;
 			map<Dwarf_Off, ptr_type > sticky_dies; // compile_unit_die is always sticky
 			Debug dbg;
+			FrameSection *p_fs;
 			Dwarf_Off current_cu_offset; // 0 means none
 			::Elf *returned_elf;
+			
+			FrameSection&       get_frame_section()       { assert(p_fs); return *p_fs; }
+			const FrameSection& get_frame_section() const { assert(p_fs); return *p_fs; }
 
 			virtual ptr_type make_payload(const iterator_base& it)/* = 0*/;
 			virtual bool is_sticky(const abstract_die& d) /* = 0*/;
 			
 		public:
-			root_die(int fd) : dbg(fd), current_cu_offset(0UL), returned_elf(nullptr) {}
+			root_die(int fd);
+			virtual ~root_die(); 
 			// we don't provide this constructor because sharing the CU state is a bad idea
 			//root_die(lib::file& f) : dbg(f.dbg), current_cu_offset
 		

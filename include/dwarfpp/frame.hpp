@@ -13,6 +13,7 @@
 #include <vector>
 #include <queue>
 #include <cassert>
+#include <elf.h>
 #include <boost/optional.hpp>
 #include <boost/icl/interval_map.hpp>
 #include <boost/iterator/transform_iterator.hpp>
@@ -70,6 +71,8 @@ namespace dwarf
 			typedef boost::transform_iterator< cie_transformer_t, Dwarf_Cie *, Cie, Cie > cie_iterator;
 			
 			const Debug& get_dbg() const { return dbg; }
+			::Elf *get_elf() const; // don't rely on these!
+			int get_elf_machine() const;
 			
 			inline fde_iterator fde_begin() const;
 			inline fde_iterator fde_end() const;
@@ -477,11 +480,14 @@ namespace dwarf
 			Dwarf_Addr hipc;
 			Dwarf_Fde fde;
 			int ret = dwarf_get_fde_at_pc(fde_data, pc, &fde, &lopc, &hipc, &core::current_dwarf_error);
+			if (ret == DW_DLV_NO_ENTRY) return fde_end();
 			assert(ret == DW_DLV_OK);
 			auto found = std::find(fde_data, fde_data + fde_element_count, fde);
 			assert(found != fde_data + fde_element_count);
-			assert(lopc == Fde(*this, fde).get_low_pc());
-			assert(hipc - lopc == Fde(*this, fde).get_func_length());
+			// assert that this FDE's range is consistent with what we asked for
+			Fde f(*this, fde);
+			assert(lopc >= f.get_low_pc() && lopc <  f.get_low_pc() + f.get_func_length());
+			assert(hipc >= f.get_low_pc() && hipc <= f.get_low_pc() + f.get_func_length());
 			return fde_iterator(found, fde_transformer);
 		}
 		inline FrameSection::cie_iterator Cie::iterator_here() const

@@ -10,6 +10,7 @@
 #include "dwarfpp/encap.hpp" // re-use some formatting logic in encap, for convenience
 	// FIXME: flip the above around, so that the formatting logic is in here!
 #include "dwarfpp/expr.hpp" /* for absolute_loclist_to_additive_loclist */
+#include "dwarfpp/frame.hpp"
 
 #include <sstream>
 #include <libelf.h>
@@ -168,6 +169,12 @@ namespace dwarf
 			}
 			return encap::attribute_value(); // a.k.a. a NO_ATTR-valued attribute_value
 		}
+		
+		root_die::root_die(int fd)
+		 : dbg(fd), p_fs(new FrameSection(get_dbg(), true)), current_cu_offset(0UL), returned_elf(nullptr) 
+		{ assert(p_fs != 0); }
+		
+		root_die::~root_die() { delete p_fs; }
 		
 		::Elf *root_die::get_elf()
 		{
@@ -406,7 +413,7 @@ namespace dwarf
 					
 					assert(first_cu_offset);
 					assert(current_cu_offset == *first_cu_offset
-					 ||    current_cu_offset == *prev_next_cu_header + *first_cu_offset);
+					 ||    current_cu_offset == (*prev_next_cu_header) + *first_cu_offset);
 				}
 				
 				return true;
@@ -2551,8 +2558,24 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					<< ": " << *this << endl;
 				throw No_entry();
 			}
+			
+			auto& loclist = attrs.find(DW_AT_location)->second.get_loclist();
+			auto intervals = loclist.intervals();
+			assert(intervals.begin() != intervals.end());
+			auto first_interval = intervals.begin();
+			auto last_interval = intervals.end(); --last_interval;
+			encap::loc_expr fb_loc_expr((Dwarf_Unsigned[]) { DW_OP_plus_uconst, frame_base_addr }, 
+					first_interval->lower(), last_interval->upper());
+			encap::loclist fb_loclist(fb_loc_expr);
+			
+			auto rewritten_loclist = encap::rewrite_loclist_in_terms_of_cfa(
+				loclist, 
+				r.get_frame_section(),
+				fb_loclist
+			);
+			
 			return (Dwarf_Addr) dwarf::lib::evaluator(
-				attrs.find(DW_AT_location)->second.get_loclist(),
+				loclist,
 				dieset_relative_ip // needs to be CU-relative
 				 - dieset_relative_cu_base_ip,
 				found.spec_here(),
