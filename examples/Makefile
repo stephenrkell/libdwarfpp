@@ -38,7 +38,7 @@ test: dwarfppdump
 dwarfpplibdump: dwarfpplibdump.o ../src/libdwarfpp.a
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) \
 	-Wl,-R$(realpath ../src) \
-	-o "$@" "$<" ../src/libdwarfpp.a -ldwarf -lelf -lsrk31c++ -lboost_regex -lc++fileno
+	-o "$@" "$<" ../src/libdwarfpp.a -ldwarf -lelf -lsrk31c++ -lboost_regex -lboost_system -lboost_serialization -lc++fileno
 
 
 

@@ -972,8 +972,9 @@ namespace dwarf
 			
 			map< boost::icl::discrete_interval<Dwarf_Addr>, loc_expr> loclist_intervals;
 			
-			for (auto i_loc_expr = l.begin();	
-				i_loc_expr != l.end();
+			loclist copied_l = l;
+			for (auto i_loc_expr = copied_l.begin();	
+				i_loc_expr != copied_l.end();
 				++i_loc_expr)
 			{
 				/* Does this expr contain any bregn opcodes? If not, we 
@@ -1073,6 +1074,7 @@ namespace dwarf
 							else
 							{
 								int regnum = i_op->lr_atom - DW_OP_breg0;
+								Dwarf_Signed regoff = static_cast<Dwarf_Signed>(i_op->lr_number);
 
 								// define a weight map that gives equal weight to every edge
 								weight_map_t w;
@@ -1177,8 +1179,12 @@ namespace dwarf
 								{
 									cerr << "Found that in vaddr range " 
 										<< std::hex << row_overlap_interval << std::dec 
-										<< " we can rewrite DW_OP_breg" << regnum << " in " << copied_loc_expr
-										<< " with CFA" << std::showpos << sum_of_differences << endl;
+										<< " we can rewrite DW_OP_breg" << (unsigned) regnum 
+										<< " " << std::showpos << regoff << std::noshowpos
+										<< " in " << copied_loc_expr
+										<< " with CFA" << std::showpos << sum_of_differences << std::noshowpos 
+										<< " " << std::showpos << regoff << std::noshowpos
+										<< endl;
 									for (auto i_edge = path_edges.rbegin(); i_edge != path_edges.rend(); ++i_edge)
 									{
 										auto reg_name = [&](int regnum) -> const char * {
@@ -1186,8 +1192,24 @@ namespace dwarf
 											else return dwarf_regnames_for_elf_machine(fs.get_elf_machine())[regnum];
 										};
 										cerr << reg_name(i_edge->from_reg) 
-											<< std::showpos << i_edge->difference 
+											<< std::showpos << i_edge->difference << std::noshowpos
 											<< " == " << reg_name(i_edge->to_reg) << endl;
+									}
+									
+									/* Does this rewrite cover the whole range of the current locexpr? 
+									 * If not, we need to split it. */
+									auto pre_interval = right_subtract(loc_expr_int, row_overlap_interval);
+									auto post_interval = left_subtract(loc_expr_int, row_overlap_interval);
+									if (pre_interval.lower() != pre_interval.upper())
+									{
+										// insert a pre-interval after us in the loclist
+										// (YES, sic -- we don't have to be in order)
+										i_loc_expr = copied_l.insert(i_loc_expr + 1, copied_loc_expr) - 1;
+									}
+									if (post_interval.lower() != post_interval.upper())
+									{
+										// insert a post-interval after us in the loclist
+										i_loc_expr = copied_l.insert(i_loc_expr + 1, copied_loc_expr) - 1;
 									}
 
 									// erase it!
@@ -1226,7 +1248,7 @@ namespace dwarf
 									};
 									i_op = out_iter.get_iter();
 									// rewriting done!
-									cerr << "Rewritten loc expr is " << copied_loc_expr;
+									cerr << "Rewritten loc expr is " << copied_loc_expr << endl;
 									assert(i_op >= copied_loc_expr.begin());
 									assert(i_op <= copied_loc_expr.end());
 									// do a special increment: point i_op after out_iter
@@ -1234,10 +1256,15 @@ namespace dwarf
 									// continue without the usual increment
 									continue;
 								} // end if found_path
-							}
+							} // else else is-a-breg
 						continue_loop:
 							++i_op;
 						} // end for i_op
+						
+						/* We've rewritten the instruction stream, but what about the 
+						 * lopc/hipc metadata? We will discard this and rebuild it using
+						 * the intervals in loclist_intervals when we do the write-out
+						 * at the end. */
 						
 						loclist_intervals[row_overlap_interval] = copied_loc_expr;
 					} // end for row
@@ -1249,13 +1276,22 @@ namespace dwarf
 
 				// FIXME: CHECK for unoverlapped subintervals of this loc expr's interval!
 				
-			}
+			} // end for loc_expr
 			 
 
 			/* What about fbreg? It is just another node (with definition providing the edges)
 			 */
-
-			return l; // FIXME
+			
+			// build a new loclist out of loclist_intervals
+			loclist fresh_l;
+			for (auto i_int = loclist_intervals.begin(); i_int != loclist_intervals.end(); ++i_int)
+			{
+				auto expr = i_int->second;
+				expr.lopc = i_int->first.lower();
+				expr.hipc = i_int->first.upper();
+				fresh_l.push_back(expr);
+			}
+			return fresh_l;
 		}
 		
 		pair<

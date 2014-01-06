@@ -1383,6 +1383,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
             boost::optional<std::string> error_detail;
 			while (i != expr.end())
 			{
+				// FIXME: be more descriminate -- do we want to propagate valueness? probably not
+				tos_is_value = false;
 				switch(i->lr_atom)
 				{
 					case DW_OP_const1u:
@@ -1404,6 +1406,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
                         m_stack.pop();
                         m_stack.push(tos + i->lr_number);
                     } break;
+					case DW_OP_plus: {
+						int arg1 = m_stack.top(); m_stack.pop();
+						int arg2 = m_stack.top(); m_stack.pop();
+						m_stack.push(arg1 + arg2);
+					} break;
                     case DW_OP_fbreg: {
                     	if (!frame_base) goto logic_error;
                         m_stack.push(*frame_base + i->lr_number);
@@ -1535,9 +1542,10 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						break;
 					case DW_OP_stack_value:
 						/* This means that the object has no address, but that the 
-						 * DWARF evaluator has just computed its *value*. We don't
-						 * support this for now, and treat it just like missing regs. */
-						throw No_entry();
+						 * DWARF evaluator has just computed its *value*. We record
+						 * this. */
+						tos_is_value = true;
+						break;
 					case DW_OP_deref_size:
 					case DW_OP_deref:
 						/* FIXME: we can do this one if we have p_mem analogous to p_regs. */
@@ -2577,9 +2585,10 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				r.get_frame_section(),
 				fb_loclist
 			);
+			cerr << "After rewriting, loclist is " << rewritten_loclist << endl;
 			
 			return (Dwarf_Addr) dwarf::lib::evaluator(
-				loclist,
+				rewritten_loclist,
 				dieset_relative_ip // needs to be CU-relative
 				 - dieset_relative_cu_base_ip,
 				found.spec_here(),

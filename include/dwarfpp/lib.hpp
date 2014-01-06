@@ -1468,6 +1468,7 @@ end_class(type)
 			Dwarf_Off dieset_relative_ip,
 			dwarf::lib::regs *p_regs = 0) const;
 	public:
+		virtual bool location_requires_object_base() const = 0; 
 
 		/* virtual Dwarf_Addr calculate_addr(
 			Dwarf_Signed frame_base_addr,
@@ -1497,6 +1498,7 @@ begin_class(with_data_members, base_initializations(initialize_base(type)), decl
 end_class(with_data_members)
 
 #define has_stack_based_location \
+	bool location_requires_object_base() const { return false; } \
 	opt<Dwarf_Off> spans_addr( \
                     Dwarf_Addr aa, \
                     Dwarf_Signed fb, \
@@ -1512,6 +1514,7 @@ end_class(with_data_members)
 				{ return calculate_addr_on_stack(fb, r, dr_ip, p_regs); } \
 	encap::loclist get_dynamic_location(optional_root_arg_decl) const;
 #define has_object_based_location \
+	bool location_requires_object_base() const { return true; } \
 	opt<Dwarf_Off> spans_addr( \
                     Dwarf_Addr aa, \
                     Dwarf_Signed io, \
@@ -2940,12 +2943,13 @@ friend class factory;
 			vector<Dwarf_Loc> expr;
 			const ::dwarf::spec::abstract_def& spec;
 			regs *p_regs; // optional set of register values, for DW_OP_breg*
+			bool tos_is_value; // whether we saw a DW_OP_stack_value hence have calculated a value not an addr
 			boost::optional<Dwarf_Signed> frame_base;
 			vector<Dwarf_Loc>::iterator i;
 			void eval();
 		public:
 			evaluator(const vector<unsigned char> expr, 
-				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0)
+				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0), tos_is_value(false)
 			{
 				//i = expr.begin();
 				assert(false);
@@ -2960,7 +2964,7 @@ friend class factory;
 			evaluator(const vector<Dwarf_Loc>& loc_desc,
 				const ::dwarf::spec::abstract_def& spec,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(0)
+				: m_stack(initial_stack), spec(spec), p_regs(0), tos_is_value(false)
 			{
 				expr = loc_desc;
 				i = expr.begin();
@@ -2971,7 +2975,7 @@ friend class factory;
 				regs& regs,
 				Dwarf_Signed frame_base,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(&regs)
+				: m_stack(initial_stack), spec(spec), p_regs(&regs), tos_is_value(false)
 			{
 				expr = loc_desc;
 				i = expr.begin();
@@ -2983,7 +2987,7 @@ friend class factory;
 				const ::dwarf::spec::abstract_def& spec,
 				Dwarf_Signed frame_base,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(0)
+				: m_stack(initial_stack), spec(spec), p_regs(0), tos_is_value(false)
 			{
 				//if (av.get_form() != dwarf::encap::attribute_value::LOCLIST) throw "not a DWARF expression";
 				//if (av.get_loclist().size() != 1) throw "only support singleton loclists for now";			
@@ -2995,6 +2999,11 @@ friend class factory;
 			}
 			
 			Dwarf_Unsigned tos() const { return m_stack.top(); }
+			Dwarf_Unsigned tos(bool may_be_value) const { // FIXME: more complete+orthogonal interface
+				if (may_be_value) return m_stack.top();
+				if (!tos_is_value && !may_be_value) return m_stack.top();
+				throw No_entry();
+			}
 			bool finished() const { return i == expr.end(); }
 			Dwarf_Loc current() const { return *i; }
 		};

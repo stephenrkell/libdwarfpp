@@ -32,7 +32,7 @@ namespace dwarf
 			regs *p_regs,
 			boost::optional<Dwarf_Signed> frame_base,
 			const std::stack<Dwarf_Unsigned>& initial_stack)
-		: m_stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
+		: m_stack(initial_stack), spec(spec), p_regs(p_regs), tos_is_value(false), frame_base(frame_base)
 		{
 			// sanity check while I suspect stack corruption
 			assert(vaddr < 0x00008000000000ULL
@@ -206,9 +206,14 @@ namespace dwarf
             }
             throw No_entry(); // bogus vaddr
         }
+		
+		// FIXME: what was the point of this method? It's some kind of normalisation
+		// so that everything takes the form of adding to a pre-pushed base address. 
+		// But why? Who needs it?
 		loclist absolute_loclist_to_additive_loclist(const loclist& l)
 		{
-			/* Total HACK, for now: just rewrite DW_OP_fbreg to DW_OP_plus_uconst. */
+			/* Total HACK, for now: just rewrite DW_OP_fbreg to { DW_OP_consts(n), DW_OP_plus },
+			 * i.e. assume the stack pointer is already pushed. */
 			loclist new_ll = l;
 			for (auto i_l = new_ll.begin(); i_l != new_ll.end(); ++i_l)
 			{
@@ -216,7 +221,11 @@ namespace dwarf
 				{
 					if (i_instr->lr_atom == DW_OP_fbreg)
 					{
-						i_instr->lr_atom = DW_OP_plus_uconst;
+						i_instr->lr_atom = DW_OP_consts; // leave argument the same
+						// skip i_instr along one (might now be at end())
+						++i_instr;
+						// insert the plus, and leave i_instr pointing at it
+						i_instr = i_l->insert(i_instr, (Dwarf_Loc) { DW_OP_plus });
 					}
 				}
 			}
