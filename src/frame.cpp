@@ -189,7 +189,6 @@ namespace dwarf
 			);
 		}
 		
-
 		frame_instrlist::frame_instrlist(const core::Cie& cie, int addrlen, const pair<unsigned char*, unsigned char*>& seq, bool use_host_byte_order /* = true */)
 		{
 			// unsigned char *instrs_start = seq.first;
@@ -333,6 +332,14 @@ namespace dwarf
 	}
 	namespace core
 	{
+		using dwarf::encap::read_8byte_le;
+		using dwarf::encap::read_4byte_le;
+		using dwarf::encap::read_2byte_le;
+		using dwarf::encap::read_8byte_be;
+		using dwarf::encap::read_4byte_be;
+		using dwarf::encap::read_2byte_be;
+		using dwarf::encap::read_2byte_be;
+	
 		::Elf *FrameSection::get_elf() const
 		{
 			lib::Elf_opaque_in_libdwarf *e;
@@ -356,7 +363,7 @@ namespace dwarf
 			 * We want to generate the key-value mappings as 
 			 * we go along, and return an iterator to a pair. */
 		
-			auto augbytes = get_augmentation_bytes();
+			auto& augbytes = get_augmentation_bytes();
 			assert(sizeof(Dwarf_Small) == 1);
 			auto i_byte = augbytes.begin();
 			string augstring = get_augmenter();
@@ -485,29 +492,35 @@ namespace dwarf
 		{
 			if (encoding == 0xff) return 0; // skip
 			
+			unsigned char const *tmp_bytes = bytes;
+			/*Dwarf_Unsigned ret = */ read_with_encoding(encoding, &tmp_bytes, limit, true); // FIXME: use target byte-order, not host
+			return tmp_bytes - bytes;
+		}
+		
+		Dwarf_Unsigned 
+		Cie::read_with_encoding(unsigned char encoding, unsigned char const **pos, unsigned char const *limit, bool use_host_byte_order) const
+		{
+			bool read_be = host_is_little_endian() ^ use_host_byte_order;
+			
+			if (encoding == 0xff) return 0; // skip
+			
 			switch (encoding & ~0xf0) // low-order bytes only
 			{
 				case DW_EH_PE_absptr:
-					return get_address_size();
+					if (get_address_size() == 8) goto udata8;
+					else { assert(get_address_size() == 4); goto udata4; }
 				case DW_EH_PE_omit: assert(false); // handled above
-				case DW_EH_PE_uleb128: {
-					unsigned char const *pos = bytes;
-					encap::read_uleb128(&pos, limit);
-					return pos - bytes;
-				}
-				case DW_EH_PE_udata2: return 2;
-				case DW_EH_PE_udata4: return 4;
-				case DW_EH_PE_udata8: return 8;
+				case DW_EH_PE_uleb128: return encap::read_uleb128(pos, limit);
+				/* udata2 */ case DW_EH_PE_udata2: return (read_be ? read_2byte_be : read_2byte_le)(pos, limit);
+				udata4:      case DW_EH_PE_udata4: return (read_be ? read_4byte_be : read_4byte_le)(pos, limit);
+				udata8:      case DW_EH_PE_udata8: return (read_be ? read_8byte_be : read_8byte_le)(pos, limit);
 				case /* DW_EH_PE_signed */ 0x8: 
-					return get_address_size();
-				case DW_EH_PE_sleb128: {
-					unsigned char const *pos = bytes;
-					encap::read_sleb128(&pos, limit);
-					return pos - bytes;
-				}
-				case DW_EH_PE_sdata2: return 2;
-				case DW_EH_PE_sdata4: return 4;
-				case DW_EH_PE_sdata8: return 8;
+					if (get_address_size() == 8) goto sdata8;
+					else { assert(get_address_size() == 4); goto sdata4; }
+				case DW_EH_PE_sleb128: return encap::read_sleb128(pos, limit);
+				/* sdata2 */ case DW_EH_PE_sdata2: return (read_be ? read_2byte_be : read_2byte_le)(pos, limit);
+				sdata4:      case DW_EH_PE_sdata4: return (read_be ? read_4byte_be : read_4byte_le)(pos, limit);
+				sdata8:      case DW_EH_PE_sdata8: return (read_be ? read_8byte_be : read_8byte_le)(pos, limit);
 				
 				default: goto unsupported_for_now;
 				
@@ -542,45 +555,58 @@ namespace dwarf
 			pos += owner.is_64bit ? 12 : 4;
 			pos += 4; // id is always 32 bits
 			
-			// skip the FDE starting address
-			unsigned encoding_nbytes = cie.encoding_nbytes(cie.get_fde_encoding(), pos, instrs_start);
-			pos += encoding_nbytes;
-	
-			// look for the augmentation length-in-bytes
+			// skip the FDE starting address // FIXME: is it safe to call get_fde_encoding() here?
+			unsigned startaddr_encoded_nbytes = cie.encoding_nbytes(cie.get_fde_encoding(), pos, instrs_start);
+			pos += startaddr_encoded_nbytes;
+			
+			// read the FDE length-in-bytes and sanity-check
+			// const unsigned char *pos_saved = pos;
+			Dwarf_Unsigned fde_length = cie.read_with_encoding(cie.get_fde_encoding(), &pos, instrs_start, true); // FIXME: use target byte-order, not host
+			// unsigned fde_length_encoded_length = pos - pos_saved;
+			assert(fde_length == get_func_length());
+			
+			// read the augmentation length, if present
 			string aug_string(cie.get_augmenter());
-			Dwarf_Unsigned expected_data_length;
+			Dwarf_Unsigned augmentation_length;
 			if (aug_string.length() > 0 && aug_string.at(0) == 'z')
 			{
 				// read a uleb128
-				expected_data_length = encap::read_uleb128(&pos, instrs_start);
+				augmentation_length = encap::read_uleb128(&pos, instrs_start);
 			}
 			else
 			{
-				expected_data_length = 0;
+				augmentation_length = 0;
 			}
 			
 			while (pos < instrs_start) augbytes.push_back(*pos++);
-			assert(augbytes.size() == expected_data_length);
+			assert(augbytes.size() == augmentation_length);
+		}
+		
+		Dwarf_Unsigned Fde::get_lsda_pointer() const
+		{
+			// NOTE: the LSDA pointer is included in the augmentation bytes
 
-/*
-			unsigned encoding2 = *pos++;
-			unsigned encoding2_nbytes = cie.encoding_nbytes(encoding2, pos, instrs_start);
-			pos += encoding2_nbytes;
+			unsigned char const *pos = &*get_augmentation_bytes().begin();
+			unsigned char const *end = &*get_augmentation_bytes().end();
+			const core::Cie& cie = *find_cie();
 			
-			// skip the LSDA encoding
-			// "If the CIE does not specify DW_EH_PE_omit as the LSDA encoding, 
-			// the FDE next has a pointer to the LSDA, encoded as specified by the CIE. 
+			/* "If the CIE does not specify DW_EH_PE_omit as the LSDA encoding, 
+			 * the FDE next has a pointer to the LSDA, encoded as specified by the CIE. */
+			// NOTE: LSDA pointer can apparently be omitted implicitly by no-more-bytes
 			auto found_lsda = cie.find_augmentation_element('L');
-			if (found_lsda == cie.get_augmentation_bytes().end())
+			if (pos == end)
+			{
+				// assume implicitly omitted, so do nothing
+				return 0;
+			}
+			else if (found_lsda == cie.get_augmentation_bytes().end())
 			{
 				// assume the default, which is DW_EH_absptr
-				pos += cie.encoding_nbytes(DW_EH_PE_absptr, nullptr, nullptr);
+				return cie.read_with_encoding(DW_EH_PE_absptr, nullptr, nullptr, true); // HACK
 			} else {
 				// do what it says
-				pos += cie.encoding_nbytes(*found_lsda, pos, instrs_start);
+				return cie.read_with_encoding(*found_lsda, &pos, end, true); // HACK: use target encoding
 			}
-			*/
-			
 		}
 		
 		FrameSection::instrs_results
@@ -1036,145 +1062,184 @@ namespace dwarf
 
 						/* For each breg, see if we can find a path to the CFA. */
 						bool success = true;
-						for (auto i_op = i_loc_expr->begin(); i_op != i_loc_expr->end(); ++i_op)
+						auto copied_loc_expr = *i_loc_expr;
+						auto i_op = copied_loc_expr.begin();
+						while (i_op != copied_loc_expr.end())
 						{
 							if (!(i_op->lr_atom >= DW_OP_breg0 && i_op->lr_atom <= DW_OP_breg31))
 							{
-								continue;
+								goto continue_loop;
 							}
-							int regnum = i_op->lr_atom - DW_OP_breg0;
-
-							// define a weight map that gives equal weight to every edge
-							weight_map_t w;
-
-							std::map<graph_traits<decltype(g)>::vertex_descriptor, graph_traits<decltype(g)>::vertex_descriptor> vertex_to_predecessor;
-							boost::associative_property_map< decltype(vertex_to_predecessor) >
-							  p(vertex_to_predecessor);
-
-							std::map<graph_traits<decltype(g)>::vertex_descriptor, int> vertex_to_distance;
-							boost::associative_property_map< decltype(vertex_to_distance) >
-							  d(vertex_to_distance);
-
-							std::map<graph_traits<decltype(g)>::vertex_descriptor, int> vertex_to_index;
-							std::map<int, graph_traits<decltype(g)>::vertex_descriptor> index_to_vertex;
-							int max_issued_index = -1;
-							for (auto i_edge = g.begin(); i_edge != g.end(); ++i_edge)
+							else
 							{
+								int regnum = i_op->lr_atom - DW_OP_breg0;
+
+								// define a weight map that gives equal weight to every edge
+								weight_map_t w;
+
+								std::map<graph_traits<decltype(g)>::vertex_descriptor, graph_traits<decltype(g)>::vertex_descriptor> vertex_to_predecessor;
+								boost::associative_property_map< decltype(vertex_to_predecessor) >
+								  p(vertex_to_predecessor);
+
+								std::map<graph_traits<decltype(g)>::vertex_descriptor, int> vertex_to_distance;
+								boost::associative_property_map< decltype(vertex_to_distance) >
+								  d(vertex_to_distance);
+
+								std::map<graph_traits<decltype(g)>::vertex_descriptor, int> vertex_to_index;
+								std::map<int, graph_traits<decltype(g)>::vertex_descriptor> index_to_vertex;
+								int max_issued_index = -1;
+								for (auto i_edge = g.begin(); i_edge != g.end(); ++i_edge)
 								{
-									int source = i_edge->second.from_reg;
-									if (vertex_to_index.find(source) == vertex_to_index.end())
-									{ index_to_vertex[++max_issued_index] = source;
-									  vertex_to_index[source] = max_issued_index; }
+									{
+										int source = i_edge->second.from_reg;
+										if (vertex_to_index.find(source) == vertex_to_index.end())
+										{ index_to_vertex[++max_issued_index] = source;
+										  vertex_to_index[source] = max_issued_index; }
+									}
+									{
+										int target = i_edge->second.to_reg;
+										if (vertex_to_index.find(target) == vertex_to_index.end())
+										{ index_to_vertex[++max_issued_index] = target;
+										  vertex_to_index[target] = max_issued_index; }
+									}
 								}
+								boost::associative_property_map< decltype(vertex_to_index) >
+								  i(vertex_to_index);
+
+								dijkstra_shortest_paths(g, 
+									/* start at CFA */ DW_FRAME_CFA_COL3,
+									predecessor_map(p).
+									distance_map(d).
+									weight_map(w).
+									vertex_index_map(i)
+								);
+
+								// build path by following  predecessors from the target vertex, a.k.a. regnum
+								bool found_path = false;
+								// we walk a path from target reg to CFA, to solve for x in
+								//    regs[regnum] == CFA + x
+								// ... but edges hold from->to differences, i.e. CFA->...->regnum deltas.
+								// So we are collecting the right differences, but in reverse order.
+								auto index_for_vertex = [&](int regnum) -> int {
+									auto found = vertex_to_index.find(regnum);
+									if (found != vertex_to_index.end()) return found->second;
+									else return -1;
+								};
+								auto vertex_for_index = [&](int index) -> int {
+									auto found = index_to_vertex.find(index);
+									if (found != index_to_vertex.end()) return found->second;
+									else return -1;
+								};
+								auto pos = index_for_vertex(regnum);
+								int sum_of_differences = 0;
+								vector<register_edge> path_edges;
+
+								auto predecessor_of_index = [&] (int index) -> int {
+									auto vertex = vertex_for_index(index);
+									auto found = vertex_to_predecessor.find(vertex);
+									if (found != vertex_to_predecessor.end())
+									{
+										int pred_vertex = found->second;
+										return index_for_vertex(pred_vertex);
+									}
+									return -1;
+								};
+
+								// pos is an index, but p maps vertices to vertices!
+								while (pos >= 0)
 								{
-									int target = i_edge->second.to_reg;
-									if (vertex_to_index.find(target) == vertex_to_index.end())
-									{ index_to_vertex[++max_issued_index] = target;
-									  vertex_to_index[target] = max_issued_index; }
+									if (pos == index_for_vertex(DW_FRAME_CFA_COL3))
+									{
+										found_path = true;
+										break;
+									}
+									else if (predecessor_of_index(pos) >= 0)
+									{
+										auto found_edge = std::find_if(g.begin(), g.end(), [&](const register_graph::value_type& arg) -> bool {
+											return arg.second.from_reg == vertex_for_index(predecessor_of_index(pos))
+												&& arg.second.to_reg == vertex_for_index(pos);
+										});
+										assert(found_edge != g.end());
+										path_edges.push_back(found_edge->second);
+
+										sum_of_differences += found_edge->second.difference;
+
+									} // else we have no predecessor, so failed to find a path...
+									// we will terminate at the head of the next iteration
+
+									pos = predecessor_of_index(pos);
 								}
-							}
-							boost::associative_property_map< decltype(vertex_to_index) >
-							  i(vertex_to_index);
 
-							dijkstra_shortest_paths(g, 
-								/* start at CFA */ DW_FRAME_CFA_COL3,
-								predecessor_map(p).
-								distance_map(d).
-								weight_map(w).
-								vertex_index_map(i)
-							);
+								// if we found a path, we keep going
+								success &= found_path;
 
-							// build path by following  predecessors from the target vertex, a.k.a. regnum
-							bool found_path = false;
-							// we walk a path from target reg to CFA, to solve for x in
-							//    regs[regnum] == CFA + x
-							// ... but edges hold from->to differences, i.e. CFA->...->regnum deltas.
-							// So we are collecting the right differences, but in reverse order.
-							auto index_for_vertex = [&](int regnum) -> int {
-								auto found = vertex_to_index.find(regnum);
-								if (found != vertex_to_index.end()) return found->second;
-								else return -1;
-							};
-							auto vertex_for_index = [&](int index) -> int {
-								auto found = index_to_vertex.find(index);
-								if (found != index_to_vertex.end()) return found->second;
-								else return -1;
-							};
-							auto pos = index_for_vertex(regnum);
-							int sum_of_differences = 0;
-							vector<register_edge> path_edges;
-							
-							auto predecessor_of_index = [&] (int index) -> int {
-								auto vertex = vertex_for_index(index);
-								auto found = vertex_to_predecessor.find(vertex);
-								if (found != vertex_to_predecessor.end())
+								if (found_path)
 								{
-									int pred_vertex = found->second;
-									return index_for_vertex(pred_vertex);
-								}
-								return -1;
-							};
-							
-							// pos is an index, but p maps vertices to vertices!
-							while (pos >= 0)
-							{
-								if (pos == index_for_vertex(DW_FRAME_CFA_COL3))
-								{
-									found_path = true;
-									break;
-								}
-								else if (predecessor_of_index(pos) >= 0)
-								{
-									auto found_edge = std::find_if(g.begin(), g.end(), [&](const register_graph::value_type& arg) -> bool {
-										return arg.second.from_reg == vertex_for_index(predecessor_of_index(pos))
-											&& arg.second.to_reg == vertex_for_index(pos);
-									});
-									assert(found_edge != g.end());
-									path_edges.push_back(found_edge->second);
+									cerr << "Found that in vaddr range " 
+										<< std::hex << row_overlap_interval << std::dec 
+										<< " we can rewrite DW_OP_breg" << regnum << " in " << copied_loc_expr
+										<< " with CFA" << std::showpos << sum_of_differences << endl;
+									for (auto i_edge = path_edges.rbegin(); i_edge != path_edges.rend(); ++i_edge)
+									{
+										auto reg_name = [&](int regnum) -> const char * {
+											if (regnum == DW_FRAME_CFA_COL3) return "CFA";
+											else return dwarf_regnames_for_elf_machine(fs.get_elf_machine())[regnum];
+										};
+										cerr << reg_name(i_edge->from_reg) 
+											<< std::showpos << i_edge->difference 
+											<< " == " << reg_name(i_edge->to_reg) << endl;
+									}
 
-									sum_of_differences += found_edge->second.difference;
-
-								} // else we have no predecessor, so failed to find a path...
-								// we will terminate at the head of the next iteration
-								
-								pos = predecessor_of_index(pos);
-							}
-
-							// if we found a path, we keep going
-							success &= found_path;
-
-							if (found_path)
-							{
-								cerr << "Found that in vaddr range " 
-									<< std::hex << row_overlap_interval << std::dec 
-									<< " we can rewrite DW_OP_breg" << regnum << " in " << *i_loc_expr
-									<< " with CFA" << std::showpos << sum_of_differences << endl;
-								for (auto i_edge = path_edges.rbegin(); i_edge != path_edges.rend(); ++i_edge)
-								{
-									auto reg_name = [=](int regnum) -> const char * {
-										if (regnum == DW_FRAME_CFA_COL3) return "CFA";
-										else return dwarf_regnames_for_elf_machine(fs.get_elf_machine())[regnum];
+									// erase it!
+									Dwarf_Signed reg_offset = (Dwarf_Signed) i_op->lr_number;
+									unsigned size_before_erase = copied_loc_expr.size();
+									i_op = copied_loc_expr.erase(i_op);
+									assert(copied_loc_expr.size() == size_before_erase - 1);
+									/* 
+									 * now i_op points to "the new location of the element that followed 
+									 * the last element erased by the function call", which is "the container 
+									 * end if the operation erased the last element in the sequence".
+									 */
+									// HACK: I think I'm supposed to use vector::insert directly
+									struct my_output_iter : public std::insert_iterator<dwarf::encap::loc_expr>
+									{
+										using insert_iterator::insert_iterator;
+										dwarf::encap::loc_expr::iterator get_iter() const { return iter; }
+									} out_iter(/*std::inserter(*/copied_loc_expr, i_op/*)*/);
+									*out_iter = (expr_instr) {
+										.lr_atom = DW_OP_call_frame_cfa,
+										.lr_number = 0,
+										.lr_number2 = 0,
+										.lr_offset = 0
 									};
-									cerr << reg_name(i_edge->from_reg) 
-										<< std::showpos << i_edge->difference 
-										<< " == " << reg_name(i_edge->to_reg) << endl;
-								}
+									*out_iter = (expr_instr) {
+										.lr_atom = DW_OP_consts,
+										.lr_number = (Dwarf_Unsigned) (sum_of_differences + reg_offset),
+										.lr_number2 = 0,
+										.lr_offset = 0
+									};
+									*out_iter = (expr_instr) {
+										.lr_atom = DW_OP_plus,
+										.lr_number = 0,
+										.lr_number2 = 0,
+										.lr_offset = 0
+									};
+									i_op = out_iter.get_iter();
+									// rewriting done!
+									cerr << "Rewritten loc expr is " << copied_loc_expr;
+									assert(i_op >= copied_loc_expr.begin());
+									assert(i_op <= copied_loc_expr.end());
+									// do a special increment: point i_op after out_iter
+									// i_op = out_iter; // can't do this, so inserted incs above
+									// continue without the usual increment
+									continue;
+								} // end if found_path
 							}
-						}
-
-						auto rewritten_loc_expr = *i_loc_expr; // FIXME
-
-						if (success)
-						{
-							// add the rewritten entry to our interval map
-							loclist_intervals[row_overlap_interval] = rewritten_loc_expr;
-						} 
-						else 
-						{
-							// add the old entry to our interval map
-							loclist_intervals[row_overlap_interval] = *i_loc_expr;
-						}
-
+						continue_loop:
+							++i_op;
+						} // end for i_op
+						
+						loclist_intervals[row_overlap_interval] = copied_loc_expr;
 					} // end for row
 
 					prev_fde_lopc = fde_lopc;

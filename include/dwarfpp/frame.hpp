@@ -67,6 +67,8 @@ namespace dwarf
 				inline Cie operator()(Dwarf_Cie cie) const;
 			} cie_transformer;
 			
+			// transformers operate on the value, 
+			// but the second type argument is the *iterator*
 			typedef boost::transform_iterator< fde_transformer_t, Dwarf_Fde *, Fde, Fde > fde_iterator;
 			typedef boost::transform_iterator< cie_transformer_t, Dwarf_Cie *, Cie, Cie > cie_iterator;
 			
@@ -90,6 +92,13 @@ namespace dwarf
 			inline fde_iterator end();
 
 			inline FrameSection(const Debug& dbg, bool use_eh = false);
+		
+		private:
+			// don't copy FrameSections
+			inline FrameSection(const FrameSection& arg)
+			: dbg(arg.dbg), fde_transformer(*this), cie_transformer(*this)
+			{ assert(false); }
+		public:
 			
 			virtual ~FrameSection()
 			{
@@ -219,12 +228,6 @@ namespace dwarf
 		{
 			friend struct FrameSection;
 			
-			/* libdwarf "methods" relevant to a CIE:
-			   
-			     dwarf_get_cie_info (claimed "internal-only")
-			     dwarf_get_cie_index (claimed "little used")
-			     dwarf_expand_frame_instructions (expensive? encap-like)
-			 */
 		private:
 			const FrameSection& owner; 
 			
@@ -261,7 +264,8 @@ namespace dwarf
 			std::vector<Dwarf_Small>::const_iterator find_augmentation_element(char marker) const;
 			int get_fde_encoding() const;
 			unsigned encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit) const;
-			const std::vector<Dwarf_Small>& get_augmentation_bytes() const { return augbytes; }
+			Dwarf_Unsigned  read_with_encoding(unsigned char encoding, unsigned char const **pos, unsigned char const *limit, bool use_host_byte_order) const;
+			std::vector<Dwarf_Small> const& get_augmentation_bytes() const { return augbytes; }
 			unsigned char get_address_size() const;
 			unsigned char get_segment_size() const;
 		private:
@@ -359,6 +363,7 @@ namespace dwarf
 			Dwarf_Ptr get_fde_bytes() const { return fde_bytes; }
 			Dwarf_Unsigned get_fde_byte_length() const { return fde_byte_length; }
 			const std::vector<Dwarf_Small>& get_augmentation_bytes() const { return augbytes; }
+			Dwarf_Unsigned get_lsda_pointer() const;
 		private:
 			void init_augmentation_bytes();
 		public:

@@ -1408,6 +1408,10 @@ case DW_TAG_ ## name: return &dummy_ ## name;
                     	if (!frame_base) goto logic_error;
                         m_stack.push(*frame_base + i->lr_number);
                     } break;
+                    case DW_OP_call_frame_cfa: {
+                    	if (!frame_base) goto logic_error;
+                        m_stack.push(*frame_base);
+                    } break;
                     case DW_OP_piece: {
                     	/* Here we do something special: leave the opcode iterator
                          * pointing at the piece argument, and return. This allow us
