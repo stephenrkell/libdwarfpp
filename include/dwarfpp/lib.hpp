@@ -2218,8 +2218,17 @@ friend class factory;
 			
 			Dwarf_Locdesc *raw_handle;
 			Dwarf_Signed listlen; // will be set to 1
+			/* libdwarf can fail here if it doesn't understand an opcode in the 
+			 * expression (e.g. vendor extensions). We tolerate it by passing
+			 * back null to the caller. */
 			ret = dwarf_loclist_from_expr(a.get_dbg(), block_ptr, exprlen, &raw_handle, &listlen, &current_dwarf_error);
-			assert(ret == DW_DLV_OK);
+			if (ret != DW_DLV_OK)
+			{
+				cerr << "Warning: libdwarf didn't understand DWARF expression in " //DIE 0x"
+					<< std::hex /*<< a.d.get_offset() << ", */ << "attribute " << DEFAULT_DWARF_SPEC.attr_lookup(a.attr_here()) << std::dec
+					<< endl;
+				return handle_type(nullptr, deleter(a.get_dbg()));
+			}
 			assert(listlen == 1);
 
 			return handle_type(raw_handle, deleter(a.get_dbg()));
@@ -2230,8 +2239,16 @@ friend class factory;
 		{
 			Dwarf_Locdesc *raw_handle;
 			Dwarf_Signed listlen; // will be set to 1
+			/* libdwarf can fail here if it doesn't understand an opcode in the 
+			 * expression (e.g. vendor extensions). We tolerate it by passing
+			 * back null to the caller. */
 			int ret = dwarf_loclist_from_expr(dbg, bytes_in, bytes_len, &raw_handle, &listlen, &current_dwarf_error);
-			assert(ret == DW_DLV_OK);
+			if (ret != DW_DLV_OK)
+			{
+				cerr << "Warning: libdwarf didn't understand DWARF expression from caller."
+					<< endl;
+				return handle_type(nullptr, deleter(dbg));
+			}
 			assert(listlen == 1);
 
 			return handle_type(raw_handle, deleter(dbg));
