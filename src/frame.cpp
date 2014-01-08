@@ -977,15 +977,18 @@ namespace dwarf
 				i_loc_expr != copied_l.end();
 				++i_loc_expr)
 			{
-				/* Does this expr contain any bregn opcodes? If not, we 
-				 * add it as-is. */
+				/* Always build loclist_intervals, assigning this loc_expr to this interval. 
+				 * We will reassign this mapping, as necessary, over any subintervals that 
+				 * we choose to rewrite. */
+				loclist_intervals[boost::icl::interval<Dwarf_Addr>::right_open(
+						i_loc_expr->lopc, 
+						i_loc_expr->hipc)] = *i_loc_expr;
+				/* Does this expr contain any bregn opcodes? If not, we don't need
+				 * to look for rewritings. */
 				if (std::find_if(i_loc_expr->begin(), i_loc_expr->end(), [](const expr_instr& arg) -> bool {
 					return arg.lr_atom >= DW_OP_breg0 && arg.lr_atom <= DW_OP_breg31;
 				}) == i_loc_expr->end())
 				{
-					loclist_intervals[boost::icl::interval<Dwarf_Addr>::right_open(
-							i_loc_expr->lopc, 
-							i_loc_expr->hipc)] = *i_loc_expr;
 					continue;
 				}
 				
@@ -1198,6 +1201,9 @@ namespace dwarf
 									
 									/* Does this rewrite cover the whole range of the current locexpr? 
 									 * If not, we need to split it. */
+									 /* NO we don't! We will find all row_overlap_intervals, and 
+									  * for those intervals over which the rewriting doesn't apply, 
+									  * we will have the original mapping in situ. 
 									auto pre_interval = right_subtract(loc_expr_int, row_overlap_interval);
 									auto post_interval = left_subtract(loc_expr_int, row_overlap_interval);
 									if (pre_interval.lower() != pre_interval.upper())
@@ -1211,6 +1217,7 @@ namespace dwarf
 										// insert a post-interval after us in the loclist
 										i_loc_expr = copied_l.insert(i_loc_expr + 1, copied_loc_expr) - 1;
 									}
+									*/
 
 									// erase it!
 									Dwarf_Signed reg_offset = (Dwarf_Signed) i_op->lr_number;
@@ -1279,8 +1286,8 @@ namespace dwarf
 			} // end for loc_expr
 			 
 
-			/* What about fbreg? It is just another node (with definition providing the edges)
-			 */
+			/* What about fbreg? It is just another node (with definition providing the edges).
+			 * HMM. FIXME. */
 			
 			// build a new loclist out of loclist_intervals
 			loclist fresh_l;
