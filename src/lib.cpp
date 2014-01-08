@@ -1866,6 +1866,14 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 							i_instr != i_loc_expr->end();
 							++i_instr)
 						{
+							if (i_instr->lr_atom == DW_OP_stack_value)
+							{
+								/* This means it has *no storage* in the range of the current 
+								 * loc_expr, so we guess that it has no storage or stack storage
+								 * for its whole lifetime, and return false. */
+								return false;
+							}
+
 							if (get_spec(r).op_reads_register(i_instr->lr_atom)) return false;
 						}
 					}
