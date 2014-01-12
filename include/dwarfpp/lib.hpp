@@ -270,10 +270,12 @@ namespace dwarf
 			friend struct ArangeList;
 		public: // was protected -- consider changing back
 			typedef intrusive_ptr<basic_die> ptr_type;
-
-			map<Dwarf_Off, Dwarf_Off> parent_of;
-			map<Dwarf_Off, ptr_type > sticky_dies; // compile_unit_die is always sticky
 			Debug dbg;
+			/* NOTE: sticky_dies must come after dbg, because all Dwarf_Dies are 
+			 * destructed when a Dwarf_Debug is destructed. So our intrusive_ptrs
+			 * will be invalid if we destruct the latter first, and bad results follow. */
+			map<Dwarf_Off, ptr_type > sticky_dies; // compile_unit_die is always sticky
+			map<Dwarf_Off, Dwarf_Off> parent_of;
 			FrameSection *p_fs;
 			Dwarf_Off current_cu_offset; // 0 means none
 			::Elf *returned_elf;
