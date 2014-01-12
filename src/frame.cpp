@@ -1004,6 +1004,10 @@ namespace dwarf
 				Dwarf_Addr prev_fde_lopc = 0;
 				auto end_fde = fs.find_fde_for_pc(i_int->upper());
 				bool end_fde_is_valid = end_fde != fs.fde_end();
+				/* We start with the FDE for i_int->lower(), and continue blindly along the 
+				 * FDEs. At some point we will reach an FDE which no longer overlaps i_int, 
+				 * at which point we terminate the loop. This is to complex to encode in the
+				 * for-loop's termination condition, so we put a break near the top of the body. */
 				for (auto i_fde = fs.find_fde_for_pc(i_int->lower()); 
 					i_fde != fs.fde_end() && (!end_fde_is_valid || i_fde <= end_fde); ++i_fde)
 				{
@@ -1019,7 +1023,8 @@ namespace dwarf
 										/* intersection of our loc_expr's interval and the FDE's interval */
 										std::max(fde_lopc, i_int->lower()), 
 										std::min(fde_hipc, i_int->upper()));
-					assert(current_fde_overlap_interval.upper() != current_fde_overlap_interval.lower());
+					// extra termination test
+					if (current_fde_overlap_interval.upper() == current_fde_overlap_interval.lower()) break;
 
 					// process each FDE row
 					for (auto i_row = current_decoded.rows.begin(); i_row != current_decoded.rows.end(); ++i_row)
