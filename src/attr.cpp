@@ -404,8 +404,9 @@ namespace dwarf
 						this->f = LOCLIST;
 						// replaced lib::loclist with core::LocdescList
 						//this->v_loclist = new loclist(dwarf::lib::loclist(a, a.get_dbg()));
-						core::LocdescList ll(core::LocdescList::try_construct(a)); // why not just ll(a)? 
-						this->v_loclist = new loclist(ll);
+						auto handle = core::LocdescList::try_construct(a);
+						if (handle) this->v_loclist = new loclist(core::LocdescList(std::move(handle)));
+						else this->v_loclist = new loclist();
 						break;
 					}
 					catch (...)
@@ -417,9 +418,10 @@ namespace dwarf
 				case spec::interp::exprloc: { // like above, but simpler: use dwarf_formexprloc
 					try
 					{
-						this->f = LOCLIST; 
-						core::Locdesc l(core::Locdesc::try_construct(a));
-						this->v_loclist = new loclist(l);
+						this->f = LOCLIST;
+						auto handle = core::Locdesc::try_construct(a);
+						if (handle) this->v_loclist = new loclist(core::Locdesc(std::move(handle)));
+						else this->v_loclist = new loclist();
 						break;
 					}
 					catch (...)
