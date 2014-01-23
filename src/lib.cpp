@@ -543,11 +543,12 @@ namespace dwarf
 					.make_payload(std::move(dynamic_cast<Die&>(it.get_handle()).handle), *this);
 				it.state = iterator_base::WITH_PAYLOAD;
 				
+#ifdef DWARFPP_WARN_ON_INEFFICIENT_USAGE
 				if (it.tag_here() != DW_TAG_compile_unit)
 				{
 					cerr << "Warning: made payload for non-CU at 0x" << std::hex << it.offset_here() << std::dec << endl;
 				}
-				
+#endif
 				return it.cur_payload;
 			}
 		}
@@ -2416,6 +2417,17 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 //             return false;
 
 			// nice test of our new child sequence code!
+			return unspec.first != unspec.second;
+		}
+/* from subroutine_type_die */
+		bool subroutine_type_die::is_variadic(optional_root_arg_decl) const
+		{
+			/* We have to find ourselves. :-( */
+			root_die& r = get_root(opt_r);
+			auto i = r.find(get_offset());
+			assert(i != iterator_base::END);
+			auto children = i.children_here();
+			auto unspec = children.subseq_of<unspecified_parameters_die>();
 			return unspec.first != unspec.second;
 		}
 /* from spec::with_dynamic_location_die */

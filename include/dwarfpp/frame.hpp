@@ -460,7 +460,15 @@ namespace dwarf
 						dbg.raw_handle(), &cie_data, &cie_element_count, 
 						&fde_data, &fde_element_count, &current_dwarf_error);
 
-			assert(ret == DW_DLV_OK);
+			assert(ret == DW_DLV_OK || ret == DW_DLV_NO_ENTRY);
+			if (ret == DW_DLV_NO_ENTRY)
+			{
+				/* Set up empty arrays. */
+				fde_element_count = 0;
+				fde_data = nullptr;
+				cie_element_count = 0;
+				cie_data = nullptr;
+			}
 
 			/* Since libdwarf doesn't let us get the CIE offset, do a pass
 			 * to build a table of these eagerly. */

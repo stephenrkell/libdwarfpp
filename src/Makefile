@@ -1,7 +1,7 @@
 CXX ?= g++
 
 CXXFLAGS += -std=gnu++0x -fkeep-inline-functions -Wall -fPIC 
-ifeq ($(DEBUG),)
+ifneq ($(NDEBUG),)
 $(warning Optimised build)
 CXXFLAGS += -O4 
 else
@@ -13,7 +13,7 @@ CXXFLAGS += -I../include/dwarfpp
 CXXFLAGS += -Wno-deprecated-declarations # TEMPorary HACK
 
 # add dependencies on dynamic libs libdwarfpp.so should pull in
-LDFLAGS += -lboost_serialization # why do we need this?
+LDLIBS += -lboost_serialization # why do we need this?
 
 SRC := $(wildcard *.cpp)
 DEPS := $(patsubst %.cpp,.%.d,$(SRC))
@@ -24,23 +24,6 @@ $(warning OBJS is $(OBJS))
 # HACK to support rebuilding with/without debug enabled.
 # If libdwarfpp.so exists and does not have debug info,
 # ensure we remake all object files with the new CXXFLAGS.
-
-#HAVE_BUILT_WITH_DEBUG := $(shell test -r libdwarfpp.so && objdump -h libdwarfpp.so | grep debug && echo "yes" )
-#ifeq ($(DEBUG),) # no debug...
-#ifneq ($(HAVE_BUILT_WITH_DEBUG),) # .. but built with debug
-#$(warning Previous build was debug)
-#FORCE_REMAKE := 1
-#else
-#$(warning Previous build was optimised)
-#endif
-#else # yes debug...
-#ifeq ($(HAVE_BUILT_WITH_DEBUG),) # .. but built without debug
-#$(warning Previous build was optimised)
-#FORCE_REMAKE := 1
-#else
-#$(warning Previous build was debug)
-#endif
-#endif
 
 ifneq ($(FORCE_REMAKE),)
 default: clean libdwarfpp.so libdwarfpp.a
@@ -72,11 +55,11 @@ libdwarfpp.a: $(OBJS)
 
 # use this version in distribution (avoid writing huge .o files)
 #libdwarfpp.so: $(SRC)
-#	$(CXX) $(CXXFLAGS) -shared -o "$@" $^
+#	$(CXX) $(CXXFLAGS) -shared -o "$@" $^ $(LDLIBS)
 
 # use this version when developing (avoid recompiling whole of huge .so file)
 libdwarfpp.so: $(OBJS)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o "$@" $^ #-ldwarf -lelf
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o "$@" $^ $(LDLIBS)
 
 .PHONY: clean
 clean:

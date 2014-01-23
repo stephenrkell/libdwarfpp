@@ -505,7 +505,7 @@ namespace dwarf
 			// we are in an unusable state after this constructor
 			// -- the same state as end()!
 			iterator_base()
-			 : cur_handle(Die(nullptr, nullptr)), state(HANDLE_ONLY), m_depth(0), p_root(nullptr) {}
+			 : cur_handle(Die(nullptr, nullptr)), cur_payload(nullptr), state(HANDLE_ONLY), m_depth(0), p_root(nullptr) {}
 			
 			static const iterator_base END; // sentinel definition
 			
@@ -530,7 +530,7 @@ namespace dwarf
 			// this constructor sets us up using a handle -- 
 			// this does the exploitation of the sticky set
 			iterator_base(Die&& d, unsigned depth, root_die& r)
-			 : cur_handle(Die(nullptr, nullptr)) // will be replaced in function body...
+			 : cur_handle(Die(nullptr, nullptr)), cur_payload(nullptr) // will be replaced in function body...
 			{
 				// get the offset of the handle we've been passed
 				Dwarf_Off off = d.get_offset(); 
@@ -1568,7 +1568,8 @@ end_class(with_data_members)
 #define extra_decls_enumeration_type \
 		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_subroutine_type \
-		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */ \
+		bool is_variadic(optional_root_arg) const; 
 #define extra_decls_member \
 		has_object_based_location
 #define extra_decls_inheritance \
