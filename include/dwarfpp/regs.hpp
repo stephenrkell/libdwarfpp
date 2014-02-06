@@ -17,20 +17,7 @@ enum dwarf_regs_x86
 	DWARF_X86_TRAPNO  = 10,
 	DWARF_X86_ST0     = 11
 };
-const char *dwarf_regnames_x86[] = {
-	"eax",
-	"ecx",
-	"edx",
-	"ebx",
-	"esp",
-	"ebp",
-	"esi",
-	"edi",
-	"eip",
-	"eflags",
-	"trapno",
-	"sto"
-};
+extern const char *dwarf_regnames_x86[];
 
 // similar for x86-64
 enum dwarf_regs_x86_64
@@ -53,25 +40,7 @@ enum dwarf_regs_x86_64
 	DWARF_X86_64_R15     = 15,
 	DWARF_X86_64_RIP     = 16
 };
-const char *dwarf_regnames_x86_64[] = {
-	"rax",
-	"rdx",
-	"rcx",
-	"rbx",
-	"rsi",
-	"rdi",
-	"rbp",
-	"rsp",
-	"r8",
-	"r9",
-	"r10",
-	"r11",
-	"r12",
-	"r13",
-	"r14",
-	"r15",
-	"rip"
-};
+extern const char *dwarf_regnames_x86_64[];
 
 inline const char **dwarf_regnames_for_elf_machine(int e_machine)
 {
