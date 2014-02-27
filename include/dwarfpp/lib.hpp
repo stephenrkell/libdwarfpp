@@ -1008,6 +1008,7 @@ namespace dwarf
 			
 			basic_die& dereference() const 
 			{
+				assert(this->operator bool());
 				return *get_root().make_payload(*this);
 			}
 			
