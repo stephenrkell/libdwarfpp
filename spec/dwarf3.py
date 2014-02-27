@@ -205,7 +205,7 @@ tags = [ \
 ("module", ( [], [], ["with_named_children"]  ) ), \
 ("ptr_to_member_type", ( [], [], ["type"]  ) ), \
 ("set_type", ( [], [], ["type"]  ) ), \
-("subrange_type", ( [("upper_bound", False), ("lower_bound", False), ("count", False)], [], ["type_chain"]  ) ), \
+("subrange_type", ( [("upper_bound", False), ("lower_bound", False), ("count", False), ("type", False)], [], ["type"]  ) ), \
 ("with_stmt", ( [], [], ["basic"]  ) ), \
 ("access_declaration", ( [], [], ["basic"]  ) ), \
 ("base_type", ( [ ("encoding", True), ("bit_size", False), ("bit_offset", False)], [], ["type"] ) ), \
