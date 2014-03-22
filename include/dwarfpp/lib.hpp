@@ -1601,6 +1601,7 @@ Dwarf_Half get_offset_size() const { return offset_size; } \
 Dwarf_Half get_extension_size() const { return extension_size; } \
 Dwarf_Unsigned get_next_cu_header() const { return next_cu_header; } \
 opt<Dwarf_Unsigned> implicit_array_base(optional_root_arg) const; \
+mutable iterator_df<type_die> cached_implicit_enum_base_type; \
 iterator_df<type_die> implicit_enum_base_type(optional_root_arg) const; \
 encap::rangelist normalize_rangelist(const encap::rangelist& rangelist) const; \
 friend class iterator_base; \

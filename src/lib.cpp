@@ -1731,7 +1731,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					if (!opt_upper_bound) break; // give up
 					
 					Dwarf_Unsigned upper_bound = *opt_upper_bound;
-					assert(upper_bound < 10000000); // detects most garbage
+					assert(upper_bound < 100000000); // detects most garbage
 					count = upper_bound - lower_bound + 1;
 					break;
 				}
@@ -2715,6 +2715,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		}
 		iterator_df<type_die> compile_unit_die::implicit_enum_base_type(optional_root_arg_decl) const
 		{
+			if (cached_implicit_enum_base_type) return cached_implicit_enum_base_type; // FIXME: cache "not found" result too
+		
 			root_die& r = get_root(opt_r);
 			switch(get_language(r))
 			{
@@ -2727,7 +2729,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					for (unsigned i_attempt = 0; i_attempt < total_attempts; ++i_attempt)
 					{
 						auto found = named_child(attempts[i_attempt], opt_r);
-						if (found != iterator_base::END) return found;
+						if (found != iterator_base::END && found.is_a<type_die>())
+						{
+							cached_implicit_enum_base_type = found.as_a<type_die>();
+							return found;
+						}
 					}
 					assert(false && "enum but no int or signed int");
 				}
