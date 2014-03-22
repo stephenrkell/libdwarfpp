@@ -1014,7 +1014,7 @@ namespace dwarf
 					Dwarf_Addr fde_lopc = i_fde->get_low_pc();
 					Dwarf_Addr fde_hipc = i_fde->get_low_pc() + i_fde->get_func_length();
 
-					assert(i_fde->get_low_pc() > prev_fde_lopc);
+					assert(i_fde->get_low_pc() >= prev_fde_lopc); // I have seen the == case
 
 					FrameSection::instrs_results current_decoded = i_fde->decode();
 					boost::icl::discrete_interval<Dwarf_Addr> current_fde_overlap_interval
