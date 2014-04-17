@@ -971,6 +971,10 @@ begin_class(type_chain, base_initializations(initialize_base(type)), declare_bas
         opt<Dwarf_Unsigned> calculate_byte_size() const;
         std::shared_ptr<type_die> get_concrete_type() const;
 end_class(type_chain)
+/* type_describing_subprogram_die */
+begin_class(type_describing_subprogram, base_initializations(initialize_base(type)), declare_base(type))
+        virtual bool is_variadic() const;
+end_class(type_describing_subprogram)
 /* address_holding_type_die */
 begin_class(address_holding_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
         attr_optional(address_class, unsigned)
@@ -1029,8 +1033,7 @@ end_class(with_data_members)
                     Dwarf_Addr absolute_addr, \
                     Dwarf_Off dieset_relative_ip, \
                     Dwarf_Signed *out_frame_base, \
-                    dwarf::lib::regs *p_regs = 0) const; \
-        bool is_variadic() const; 
+                    dwarf::lib::regs *p_regs = 0) const; 
 #define extra_decls_variable \
         bool has_static_storage() const; \
 		has_stack_based_location
@@ -1059,7 +1062,7 @@ end_class(with_data_members)
 #define extra_decls_enumeration_type \
 		bool is_rep_compatible(std::shared_ptr<type_die> arg) const;
 #define extra_decls_subroutine_type \
-		bool is_rep_compatible(std::shared_ptr<type_die> arg) const;
+		bool is_rep_compatible(std::shared_ptr<type_die> arg) const; 
 #define extra_decls_member \
 		opt<Dwarf_Unsigned> byte_offset_in_enclosing_type() const; \
 		has_object_based_location

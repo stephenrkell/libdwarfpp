@@ -698,8 +698,9 @@ namespace dwarf
             }
             return opt< std::pair<Dwarf_Off, std::shared_ptr<with_dynamic_location_die> > >();
         }
-        bool subprogram_die::is_variadic() const
-        {
+/* from type_describing_subprogram_die */
+		bool type_describing_subprogram_die::is_variadic() const
+		{
     	    try
             {
     	        for (auto i_child = this->get_first_child(); i_child;  // term'd by exception
@@ -712,8 +713,8 @@ namespace dwarf
                 }
         	}
             catch (No_entry) {}
-            return false;
-        }
+            return false;		
+		}
 /* from spec::with_dynamic_location_die */
 		std::shared_ptr<spec::program_element_die> 
 		with_dynamic_location_die::get_instantiating_definition() const

@@ -104,6 +104,7 @@ artificial_tags = [ \
 ("program_element", ([("name", False), ("decl_column", False ), ("decl_file", False), ("decl_line", False), ("prototyped", False), ("declaration", False), ("external", False), ("visibility", False), ("artificial", False)], [], ["basic"]) ), \
 ("with_instances", ([], [], ["program_element"])), \
 ("type", ([("byte_size", False )], [], ["with_instances"]) ), \
+("type_describing_subprogram", ([],  [], ["type"]) ), \
 ("type_chain", ([("type", False)],  [], ["type"]) ), \
 ("address_holding_type", ([("type", False)],  [], ["type_chain"]) ), \
 ("qualified_type", ([], [], ["type_chain"]) ), \
@@ -193,7 +194,7 @@ tags = [ \
 ("compile_unit", ( [ ("language", True), ("comp_dir", False), ("producer", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False), ("calling_convention", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_static_location"]  ) ), \
 ("string_type", ( [], [], ["type"]  ) ), \
 ("structure_type", ( [], [ "member", "access_declaration", "inheritance" ] + member_types, ["with_data_members", "with_named_children"]  ) ), \
-("subroutine_type", ( [("type", False), ("calling_convention", False), ("pure", False), ("address_class", False)], ["formal_parameter", "unspecified_parameters"], ["type"]  ) ), \
+("subroutine_type", ( [("type", False), ("calling_convention", False), ("pure", False), ("address_class", False)], ["formal_parameter", "unspecified_parameters"], ["type_describing_subprogram"]  ) ), \
 ("typedef", ( [], [], ["type_chain"]  ) ), \
 ("union_type", ([], [ "member" ], ["with_data_members", "with_named_children"]  ) ), \
 ("unspecified_parameters", ( [], [], ["program_element"]  ) ), \
@@ -218,7 +219,7 @@ tags = [ \
 ("namelist", ( [], [], ["basic"]  ) ), \
 ("namelist_item", ( [], [], ["basic"]  ) ), \
 ("packed_type", ( [], [], ["qualified_type"]  ) ), \
-("subprogram", ( [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False), ("pure", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["type", "with_static_location", "with_named_children"]  ) ), \
+("subprogram", ( [("type", False), ("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False), ("pure", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["type_describing_subprogram", "with_static_location", "with_named_children"]  ) ), \
 ("template_type_parameter", ( [], [], ["basic"]  ) ), \
 ("template_value_parameter", ( [], [], ["basic"]  ) ), \
 ("thrown_type", ( [], [], ["type_chain"]  ) ), \

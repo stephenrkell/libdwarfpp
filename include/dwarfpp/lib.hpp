@@ -21,6 +21,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/iterator/filter_iterator.hpp>
 #include <srk31/selective_iterator.hpp>
+#include <srk31/rotate.hpp>
 #include <boost/iterator/transform_iterator.hpp>
 #include "spec.hpp"
 #include "opt.hpp"
@@ -129,6 +130,11 @@ namespace dwarf
 			virtual basic_die *dummy_for_tag(Dwarf_Half tag) = 0;
 		};
 
+		// very preliminary forward decls
+		template <typename DerefAs /* = basic_die*/> struct iterator_df; // see attr.hpp
+		template <typename DerefAs /* = basic_die*/> struct iterator_bf;
+		template <typename DerefAs /*= basic_die*/> struct iterator_sibs;
+		template <typename Iter> struct sequence;
 		
 		class basic_die : public virtual abstract_die
 		{
@@ -150,9 +156,9 @@ namespace dwarf
 			
 			/* We define an overridable *interface* for attribute access. */
 #define optional_root_arg_decl \
-  opt<root_die&> opt_r 
+  opt<core::root_die&> opt_r 
 #define optional_root_arg \
-  optional_root_arg_decl = opt<root_die&>()
+  optional_root_arg_decl = opt<core::root_die&>()
 			// helper
 			static void left_merge_attrs(encap::attribute_map& m, const encap::attribute_map& arg);
 			virtual bool has_attr(Dwarf_Half attr) const 
@@ -223,9 +229,17 @@ namespace dwarf
 			inline spec& get_spec(root_die& r) const 
 			{ assert(d.handle); return d.spec_here(r); }
 			
+			// get a "definition" DIE from a DW_AT_declaration DIE
+			virtual iterator_base find_definition(optional_root_arg) const;
+
 			/* The same as find_all_attrs. FIXME: do we really need this gather_ API? */
 			inline encap::attribute_map gather_attrs(opt<root_die&> opt_r) const
 			{ return find_all_attrs(opt_r); }
+			
+			// get children given a root
+			inline
+			sequence< iterator_sibs<basic_die> >
+			children(optional_root_arg) const;
 		};	
 		std::ostream& operator<<(std::ostream& s, const basic_die& d);
 		inline void intrusive_ptr_add_ref(basic_die *p)
@@ -412,6 +426,27 @@ namespace dwarf
 				std::vector<iterator_base >& results, int max = 0);
 		};	
 		std::ostream& operator<<(std::ostream& s, const root_die& d);
+		
+		// children
+		// so how do we iterate over "children satisfying predicate, derefAs'd X"? 
+		//pair< 
+		//    filter_iterator< predicate_t, iterator_sibs< X > >,
+		//    filter_iterator< predicate_t, iterator_sibs< X > >
+		template <typename Payload>
+		struct is_a_t
+		{
+			inline bool operator()(const iterator_base& it) const;
+		}; // defined below, once we have factory
+		// We want to partially specialize a function template, 
+		// which we can't do. So pull out the core into a class
+		// template which we call from the (non-specialised) function template.
+		template <typename Pred, typename Iter>
+		struct subseq_t;
+		// specialization for is_a, adding downcast transformer
+		template <typename Iter, typename Payload>
+		struct subseq_t<Iter, is_a_t<Payload> >;
+		template <typename Iter> 
+		struct sequence;
 			
 		/* Integrating with ADT: now we have two kinds of iterators.
 		 * Core iterators, defined here, are fast, and when dereferenced
@@ -802,17 +837,6 @@ namespace dwarf
 			// + resolve? no, I have put resolve stuff on the root_die
 			inline iterator_df<compile_unit_die> enclosing_cu() const;
 			
-			// children
-			// so how do we iterate over "children satisfying predicate, derefAs'd X"? 
-			//pair< 
-			//    filter_iterator< predicate_t, iterator_sibs< X > >,
-			//    filter_iterator< predicate_t, iterator_sibs< X > >
-			template <typename Payload>
-			struct is_a_t
-			{
-				inline bool operator()(const iterator_base& it) const;
-			}; // defined below, once we have factory
-			
 			template <typename Payload>
 			inline bool is_a() const
 			{
@@ -828,146 +852,6 @@ namespace dwarf
 				else return END;
 			}
 			
-			// We want to partially specialize a function template, 
-			// which we can't do. So pull out the core into a class
-			// template which we call from the (non-specialised) function template.
-			template <typename Pred, typename Iter>
-			struct subseq_t
-			{
-				typedef srk31::selective_iterator<Pred, Iter> filtered_iterator;
-				
-				pair<filtered_iterator, filtered_iterator> 
-				operator()(const pair<Iter, Iter>& in_seq)
-				{ 
-					return make_pair(
-						filtered_iterator(in_seq.first, in_seq.second),
-						filtered_iterator(in_seq.second, in_seq.second)
-					);
-				}
-
-				pair<filtered_iterator, filtered_iterator> 
-				operator()(pair<Iter, Iter>&& in_seq)
-				{ 
-					/* GAH. We can only move if .second == iterator_base::END, because 
-					 * otherwise we have to duplicate the end iterator into both 
-					 * filter iterators. */
-					assert(in_seq.second == iterator_base::END);
-					return make_pair(
-						filtered_iterator(std::move(in_seq.first), iterator_base::END),
-						filtered_iterator(std::move(in_seq.second), iterator_base::END)
-					);
-				}
-			};
-			// specialization for is_a, adding downcast transformer
-			template <typename Iter, typename Payload>
-			struct subseq_t<Iter, is_a_t<Payload> >
-			{
-				/* HMM. Actually we want to get the transform_iterator type, then 
-				 * mix it in with the original iterator type. Can we use CRTP for this?
-				 * e.g. 
-				 *
-				 *  struct filtered_iterator : Iter, srk31::selective_iterator< is_a_t<Payload>, Iter> 
-					{
-						using selective_iterator< is_a_t<Payload>, Iter>::selective_iterator;
-					}
-				
-				 * The obvious problem here is that we have two copies of the base iterator:
-				 * one deeper in the selective_iterator, and one in the first base class.
-				 * We'd want the selective_iterator to CRTP-downcall its implementation of
-				 * base(), rather than containing it directly. This is now implemented in 
-				 * selective_iterator_mixin. 
-				 * */
-				typedef srk31::selective_iterator< is_a_t<Payload>, Iter> filtered_iterator;
-
-				// transformer is just dynamic_cast, wrapped as a function
-				typedef Payload& derived_ref;
-				typedef basic_die& base_ref;
-				typedef std::function<derived_ref(base_ref)> transformer;
-				inline static derived_ref transf(base_ref arg) { 
-					return dynamic_cast<Payload&>(arg);
-				}
-
-				// HMM: same as above.
-				typedef boost::transform_iterator<transformer, filtered_iterator >
-					transformed_iterator;
-
-				pair<transformed_iterator, transformed_iterator> 
-				operator()(const pair<Iter, Iter>& in_seq)
-				{
-					auto filtered_first = filtered_iterator(in_seq.first, in_seq.second);
-					auto filtered_second = filtered_iterator(in_seq.second, in_seq.second);
-					
-					return make_pair(
-						transformed_iterator(
-							filtered_first,
-							transf
-						),
-						transformed_iterator(
-							filtered_second,
-							transf
-						)
-					);
-				}
-				
-				pair<transformed_iterator, transformed_iterator> 
-				operator()(pair<Iter, Iter>&& in_seq)
-				{
-					/* GAH. We can only move if .second == iterator_base::END, because 
-					 * otherwise we have to duplicate the end sentinel into both 
-					 * filter iterators. */
-					if (in_seq.second == iterator_base::END)
-					{
-						// NOTE: this std::move is all for nothing at the moment because 
-						// transform_iterator doesn't implement move constuctor/assignment.
-						
-						auto filtered_first = filtered_iterator(std::move(in_seq.first), iterator_base::END);
-						auto filtered_second = filtered_iterator(std::move(in_seq.second), iterator_base::END);
-											
-						return make_pair(
-							std::move(transformed_iterator(
-								std::move(filtered_first),
-								transf
-							)),
-							std::move(transformed_iterator(
-								std::move(filtered_second),
-								transf
-							))
-						);
-					} else { auto tmp = in_seq; return operator()(tmp); } // copying version
-				}
-			};
-
-			/* With the above, we should be able to write
-			 * auto subps = iterator_base::subseq< is_a_t<subprogram_die> >(i_cu.children_here());
-			 * ... but let's go one better:
-			 * auto subps = i_cu.children_here().subseq_of<subprogram_die>();
-			 * ... by defining a special "subsequent" wrapper of iterator-pairs.
-			 */
-					
-			template <typename Iter> 
-			struct sequence : public pair<Iter, Iter>
-			{
-				typedef pair<Iter, Iter> base; 
-				sequence(pair<Iter, Iter>&& arg) : base(std::move(arg)) {}
-				
-				template <typename Pred>
-				sequence<
-					srk31::selective_iterator<Pred, Iter>
-				> subseq_with(Pred pred = Pred()) 
-				{ return iterator_base::subseq_t<Pred, Iter>().operator()(std::move(*this)); }
-				
-				template <typename D>
-				sequence<
-					typename subseq_t<Iter, is_a_t<D> >::transformed_iterator
-				> subseq_of() 
-				{ 
-					return iterator_base::subseq_t< 
-						Iter, 
-						iterator_base::is_a_t<D> 
-					>().operator()(std::move(*this)); 
-				}
-			};
-
 			inline sequence<iterator_sibs<> >
 			children_here();
 			inline sequence<iterator_sibs<> >
@@ -1016,6 +900,144 @@ namespace dwarf
 		}; 
 		/* END class iterator_base */
 		
+		// specialization for is_a, adding downcast transformer
+		template <typename Iter, typename Pred>
+		struct subseq_t
+		{
+			typedef srk31::selective_iterator<Pred, Iter> filtered_iterator;
+
+			pair<filtered_iterator, filtered_iterator> 
+			operator()(const pair<Iter, Iter>& in_seq)
+			{ 
+				return make_pair(
+					filtered_iterator(in_seq.first, in_seq.second),
+					filtered_iterator(in_seq.second, in_seq.second)
+				);
+			}
+
+			pair<filtered_iterator, filtered_iterator> 
+			operator()(pair<Iter, Iter>&& in_seq)
+			{ 
+				/* GAH. We can only move if .second == iterator_base::END, because 
+				 * otherwise we have to duplicate the end iterator into both 
+				 * filter iterators. */
+				assert(in_seq.second == iterator_base::END);
+				return make_pair(
+					filtered_iterator(std::move(in_seq.first), iterator_base::END),
+					filtered_iterator(std::move(in_seq.second), iterator_base::END)
+				);
+			}
+		};
+		// specialization for is_a, adding downcast transformer
+		template <typename Iter, typename Payload>
+		struct subseq_t<Iter, is_a_t<Payload> >
+		{
+			/* HMM. Actually we want to get the transform_iterator type, then 
+			 * mix it in with the original iterator type. Can we use CRTP for this?
+			 * e.g. 
+			 *
+			 *  struct filtered_iterator : Iter, srk31::selective_iterator< is_a_t<Payload>, Iter> 
+				{
+					using selective_iterator< is_a_t<Payload>, Iter>::selective_iterator;
+				}
+
+			 * The obvious problem here is that we have two copies of the base iterator:
+			 * one deeper in the selective_iterator, and one in the first base class.
+			 * We'd want the selective_iterator to CRTP-downcall its implementation of
+			 * base(), rather than containing it directly. This is now implemented in 
+			 * selective_iterator_mixin. 
+			 * */
+			typedef srk31::selective_iterator< is_a_t<Payload>, Iter> filtered_iterator;
+
+			// transformer is just dynamic_cast, wrapped as a function
+			typedef Payload& derived_ref;
+			typedef basic_die& base_ref;
+			typedef std::function<derived_ref(base_ref)> transformer;
+			inline static derived_ref transf(base_ref arg) { 
+				return dynamic_cast<Payload&>(arg);
+			}
+
+			// HMM: same as above.
+			typedef boost::transform_iterator<transformer, filtered_iterator >
+				transformed_iterator;
+
+			pair<transformed_iterator, transformed_iterator> 
+			operator()(const pair<Iter, Iter>& in_seq)
+			{
+				auto filtered_first = filtered_iterator(in_seq.first, in_seq.second);
+				auto filtered_second = filtered_iterator(in_seq.second, in_seq.second);
+
+				return make_pair(
+					transformed_iterator(
+						filtered_first,
+						transf
+					),
+					transformed_iterator(
+						filtered_second,
+						transf
+					)
+				);
+			}
+
+			pair<transformed_iterator, transformed_iterator> 
+			operator()(pair<Iter, Iter>&& in_seq)
+			{
+				/* GAH. We can only move if .second == iterator_base::END, because 
+				 * otherwise we have to duplicate the end sentinel into both 
+				 * filter iterators. */
+				if (in_seq.second == iterator_base::END)
+				{
+					// NOTE: this std::move is all for nothing at the moment because 
+					// transform_iterator doesn't implement move constuctor/assignment.
+
+					auto filtered_first = filtered_iterator(std::move(in_seq.first), iterator_base::END);
+					auto filtered_second = filtered_iterator(std::move(in_seq.second), iterator_base::END);
+
+					return make_pair(
+						std::move(transformed_iterator(
+							std::move(filtered_first),
+							transf
+						)),
+						std::move(transformed_iterator(
+							std::move(filtered_second),
+							transf
+						))
+					);
+				} else { auto tmp = in_seq; return operator()(tmp); } // copying version
+			}
+		};
+
+		/* With the above, we should be able to write
+		 * auto subps = subseq< is_a_t<subprogram_die> >(i_cu.children_here());
+		 * ... but let's go one better:
+		 * auto subps = i_cu.children_here().subseq_of<subprogram_die>();
+		 * ... by defining a special "subsequent" wrapper of iterator-pairs.
+		 */
+
+		template <typename Iter> 
+		struct sequence : public pair<Iter, Iter>
+		{
+			typedef pair<Iter, Iter> base; 
+			sequence(pair<Iter, Iter>&& arg) : base(std::move(arg)) {}
+
+			template <typename Pred>
+			sequence<
+				srk31::selective_iterator<Pred, Iter>
+			> subseq_with(Pred pred = Pred()) 
+			{ return subseq_t<Pred, Iter>().operator()(std::move(*this)); }
+
+			template <typename D>
+			sequence<
+				typename subseq_t<Iter, is_a_t<D> >::transformed_iterator
+			> subseq_of() 
+			{ 
+				return subseq_t< 
+					Iter, 
+					is_a_t<D> 
+				>().operator()(std::move(*this)); 
+			}
+		};
+		
 		std::ostream& operator<<(std::ostream& s, const iterator_base& it);
 		std::ostream& operator<<(std::ostream& s, const AttributeList& attrs);
 		
@@ -1037,7 +1059,7 @@ namespace dwarf
 		 * polymorphic!) that returns us a fake singleton of any instantiable  
 		 * DIE type. */
 		template <typename Payload>
-		inline bool iterator_base::is_a_t<Payload>::operator()(const iterator_base& it) const
+		inline bool is_a_t<Payload>::operator()(const iterator_base& it) const
 		{
 			return dynamic_cast<Payload *>(
 				factory::for_spec(it.spec_here()).dummy_for_tag(it.tag_here())
@@ -1274,7 +1296,14 @@ namespace dwarf
 			{ return dynamic_cast<DerefAs&>(this->iterator_base::dereference()); }
 		};
 
-
+		inline
+		sequence<iterator_sibs<basic_die> >
+		basic_die::children(optional_root_arg_decl) const
+		{
+			/* We have to find ourselves. :-( */
+			auto found_self = get_root(opt_r).find(get_offset());
+			return found_self.children_here();
+		}
 /****************************************************************/
 /* begin generated ADT includes                                 */
 /****************************************************************/
@@ -1400,12 +1429,60 @@ begin_class(program_element, base_initializations(basic), declare_base(basic))
 		attr_optional(artificial, flag)
 end_class(program_element)
 /* type_die */
+struct summary_code_word_t
+{
+	opt<uint32_t> val;
+
+	void zero_check()
+	{
+		if (val && *val == 0)
+		{
+			cerr << "Warning: output_word value hit zero again." << endl;
+			*val = (uint32_t) -1;
+		}
+	}
+
+	summary_code_word_t& operator<<(uint32_t arg) 
+	{
+		if (val)
+		{
+			*val = rotate_left(*val, 8) ^ arg;
+			zero_check();
+		}
+		return *this;
+	}
+	summary_code_word_t& operator<<(const string& s) 
+	{
+		if (val)
+		{
+			for (auto i = s.begin(); i != s.end(); ++i)
+			{
+				*this << static_cast<uint32_t>(*i);
+			}
+		}
+		zero_check();
+		return *this;
+	}
+	summary_code_word_t& operator<<(opt<uint32_t> o)
+	{
+		if (!o) 
+		{
+			val = opt<uint32_t>();
+			return *this;
+		}
+		else return this->operator<<(*o);
+	}
+	summary_code_word_t() : val(0) {}
+};
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
 		attr_optional(byte_size, unsigned)
 		virtual opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
 		// virtual bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
 		virtual iterator_df<type_die> get_concrete_type(optional_root_arg) const;
 		virtual iterator_df<type_die> get_unqualified_type(optional_root_arg) const;
+		virtual opt<uint32_t>         summary_code(optional_root_arg) const;
+		virtual bool may_equal(core::iterator_df<core::type_die> t, optional_root_arg) const;
+		bool operator==(const dwarf::core::type_die& t) const;
 end_class(type)
 /* with_type_describing_layout_die */
 	struct with_type_describing_layout_die : public virtual program_element_die
@@ -1483,7 +1560,14 @@ begin_class(type_chain, base_initializations(initialize_base(type)), declare_bas
         attr_optional(type, refdie_is_type)
         opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
         iterator_df<type_die> get_concrete_type(optional_root_arg) const;
+		bool may_equal(core::iterator_df<core::type_die>, optional_root_arg) const;
 end_class(type_chain)
+/* type_describing_subprogram_die */
+begin_class(type_describing_subprogram, base_initializations(initialize_base(type)), declare_base(type))
+        virtual iterator_df<type_die> get_return_type(optional_root_arg) const = 0;
+        virtual bool is_variadic(optional_root_arg) const;
+		bool may_equal(core::iterator_df<core::type_die>, optional_root_arg) const;
+end_class(type_describing_subprogram)
 /* address_holding_type_die */
 begin_class(address_holding_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
         attr_optional(address_class, unsigned)
@@ -1497,7 +1581,8 @@ end_class(qualified_type)
 /* with_data_members_die */
 begin_class(with_data_members, base_initializations(initialize_base(type)), declare_base(type))
         child_tag(member)
-		iterator_df<type_die> find_my_own_definition(optional_root_arg) const; // for turning declarations into defns
+		iterator_base find_definition(optional_root_arg) const; // for turning declarations into defns
+		bool may_equal(core::iterator_df<core::type_die>, optional_root_arg) const;
 end_class(with_data_members)
 
 #define has_stack_based_location \
@@ -1540,7 +1625,7 @@ end_class(with_data_members)
                     Dwarf_Off dieset_relative_ip, \
                     Dwarf_Signed *out_frame_base, \
                     dwarf::lib::regs *p_regs = 0) const; \
-        bool is_variadic(optional_root_arg) const; 
+		iterator_df<type_die> get_return_type(optional_root_arg) const;
 #define extra_decls_variable \
         bool has_static_storage(optional_root_arg) const; \
 		has_stack_based_location
@@ -1552,12 +1637,14 @@ end_class(with_data_members)
 		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */ \
 		iterator_df<type_die> ultimate_element_type(optional_root_arg) const; \
 		opt<Dwarf_Unsigned> ultimate_element_count(optional_root_arg) const; \
+		bool may_equal(core::iterator_df<core::type_die> t, optional_root_arg) const; \
 		iterator_df<type_die> get_concrete_type(optional_root_arg) const;
 #define extra_decls_pointer_type \
         /* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_reference_type \
         /* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_base_type \
+		bool may_equal(core::iterator_df<core::type_die> t, optional_root_arg) const; \
 		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_structure_type \
 		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
@@ -1567,10 +1654,13 @@ end_class(with_data_members)
 #define extra_decls_class_type \
 		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_enumeration_type \
+		bool may_equal(core::iterator_df<core::type_die> t, optional_root_arg) const; \
 		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
+#define extra_decls_subrange_type \
+		bool may_equal(core::iterator_df<core::type_die> t, optional_root_arg) const; 
 #define extra_decls_subroutine_type \
 		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */ \
-		bool is_variadic(optional_root_arg) const; 
+		core::iterator_df<core::type_die> get_return_type(optional_root_arg) const; 
 #define extra_decls_member \
 		has_object_based_location
 #define extra_decls_inheritance \
@@ -2131,7 +2221,7 @@ friend class factory;
 			// cerr << "Search returning "; 
 			// if (pos == iterator_base::END) cerr << "(END)";
 			// else cerr << std::hex << pos.offset_here() << std::dec; 
-			cerr << endl;
+			// cerr << endl;
 			return pos;
 		}
 		inline Attribute::handle_type 
@@ -2415,7 +2505,7 @@ friend class factory;
 			return std::make_pair(begin(), end());
 		}
 		
-		inline iterator_base::sequence< iterator_sibs<> >
+		inline sequence< iterator_sibs<> >
 		iterator_base::children_here()
 		{
 			return std::make_pair<iterator_sibs<>, iterator_sibs<> >(
@@ -2423,13 +2513,13 @@ friend class factory;
 				iterator_base::END
 			);
 		}
-		inline iterator_base::sequence< iterator_sibs<> >
+		inline sequence< iterator_sibs<> >
 		iterator_base::children_here() const
 		{ return const_cast<iterator_base*>(this)->children(); }
 		// synonyms
-		inline iterator_base::sequence< iterator_sibs<> >
+		inline sequence< iterator_sibs<> >
 		iterator_base::children() { return children_here(); }
-		inline iterator_base::sequence< iterator_sibs<> >
+		inline sequence< iterator_sibs<> >
 		iterator_base::children() const { return children_here(); }
 
 		// We don't want this because it's putting knowledge of topology

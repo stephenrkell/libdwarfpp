@@ -3,7 +3,7 @@ CXX ?= g++
 CXXFLAGS += -std=gnu++0x -fkeep-inline-functions -Wall -fPIC 
 ifneq ($(NDEBUG),)
 $(warning Optimised build)
-CXXFLAGS += -O4 
+CXXFLAGS += -O3 
 else
 $(warning Debug build)
 CXXFLAGS += -O0 -g3 -fno-eliminate-unused-debug-types

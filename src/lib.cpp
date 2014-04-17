@@ -150,8 +150,15 @@ namespace dwarf
 			}
 			else if (has_attr(DW_AT_specification))
 			{
-				encap::attribute_map spec_m = attr(DW_AT_abstract_origin, opt_r).get_refiter()->all_attrs();
-				left_merge_attrs(m, spec_m);
+				encap::attribute_map origin_m = attr(DW_AT_specification, opt_r).get_refiter()->all_attrs();
+				left_merge_attrs(m, origin_m);
+			}
+			else if (has_attr(DW_AT_declaration))
+			{
+				/* How do we get to the "real" DIE from this specification? The 
+				 * specification attr doesn't tell us, so we have to search. */
+				iterator_df<> found = find_definition(opt_r);
+				if (found) left_merge_attrs(m, found->all_attrs());
 			}
 			return m;
 		}
@@ -167,7 +174,24 @@ namespace dwarf
 			{
 				return attr(DW_AT_specification, opt_r).get_refiter()->find_attr(a, opt_r);
 			}
+			else if (has_attr(DW_AT_declaration))
+			{
+				/* How do we get to the "real" DIE from this declaration? The 
+				 * declaration attr doesn't tell us, so we have to search.. */
+				iterator_df<> found = find_definition(opt_r);
+				if (found) return found->find_attr(a, opt_r);
+			}
 			return encap::attribute_value(); // a.k.a. a NO_ATTR-valued attribute_value
+		}
+		iterator_base basic_die::find_definition(optional_root_arg_decl) const
+		{
+			/* For most DIEs, we just return ourselves if we don't have DW_AT_specification
+			 * and nothing if we do. */
+			if (has_attr(DW_AT_specification) && 
+				attr(DW_AT_specification, opt_r).get_flag())
+			{
+				return iterator_base::END;
+			} else return get_root(opt_r).find(get_offset()); // we have to find ourselves :-(
 		}
 		
 		root_die::root_die(int fd)
@@ -1622,12 +1646,425 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		{
 			// by default, our unqualified self is our self -- we have to find ourselves. :-(
 			return get_root(opt_r).find(get_offset());
-		} 
+		}
+		
+		opt<uint32_t> type_die::summary_code(optional_root_arg_decl) const
+		{
+			/* FIXME: factor this into the various subclass cases. */
+			// we have to find ourselves. :-(
+			auto t = get_root(opt_r).find(get_offset()).as_a<type_die>();
+			
+			auto name_for_type_die = [](core::iterator_df<core::type_die> t) -> opt<string> {
+				if (t.is_a<dwarf::core::subprogram_die>())
+				{
+					/* When interpreted as types, subprograms don't have names. */
+					return opt<string>();
+				}
+				else return *t.name_here();
+			};
+			
+			auto type_summary_code = [](core::iterator_df<core::type_die> t) -> opt<uint32_t> {
+				if (!t) return opt<uint32_t>(0);
+				else return t->summary_code();
+			};
+			
+			/* Here we compute a 4-byte hash-esque summary of a data type's 
+			 * definition. The intentions here are that 
+			 *
+			 * binary-incompatible definitions of two types will always
+			   compare different, even if the incompatibility occurs 
+
+			   - in compiler decisions (e.g. bitfield positions, pointer
+			     encoding, padding, etc..)
+
+			   - in a child (nested) object.
+
+			 * structurally distinct definitions will always compare different, 
+			   even if at the leaf level, they are physically compatible.
+
+			 * binary compatible, structurally compatible definitions will compare 
+			   alike iff they are nominally identical at the top-level. It doesn't
+			   matter if field names differ. HMM: so what about nested structures' 
+			   type names? Answer: not sure yet, but easiest is to require that they
+			   match, so our implementation can just use recursion.
+
+			 * WHAT about prefixes? e.g. I define struct FILE with some padding, 
+			   and you define it with some implementation-private fields? We handle
+			   this at the libcrunch level; here we just want to record that there
+			   are two different definitions out there.
+
+			 *
+			 * Consequences: 
+			 * 
+			 * - encode all base type properties
+			 * - encode pointer encoding
+			 * - encode byte- and bit-offsets of every field
+			 */
+			using lib::Dwarf_Unsigned;
+			using lib::Dwarf_Half;
+			using namespace dwarf::core;
+
+			if (!t)
+			{
+				// we got void
+				return opt<uint32_t>(0);
+			}
+
+			auto concrete_t = t->get_concrete_type();
+			if (!concrete_t)
+			{
+				// we got a typedef of void
+				return opt<uint32_t>(0);
+			}
+
+			/* For declarations, if we can't find their definition, we return opt<>(). */
+			if (concrete_t->get_declaration() && *concrete_t->get_declaration())
+			{
+				iterator_df<> found = concrete_t->find_definition();
+				concrete_t = found.as_a<type_die>();
+				if (!concrete_t) return opt<uint32_t>();
+			}
+
+			summary_code_word_t output_word;
+			Dwarf_Half tag = concrete_t.tag_here();
+			if (concrete_t.is_a<base_type_die>())
+			{
+				auto base_t = concrete_t.as_a<core::base_type_die>();
+				unsigned encoding = base_t->get_encoding();
+				assert(base_t->get_byte_size());
+				unsigned byte_size = *base_t->get_byte_size();
+				unsigned bit_size = base_t->get_bit_size() ? *base_t->get_bit_size() : byte_size * 8;
+				unsigned bit_offset = base_t->get_bit_offset() ? *base_t->get_bit_offset() : 0;
+				output_word << DW_TAG_base_type << encoding << byte_size << bit_size << bit_offset;
+			} 
+			else if (concrete_t.is_a<enumeration_type_die>())
+			{
+				// shift in the enumeration name
+				if (concrete_t.name_here())
+				{
+					output_word << *name_for_type_die(concrete_t);
+				} else output_word << concrete_t.offset_here();
+
+				// shift in the names and values of each enumerator
+				auto enum_t = concrete_t.as_a<enumeration_type_die>();
+				auto enumerators = enum_t.children().subseq_of<enumerator_die>();
+				int last_enum_value = -1;
+				for (auto i_enum = enumerators.first; i_enum != enumerators.second; ++i_enum)
+				{
+					output_word << *i_enum->get_name();
+					if (i_enum->get_const_value())
+					{
+						last_enum_value = *i_enum->get_const_value();
+						output_word << last_enum_value;
+					} else output_word << last_enum_value++;
+				}
+
+				// then shift in the base type's summary code
+				if (!enum_t->get_type())
+				{
+					// cerr << "Warning: saw enum with no type" << endl;
+					auto implicit_t = enum_t.enclosing_cu()->implicit_enum_base_type();
+					if (!implicit_t)
+					{
+						cerr << "Warning: saw enum with no type" << endl;
+					} else output_word << type_summary_code(implicit_t);
+				}
+				else
+				{
+					output_word << type_summary_code(enum_t->get_type());
+				}
+			} 
+			else if (concrete_t.is_a<subrange_type_die>())
+			{
+				auto subrange_t = concrete_t.as_a<subrange_type_die>();
+
+				// shift in the name, if any
+				if (concrete_t.name_here())
+				{
+					output_word << *name_for_type_die(concrete_t);
+				} else output_word << concrete_t.offset_here();
+
+				// then shift in the base type's summary code
+				if (!subrange_t->get_type())
+				{
+					cerr << "Warning: saw subrange with no type" << endl;
+				}
+				else
+				{
+					output_word << type_summary_code(subrange_t->get_type());
+				}
+
+				/* Then shift in the upper bound and lower bound, if present
+				 * NOTE: this means unnamed boundless subrange types have the 
+				 * same code as their underlying type. This is probably what we want. */
+				if (subrange_t->get_upper_bound())
+				{
+					output_word << *subrange_t->get_upper_bound();
+				}
+				if (subrange_t->get_lower_bound())
+				{
+					output_word << *subrange_t->get_lower_bound();
+				}
+			} 
+			else if (concrete_t.is_a<type_describing_subprogram_die>())
+			{
+				auto subp_t = concrete_t.as_a<type_describing_subprogram_die>();
+				
+				// shift in the argument and return types
+				if (subp_t->get_return_type()) output_word << type_summary_code(subp_t->get_return_type());
+
+				// shift in something to distinguish void(void) from void
+				output_word << "()";
+
+				auto fps = concrete_t.children().subseq_of<formal_parameter_die>();
+				for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
+				{
+					output_word << type_summary_code(i_fp->find_type());
+				}
+
+				if (subp_t->is_variadic())
+				{
+					output_word << "...";
+				}
+			}
+			else if (concrete_t.is_a<address_holding_type_die>())
+			{
+				/* NOTE: actually, we *do* want to pay attention to what the pointer points to, 
+				 * i.e. its contract. BUT there's a problem: recursive data types! For now, we
+				 * use a giant HACK: if we're a pointer-to-member, use only the name. */
+				auto ptr_t = concrete_t.as_a<core::address_holding_type_die>();
+				unsigned ptr_size = *ptr_t->calculate_byte_size();
+				unsigned addr_class = ptr_t->get_address_class() ? *ptr_t->get_address_class() : 0;
+				if (addr_class != 0)
+				{
+					switch(addr_class) 
+					{
+						default:
+							assert(false); // nobody seems to use this feature so far
+						/* NOTE: There is also something called DWARF Pointer-Encoding (PEs).
+						   This is a DWARF representation issue, used in frame info, and is not 
+						   something we care about. */
+					}
+				}
+				auto target_t = ptr_t->get_type();
+				if (target_t.is_real_die_position()) target_t = target_t->get_concrete_type();
+				opt<uint32_t> target_code;
+				if (target_t.is_real_die_position() && target_t.is_a<with_data_members_die>())
+				{
+					summary_code_word_t tmp_output_word;
+					// add in the name only
+					if (target_t.name_here())
+					{
+						tmp_output_word << *name_for_type_die(target_t);
+					} else tmp_output_word << target_t.offset_here();
+
+					target_code = *tmp_output_word.val;
+				} else target_code = type_summary_code(target_t);
+				output_word << tag << ptr_size << addr_class << target_code;
+			}
+			else if (concrete_t.is_a<with_data_members_die>())
+			{
+				// add in the name
+				if (concrete_t.name_here())
+				{
+					output_word << *name_for_type_die(concrete_t);
+				} else output_word << concrete_t.offset_here();
+
+				// for each member 
+				auto members = concrete_t.children().subseq_of<core::with_dynamic_location_die>();
+				for (auto i_member = members.first; i_member != members.second; ++i_member)
+				{
+					// skip members that are mere declarations 
+					if (i_member->get_declaration() && *i_member->get_declaration()) continue;
+
+					// calculate its offset
+					opt<Dwarf_Unsigned> opt_offset = i_member->byte_offset_in_enclosing_type();
+					if (!opt_offset)
+					{
+						cerr << "Warning: saw member " << *i_member << " with no apparent offset." << endl;
+						continue;
+					}
+					assert(i_member->get_type());
+
+					output_word << (opt_offset ? *opt_offset : 0);
+					// FIXME: also its bit offset!
+
+					output_word << type_summary_code(i_member->get_type());
+				}
+			}
+			else if (concrete_t.is_a<array_type_die>())
+			{
+				// if we're a member of something, we should be bounded in all dimensions
+				auto opt_el_type = concrete_t.as_a<array_type_die>()->ultimate_element_type();
+				auto opt_el_count = concrete_t.as_a<array_type_die>()->ultimate_element_count();
+				output_word << (opt_el_type ? type_summary_code(opt_el_type) : opt<uint32_t>())
+					<< (opt_el_count ? *opt_el_count : 0);
+					// FIXME: also the factoring into dimensions needs to be taken into account
+			} else 
+			{
+				cerr << "Warning: didn't understand type " << concrete_t;
+			}
+
+			assert (!concrete_t || output_word.val != 0);
+
+			return output_word.val;
+			// return std::numeric_limits<uint32_t>::max();
+			
+		}
+		bool type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		{
+			if (!t) return false;
+			return t.tag_here() == get_tag(); // will be refined in subclasses
+		}
+		bool type_die::operator==(const dwarf::core::type_die& t) const
+		{
+			// we have to find t
+			return this->may_equal(get_root(opt<root_die&>()).find(t.get_offset()))
+				&& // we have to find ourselves :-(
+				   // ... using our constructing root! :-((((((
+				t.may_equal(get_root(opt<root_die&>()).find(get_offset()));
+		}
+/* from base_type_die */
+		bool base_type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		{
+			if (!t) return false;
+			
+			if (get_tag() != t.tag_here()) return false;
+
+			if (get_name() != t.name_here()) return false;
+
+			auto other_base_t = t.as_a<base_type_die>();
+			
+			bool encoding_equal = get_encoding() == other_base_t->get_encoding();
+			if (!encoding_equal) return false;
+			
+			bool byte_size_equal = get_byte_size() == other_base_t->get_byte_size();
+			if (!byte_size_equal) return false;
+			
+			bool bit_size_equal =
+			// presence equal
+				(!get_bit_size() == !other_base_t->get_bit_size())
+			// and if we have one, it's equal
+			&& (!get_bit_size() || *get_bit_size() == *other_base_t->get_bit_size());
+			if (!bit_size_equal) return false;
+			
+			bool bit_offset_equal = 
+			// presence equal
+				(!get_bit_offset() == !other_base_t->get_bit_offset())
+			// and if we have one, it's equal
+			&& (!get_bit_offset() || *get_bit_offset() == *other_base_t->get_bit_offset());
+			if (!bit_offset_equal) return false;
+			
+			return true;
+		}
 /* from array_type_die */
 		iterator_df<type_die> array_type_die::get_concrete_type(optional_root_arg_decl) const
 		{
 			// for arrays, our concrete self is our self -- we have to find ourselves. :-(
 			return get_root(opt_r).find(get_offset());
+		}
+		bool array_type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		{
+			if (!t) return false;
+			
+			if (get_tag() != t.tag_here()) return false;
+
+			if (get_name() != t.name_here()) return false;
+
+			// our subrange type(s) should be equal, if we have them
+			auto our_subr_children = children().subseq_of<subrange_type_die>();
+			auto their_subr_children = t->children().subseq_of<subrange_type_die>();
+			auto i_theirs = their_subr_children.first;
+			for (auto i_subr = our_subr_children.first; i_subr != our_subr_children.second;
+				++i_subr, ++i_theirs)
+			{
+				// if they have fewer, we're unequal
+				if (i_theirs == their_subr_children.second) return false;
+				
+				bool types_equal = 
+				// presence equal
+					(!i_subr->get_type() == !i_subr->get_type())
+				// and if we have one, it's equal to theirs
+				&& (!i_subr->get_type() || *i_subr->get_type() == *i_theirs->get_type());
+				
+				if (!types_equal) return false;
+			}
+			// if they had more, we're unequal
+			if (i_theirs != their_subr_children.second) return false;
+			
+			// our element type(s) should be equal
+			bool types_equal = *get_type() == *t.as_a<array_type_die>()->get_type();
+			if (!types_equal) return false;
+			
+			return true;
+		}
+/* from subrange_type_die */
+		bool subrange_type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		{
+			if (!t) return false;
+			
+			if (get_tag() != t.tag_here()) return false;
+			
+			if (get_name() != t.name_here()) return false;
+
+			auto subr_t = t.as_a<subrange_type_die>();
+			
+			// our base type(s) should be equal
+			bool types_equal = 
+			// presence equal
+				(!get_type() == !subr_t->get_type())
+			// if we have one, it should equal theirs
+			&& (!get_type() || *get_type() == *subr_t->get_type());
+			if (!types_equal) return false;
+			
+			// our upper bound and lower bound should be equal
+			bool lower_bound_equal = get_lower_bound() == subr_t->get_lower_bound();
+			if (!lower_bound_equal) return false;
+			
+			bool upper_bound_equal = get_upper_bound() == subr_t->get_upper_bound();
+			if (!upper_bound_equal) return false;
+			
+			bool count_equal = get_count() == subr_t->get_count();
+			if (!count_equal) return false;
+			
+			return true;
+		}
+/* from enumeration_type_die */
+		bool enumeration_type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		{
+			if (!t) return false;
+			
+			if (get_tag() != t.tag_here()) return false;
+			
+			if (get_name() != t.name_here()) return false;
+		
+			auto enum_t = t.as_a<enumeration_type_die>();
+			
+			// our base type(s) should be equal
+			bool types_equal = 
+			// presence equal
+				(!get_type() == !enum_t->get_type())
+			// if we have one, it should equal theirs
+			&& (!get_type() || *get_type() == *enum_t->get_type());
+			if (!types_equal) return false;
+
+			/* We need like-named, like-valued enumerators. */
+			auto our_enumerator_children = children().subseq_of<enumerator_die>();
+			auto their_enumerator_children = t->children().subseq_of<enumerator_die>();
+			auto i_theirs = their_enumerator_children.first;
+			for (auto i_memb = our_enumerator_children.first; i_memb != our_enumerator_children.second;
+				++i_memb, ++i_theirs)
+			{
+				// if they have fewer, we're unequal
+				if (i_theirs == their_enumerator_children.second) return false;
+
+				if (i_memb->get_name() != i_theirs->get_name()) return false;
+				
+				if (i_memb->get_const_value() != i_theirs->get_const_value()) return false;
+			}
+			if (i_theirs != their_enumerator_children.second) return false;
+			
+			return true;
 		}
 /* from qualified_type_die */
 		iterator_df<type_die> qualified_type_die::get_unqualified_type(optional_root_arg_decl) const
@@ -1664,6 +2101,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				cerr << "Type with no concrete type: " << *this << endl;
 				return opt<Dwarf_Unsigned>();
 			}
+		}
+		bool type_chain_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		{
+			return get_tag() == t.tag_here() && 
+				(
+					(!get_type() && !t.as_a<type_chain_die>()->get_type())
+				||  *get_type() == *t);
 		}
 		iterator_df<type_die> type_chain_die::get_concrete_type(optional_root_arg_decl) const
 		{
@@ -1791,12 +2235,52 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			return this->type_die::calculate_byte_size(opt_r);
 		}
 /* from spec::with_data_members_die */
-		iterator_df<type_die> with_data_members_die::find_my_own_definition(optional_root_arg_decl) const
+		bool with_data_members_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		{
+			if (!t) return false;
+			
+			if (get_tag() != t.tag_here()) return false;
+			
+			if (get_name() != t.name_here()) return false;
+			
+			/* We need like-named, like-located members. 
+			 * GAH. We really need to canonicalise location lists to do this properly. 
+			 * That sounds difficult (impossible in general). Nevertheless for most
+			 * structs, it's likely to be that they are identical. */
+			auto our_member_children = children().subseq_of<member_die>();
+			auto their_member_children = t->children().subseq_of<member_die>();
+			auto i_theirs = their_member_children.first;
+			for (auto i_memb = our_member_children.first; i_memb != our_member_children.second;
+				++i_memb, ++i_theirs)
+			{
+				// if they have fewer, we're unequal
+				if (i_theirs == their_member_children.second) return false;
+				
+				bool types_equal = 
+				// presence equal
+					(!i_memb->get_type() == !i_theirs->get_type())
+				// and if we have one, it's equal to theirs
+				&& (!i_memb->get_type() || *i_memb->get_type() == *i_theirs->get_type());
+				
+				if (!types_equal) return false;
+				
+				bool locations_equal = 
+					(i_memb->get_data_member_location() == i_theirs->get_data_member_location());
+				if (!locations_equal) return false;
+				
+				// FIXME: test names too? not for now
+			}
+			// if they had more, we're unequal
+			if (i_theirs != their_member_children.second) return false;
+			
+			return true;
+		}
+		iterator_base with_data_members_die::find_definition(optional_root_arg_decl) const
 		{
 			root_die& r = get_root(opt_r);
 			if (!get_declaration(r) || !*get_declaration(r)) 
 			{
-				/* we have to find ourselves :-( */
+				/* we are a definition already, but we have to find ourselves :-( */
 				return r.find(get_offset());
 			}
 			cerr << "Looking for definition of declaration " << summary() << endl;
@@ -2393,34 +2877,12 @@ case DW_TAG_ ## name: return &dummy_ ## name;
             }
             return return_type();
         }
-        bool subprogram_die::is_variadic(optional_root_arg_decl) const
-        {
-			/* We have to find ourselves. :-( */
-			root_die& r = get_root(opt_r);
-			auto i = r.find(get_offset());
-			assert(i != iterator_base::END);
-			auto children = i.children_here();
-			auto unspec = children.subseq_of<unspecified_parameters_die>();
-
-//     	    try
-//             {
-//     	        for (auto i_child = r.first_child(i); i_child != iterator_base::END;  // term'd by exception
-//             	    i_child = i_child->get_next_sibling())
-//                 {
-//                     if (i_child->get_tag() == DW_TAG_unspecified_parameters)
-//                     {
-//             	        return true;
-//                     }
-//                 }
-//         	}
-//             catch (No_entry) {}
-//             return false;
-
-			// nice test of our new child sequence code!
-			return unspec.first != unspec.second;
+		iterator_df<type_die> subprogram_die::get_return_type(optional_root_arg_decl) const
+		{
+			return get_type(); 
 		}
-/* from subroutine_type_die */
-		bool subroutine_type_die::is_variadic(optional_root_arg_decl) const
+/* from type_describing_subprogram_die */
+		bool type_describing_subprogram_die::is_variadic(optional_root_arg_decl) const
 		{
 			/* We have to find ourselves. :-( */
 			root_die& r = get_root(opt_r);
@@ -2429,6 +2891,61 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			auto children = i.children_here();
 			auto unspec = children.subseq_of<unspecified_parameters_die>();
 			return unspec.first != unspec.second;
+		}
+		bool type_describing_subprogram_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		{
+			if (get_tag() != t.tag_here()) return false;
+			
+			if (get_name() != t.name_here()) return false;
+			
+			auto other_sub_t = t.as_a<type_describing_subprogram_die>();
+			
+			bool return_types_equal = 
+				// presence equal
+					(!get_return_type() == !other_sub_t->get_return_type())
+				// and if we have one, it's equal to theirs
+				&& (!get_return_type() || *get_return_type() == *other_sub_t->get_return_type());
+			if (!return_types_equal) return false;
+			
+			bool variadicness_equal
+			 = is_variadic() == other_sub_t->is_variadic();
+			if (!variadicness_equal) return false;
+			
+			/* We need like-named, like-located fps. 
+			 * GAH. We really need to canonicalise location lists to do this properly. 
+			 * That sounds difficult (impossible in general). */
+			auto our_fps = children().subseq_of<formal_parameter_die>();
+			auto their_fps = t->children().subseq_of<formal_parameter_die>();
+			auto i_theirs = their_fps.first;
+			for (auto i_fp = our_fps.first; i_fp != our_fps.second;
+				++i_fp, ++i_theirs)
+			{
+				// if they have fewer, we're unequal
+				if (i_theirs == their_fps.second) return false;
+				
+				bool types_equal = 
+				// presence equal
+					(!i_fp->get_type() == !i_theirs->get_type())
+				// and if we have one, it's equal to theirs
+				&& (!i_fp->get_type() || *i_fp->get_type() == *i_theirs->get_type());
+				
+				if (!types_equal) return false;
+				
+				bool locations_equal = 
+					(i_fp->get_location() == i_theirs->get_location());
+				if (!locations_equal) return false;
+				
+				// FIXME: test names too? not for now
+			}
+			// if they had more, we're unequal
+			if (i_theirs != their_fps.second) return false;
+			
+			return true;
+		}
+/* from subroutine_type_die */
+		iterator_df<type_die> subroutine_type_die::get_return_type(optional_root_arg_decl) const
+		{
+			return get_type();
 		}
 /* from spec::with_dynamic_location_die */
 		iterator_df<program_element_die> 
