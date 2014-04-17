@@ -1633,6 +1633,64 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 	{
 		/* begin pasted from adt.cpp */
 /* from type_die */
+		void walk_type(iterator_df<type_die> t, iterator_df<program_element_die> origin, 
+			const std::function<bool(iterator_df<type_die>, iterator_df<program_element_die>)>& f)
+		{
+			bool cont = f(t, origin); // i.e. we do walk "void"
+			if (!cont) return;
+			if (!t) return;
+
+			else if (t.is_a<type_chain_die>()) // unary case -- includes typedefs, arrays, pointer/reference, ...
+			{
+				// recursively walk the chain's target
+				walk_type(t.as_a<type_chain_die>()->find_type(), t, f);
+			}
+			else if (t.is_a<with_data_members_die>()) 
+			{
+				// recursively walk all members
+				auto member_children = t.as_a<with_data_members_die>().children().subseq_of<member_die>();
+				for (auto i_child = member_children.first;
+					i_child != member_children.second; ++i_child)
+				{
+					walk_type(i_child->find_type(), i_child.base().base(), f);
+				}
+				// visit all inheritances
+				auto inheritance_children = t.as_a<with_data_members_die>().children().subseq_of<inheritance_die>();
+				for (auto i_child = inheritance_children.first;
+					i_child != inheritance_children.second; ++i_child)
+				{
+					walk_type(i_child->find_type(), i_child.base().base(), f);
+				}
+			}
+			else if (t.is_a<subrange_type_die>())
+			{
+				// visit the base type
+				auto explicit_t = t.as_a<subrange_type_die>()->find_type();
+				// HACK: assume this is the same as for enums
+				walk_type(explicit_t ? explicit_t : t.enclosing_cu()->implicit_enum_base_type(), t, f);
+			}
+			else if (t.is_a<enumeration_type_die>())
+			{
+				// visit the base type
+				auto explicit_t = t.as_a<subrange_type_die>()->find_type();
+				walk_type(explicit_t ? explicit_t : t.enclosing_cu()->implicit_enum_base_type(), t, f);
+			}
+			else if (t.is_a<type_describing_subprogram_die>())
+			{
+				auto sub_t = t.as_a<type_describing_subprogram_die>();
+				walk_type(sub_t->find_type(), sub_t, f);
+				auto fps = sub_t.children().subseq_of<formal_parameter_die>();
+				for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
+				{
+					walk_type(i_fp->find_type(), i_fp.base().base(), f);
+				}
+			}
+			else
+			{
+				// what are our nullary cases?
+				assert(t.is_a<base_type_die>());
+			}
+		}
 		opt<Dwarf_Unsigned> type_die::calculate_byte_size(optional_root_arg_decl) const
 		{
 			return get_byte_size(opt_r); 

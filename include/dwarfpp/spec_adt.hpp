@@ -973,6 +973,7 @@ begin_class(type_chain, base_initializations(initialize_base(type)), declare_bas
 end_class(type_chain)
 /* type_describing_subprogram_die */
 begin_class(type_describing_subprogram, base_initializations(initialize_base(type)), declare_base(type))
+        attr_optional(type, refdie_is_type)
         virtual bool is_variadic() const;
 end_class(type_describing_subprogram)
 /* address_holding_type_die */

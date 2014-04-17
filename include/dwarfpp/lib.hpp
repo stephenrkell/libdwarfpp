@@ -1484,6 +1484,8 @@ begin_class(type, base_initializations(initialize_base(program_element)), declar
 		virtual bool may_equal(core::iterator_df<core::type_die> t, optional_root_arg) const;
 		bool operator==(const dwarf::core::type_die& t) const;
 end_class(type)
+void walk_type(core::iterator_df<core::type_die> t, core::iterator_df<core::program_element_die> origin, 
+	const std::function<bool(core::iterator_df<core::type_die>, core::iterator_df<core::program_element_die>)>& f);
 /* with_type_describing_layout_die */
 	struct with_type_describing_layout_die : public virtual program_element_die
 	{
@@ -1564,6 +1566,7 @@ begin_class(type_chain, base_initializations(initialize_base(type)), declare_bas
 end_class(type_chain)
 /* type_describing_subprogram_die */
 begin_class(type_describing_subprogram, base_initializations(initialize_base(type)), declare_base(type))
+        attr_optional(type, refdie_is_type)
         virtual iterator_df<type_die> get_return_type(optional_root_arg) const = 0;
         virtual bool is_variadic(optional_root_arg) const;
 		bool may_equal(core::iterator_df<core::type_die>, optional_root_arg) const;
