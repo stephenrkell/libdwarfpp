@@ -9,6 +9,7 @@
 #define __DWARFPP_EXPR_HPP
 
 #include <boost/icl/interval_map.hpp>
+#include <strings.h> // for bzero
 #include "spec.hpp"
 #include "private/libdwarf.hpp"
 
@@ -41,6 +42,14 @@ namespace dwarf
 		std::ostream& operator<<(std::ostream& s, const rangelist& rl);
 
 		typedef ::dwarf::lib::Dwarf_Loc expr_instr;
+		inline bool operator==(const expr_instr& i1, const expr_instr& i2)
+		{
+			// FIXME: ignore don't-care fields? needs spec knowledge :-(
+			return i1.lr_atom == i2.lr_atom
+				&& i1.lr_number == i2.lr_number
+				&& i1.lr_number2 == i2.lr_number2
+				&& i1.lr_offset == i2.lr_offset;
+		}
         
 		struct loc_expr : public vector<expr_instr>
 		{
@@ -140,6 +149,7 @@ namespace dwarf
 				while (iter < /* arr + s */ end)
 				{
 					Dwarf_Loc loc;
+					bzero(&loc, sizeof loc);
 					loc.lr_offset = next_offset;
 					loc.lr_atom = *iter++; // read opcode
 					next_offset += 1; // opcodes are one byte
@@ -177,8 +187,8 @@ namespace dwarf
 				return hipc == e.hipc &&
 					lopc == e.lopc &&
 					//e1 == e2;
-					static_cast<const vector<expr_instr> *>(this)
-                    == static_cast<const vector<expr_instr> *>(&e);
+					static_cast<const vector<expr_instr>&>(*this)
+                    == static_cast<const vector<expr_instr>&>(e);
 			}
 			bool operator!=(const loc_expr& e) const { return !(*this == e); }
             loc_expr& operator=(const loc_expr& e) 

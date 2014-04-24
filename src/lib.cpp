@@ -1633,10 +1633,10 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 	{
 		/* begin pasted from adt.cpp */
 /* from type_die */
-		void walk_type(iterator_df<type_die> t, iterator_df<program_element_die> origin, 
+		void walk_type(iterator_df<type_die> t, iterator_df<program_element_die> reason, 
 			const std::function<bool(iterator_df<type_die>, iterator_df<program_element_die>)>& f)
 		{
-			bool cont = f(t, origin); // i.e. we do walk "void"
+			bool cont = f(t, reason); // i.e. we do walk "void"
 			if (!cont) return;
 			if (!t) return;
 
@@ -1969,21 +1969,48 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			// return std::numeric_limits<uint32_t>::max();
 			
 		}
-		bool type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		bool type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
 			return t.tag_here() == get_tag(); // will be refined in subclasses
 		}
-		bool type_die::operator==(const dwarf::core::type_die& t) const
+		bool type_die::equal(iterator_df<type_die> t, 
+			const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, 
+			optional_root_arg_decl) const
 		{
+			set<pair< iterator_df<type_die>, iterator_df<type_die> > > flipped_set;
+			auto& r = get_root(opt_r);
+			auto self = r.find(get_offset());
+			if (assuming_equal.find(make_pair(self, t)) != assuming_equal.end())
+			{
+				return true;
+			}
 			// we have to find t
-			return this->may_equal(get_root(opt<root_die&>()).find(t.get_offset()))
-				&& // we have to find ourselves :-(
+			bool ret;
+			bool t_may_equal_self;
+			bool self_may_equal_t = this->may_equal(t, assuming_equal);
+			if (!self_may_equal_t) { ret = false; goto out; }
+			
+			// we need to flip our set of pairs
+			for (auto i_pair = assuming_equal.begin(); i_pair != assuming_equal.end(); ++i_pair)
+			{
+				flipped_set.insert(make_pair(i_pair->second, i_pair->first));
+			}
+			
+			t_may_equal_self =  // we have to find ourselves :-(
 				   // ... using our constructing root! :-((((((
-				t.may_equal(get_root(opt<root_die&>()).find(get_offset()));
+				t->may_equal(self, flipped_set, r);
+			if (!t_may_equal_self) { ret = false; goto out; }
+			ret = true;
+			// if we're unequal then we should not be the same DIE (equality is reflexive)
+		out:
+			assert(ret || !(&t.get_root() == &self.get_root() && t.offset_here() == self.offset_here()));
+			return ret;
 		}
+		bool type_die::operator==(const dwarf::core::type_die& t) const
+		{ return equal(get_root(opt<root_die&>()).find(t.get_offset()), {}); }
 /* from base_type_die */
-		bool base_type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		bool base_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
 			
@@ -2021,7 +2048,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			// for arrays, our concrete self is our self -- we have to find ourselves. :-(
 			return get_root(opt_r).find(get_offset());
 		}
-		bool array_type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		bool array_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
 			
@@ -2043,7 +2070,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				// presence equal
 					(!i_subr->get_type() == !i_subr->get_type())
 				// and if we have one, it's equal to theirs
-				&& (!i_subr->get_type() || *i_subr->get_type() == *i_theirs->get_type());
+				&& (!i_subr->get_type() || i_subr->get_type()->equal(i_theirs->get_type(), assuming_equal));
 				
 				if (!types_equal) return false;
 			}
@@ -2051,13 +2078,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			if (i_theirs != their_subr_children.second) return false;
 			
 			// our element type(s) should be equal
-			bool types_equal = *get_type() == *t.as_a<array_type_die>()->get_type();
+			bool types_equal = get_type()->equal(t.as_a<array_type_die>()->get_type(), assuming_equal);
 			if (!types_equal) return false;
 			
 			return true;
 		}
 /* from subrange_type_die */
-		bool subrange_type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		bool subrange_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
 			
@@ -2072,7 +2099,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			// presence equal
 				(!get_type() == !subr_t->get_type())
 			// if we have one, it should equal theirs
-			&& (!get_type() || *get_type() == *subr_t->get_type());
+			&& (!get_type() || get_type()->equal(subr_t->get_type(), assuming_equal));
 			if (!types_equal) return false;
 			
 			// our upper bound and lower bound should be equal
@@ -2088,7 +2115,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			return true;
 		}
 /* from enumeration_type_die */
-		bool enumeration_type_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		bool enumeration_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
 			
@@ -2103,7 +2130,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			// presence equal
 				(!get_type() == !enum_t->get_type())
 			// if we have one, it should equal theirs
-			&& (!get_type() || *get_type() == *enum_t->get_type());
+			&& (!get_type() || get_type()->equal(enum_t->get_type(), assuming_equal));
 			if (!types_equal) return false;
 
 			/* We need like-named, like-valued enumerators. */
@@ -2160,12 +2187,12 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				return opt<Dwarf_Unsigned>();
 			}
 		}
-		bool type_chain_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		bool type_chain_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			return get_tag() == t.tag_here() && 
 				(
 					(!get_type() && !t.as_a<type_chain_die>()->get_type())
-				||  *get_type() == *t);
+				||  get_type()->equal(t.as_a<type_chain_die>()->get_type(), assuming_equal));
 		}
 		iterator_df<type_die> type_chain_die::get_concrete_type(optional_root_arg_decl) const
 		{
@@ -2293,7 +2320,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			return this->type_die::calculate_byte_size(opt_r);
 		}
 /* from spec::with_data_members_die */
-		bool with_data_members_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		bool with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
 			
@@ -2305,6 +2332,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			 * GAH. We really need to canonicalise location lists to do this properly. 
 			 * That sounds difficult (impossible in general). Nevertheless for most
 			 * structs, it's likely to be that they are identical. */
+			
+			/* Another GAH: recursive structures. What to do about them? */
+			
 			auto our_member_children = children().subseq_of<member_die>();
 			auto their_member_children = t->children().subseq_of<member_die>();
 			auto i_theirs = their_member_children.first;
@@ -2314,16 +2344,31 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				// if they have fewer, we're unequal
 				if (i_theirs == their_member_children.second) return false;
 				
+				auto this_test_pair = make_pair(
+					get_root(opt_r).find(get_offset()).as_a<type_die>(),
+					t
+				);
+				auto recursive_test_set = assuming_equal; recursive_test_set.insert(this_test_pair);
+				
 				bool types_equal = 
 				// presence equal
 					(!i_memb->get_type() == !i_theirs->get_type())
 				// and if we have one, it's equal to theirs
-				&& (!i_memb->get_type() || *i_memb->get_type() == *i_theirs->get_type());
-				
+				&& (!i_memb->get_type() || 
+				/* RECURSION: here we may get into an infinite loop 
+				 * if equality of get_type() depends on our own equality. 
+				 * So we use equal_modulo_assumptions()
+				 * which is like operator== but doesn't recurse down 
+				 * grey (partially opened)  */
+					i_memb->get_type()->equal(i_theirs->get_type(), 
+						/* Don't recursively begin the test we're already doing */
+						recursive_test_set));
 				if (!types_equal) return false;
 				
+				auto loc1 = i_memb->get_data_member_location();
+				auto loc2 = i_theirs->get_data_member_location();
 				bool locations_equal = 
-					(i_memb->get_data_member_location() == i_theirs->get_data_member_location());
+					loc1 == loc2;
 				if (!locations_equal) return false;
 				
 				// FIXME: test names too? not for now
@@ -2950,7 +2995,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			auto unspec = children.subseq_of<unspecified_parameters_die>();
 			return unspec.first != unspec.second;
 		}
-		bool type_describing_subprogram_die::may_equal(iterator_df<type_die> t, optional_root_arg_decl) const
+		bool type_describing_subprogram_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (get_tag() != t.tag_here()) return false;
 			
@@ -2962,7 +3007,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				// presence equal
 					(!get_return_type() == !other_sub_t->get_return_type())
 				// and if we have one, it's equal to theirs
-				&& (!get_return_type() || *get_return_type() == *other_sub_t->get_return_type());
+				&& (!get_return_type() || get_return_type()->equal(other_sub_t->get_return_type(), assuming_equal));
 			if (!return_types_equal) return false;
 			
 			bool variadicness_equal
@@ -2985,7 +3030,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				// presence equal
 					(!i_fp->get_type() == !i_theirs->get_type())
 				// and if we have one, it's equal to theirs
-				&& (!i_fp->get_type() || *i_fp->get_type() == *i_theirs->get_type());
+				&& (!i_fp->get_type() || i_fp->get_type()->equal(i_theirs->get_type(), assuming_equal));
 				
 				if (!types_equal) return false;
 				

@@ -225,7 +225,7 @@ namespace dwarf
 						// skip i_instr along one (might now be at end())
 						++i_instr;
 						// insert the plus, and leave i_instr pointing at it
-						i_instr = i_l->insert(i_instr, (Dwarf_Loc) { DW_OP_plus });
+						i_instr = i_l->insert(i_instr, (Dwarf_Loc) { .lr_atom = DW_OP_plus });
 					}
 				}
 			}

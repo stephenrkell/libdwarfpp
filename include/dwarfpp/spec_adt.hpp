@@ -361,8 +361,8 @@ namespace dwarf
 
 // 				Value dereference() { return base().p_ds->operator[](base().off); }
 // 				Value dereference() const { return base().p_ds->operator[](base().off); }
-				Value dereference() { return base().p_d; }
-				Value dereference() const { return base().p_d; }
+				/*Reference*/ Value dereference() { return base/*_reference*/().p_d; }
+				/*const Value&*/ Value dereference() const { return base/*_reference*/().p_d; }
 
 				position& pos() { return base_reference(); }
 				const path_type& path() { return base_reference().path_from_root; }
@@ -761,8 +761,8 @@ struct with_iterator_partial_order : public Iter
 			
 			child_tag(compile_unit)
 			
-			typedef concatenating_sequence<abstract_dieset::iterator> grandchildren_sequence_t;
-			typedef concatenating_iterator<abstract_dieset::iterator> grandchildren_iterator;
+			typedef concatenating_sequence<abstract_dieset::iterator, std::shared_ptr<basic_die>, std::shared_ptr<basic_die> > grandchildren_sequence_t;
+			typedef concatenating_iterator<abstract_dieset::iterator, std::shared_ptr<basic_die>, std::shared_ptr<basic_die> > grandchildren_iterator;
 			shared_ptr<grandchildren_sequence_t> grandchildren_sequence();
 			
 			typedef filter_iterator<is_visible, grandchildren_iterator> 
