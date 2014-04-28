@@ -12,6 +12,7 @@
 #include "dwarfpp/expr.hpp" /* for absolute_loclist_to_additive_loclist */
 #include "dwarfpp/frame.hpp"
 
+#include <srk31/indenting_ostream.hpp>
 #include <sstream>
 #include <libelf.h>
 #include <cstring> /* We use strcmp in linear search-by-name -- likely this will change */ 
@@ -65,35 +66,57 @@ namespace dwarf
 		{
 			dwarf_finish(arg, &current_dwarf_error);
 		}
-
+		
+		void basic_die::print(std::ostream& s) const
+		{
+			s << "DIE, offset 0x" << std::hex << get_offset() << std::dec
+				<< ", tag " << this->s.tag_lookup(get_tag());
+			if (get_name()) s << ", name \"" << *get_name() << "\""; 
+			else s << ", no name";
+		}
+		void basic_die::print_with_attrs(std::ostream& s, optional_root_arg_decl) const
+		{
+			s << "DIE, offset 0x" << std::hex << get_offset() << std::dec
+				<< ", tag " << this->s.tag_lookup(get_tag())
+				<< ", attributes: ";
+			srk31::indenting_ostream is(s);
+			is.inc_level();
+			is << endl << copy_attrs(get_root(opt_r));
+			is.dec_level();
+		}
 		/* print a single DIE */
 		std::ostream& operator<<(std::ostream& s, const basic_die& d)
 		{
-			s << "DIE, offset 0x" << std::hex << d.get_offset() << std::dec
-				<< ", tag " << d.s.tag_lookup(d.get_tag()); 
+			d.print(s);
 			return s;
 		}
-		/* print a whole tree of DIEs */
-		std::ostream& operator<<(std::ostream& s, const root_die& d)
+		/* print a whole tree of DIEs -- only defined on iterators. 
+		 * If we made it a method on iterator_base, it would have
+		 * to copy itself. f we make it a method on root_die, it does
+		 * not have to copy. */
+		void root_die::print_tree(iterator_base&& begin, std::ostream& s) const
 		{
-			for (auto i = d.begin(); i != d.end(); ++i)
+			unsigned start_depth = begin.m_depth;
+			Dwarf_Off start_offset = begin.offset_here();
+			for (iterator_df<> i = std::move(begin); i.offset_here() == start_offset || i.depth() > start_depth; 
+				++i)
 			{
-				for (unsigned u = 0u; u < i.depth(); ++u) s << '\t';
-				s << i;
+				for (unsigned u = 0u; u < i.depth() - start_depth; ++u) s << '\t';
+				i->print_with_attrs(s, const_cast<root_die&>(*this));
 			}
-			return s;
 		}
-		
+
 		std::ostream& operator<<(std::ostream& s, const iterator_base& i)
 		{
-			s << "At 0x" << std::hex << i.offset_here() << std::dec
-						<< ", depth " << i.depth()
-						<< ", tag " << i.spec_here().tag_lookup(i.tag_here()) 
-						<< ", attributes: " 
-						<< i.copy_attrs(opt<root_die&>()/* use constructing/default root */)
-						<< endl;
+			i.dereference().print/*_with_attrs*/(s/*, i.root()*/);
 			return s;
 		}
+		std::ostream& operator<<(std::ostream& s, const root_die& r)
+		{
+			r.print_tree(r.begin(), s);
+			return s;
+		}
+
 		string abstract_die::summary() const
 		{
 			std::ostringstream s;

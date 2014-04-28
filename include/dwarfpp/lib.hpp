@@ -354,7 +354,11 @@ namespace dwarf
 			inline Dwarf_Off get_offset() const { assert(d.handle); return d.offset_here(); }
 			inline Dwarf_Half get_tag() const { assert(d.handle); return d.tag_here(); }
 			inline opt<string> get_name() const 
-			{ assert(d.handle); return opt<string>(string(d.name_here().get())); }
+			{ 
+				assert(d.handle); 
+				if (d.name_here()) return opt<string>(string(d.name_here().get()));
+				else return opt<string>();
+			}
 			inline unique_ptr<const char, string_deleter> get_raw_name() const
 			{ assert(d.handle); return d.name_here(); }
 			inline Dwarf_Off get_enclosing_cu_offset() const 
@@ -376,6 +380,9 @@ namespace dwarf
 			inline
 			sequence< iterator_sibs<basic_die> >
 			children(optional_root_arg) const;
+			
+			void print(std::ostream& s) const;
+			void print_with_attrs(std::ostream& s, optional_root_arg) const;
 		};	
 		std::ostream& operator<<(std::ostream& s, const basic_die& d);
 		inline void intrusive_ptr_add_ref(basic_die *p)
@@ -566,6 +573,8 @@ namespace dwarf
 			inline void
 			scoped_resolve_all(const iterator_base& start, Iter path_pos, Iter path_end, 
 				std::vector<iterator_base >& results, int max = 0);
+			
+			void print_tree(iterator_base&& begin, std::ostream& s) const;
 		};	
 		std::ostream& operator<<(std::ostream& s, const root_die& d);
 		
