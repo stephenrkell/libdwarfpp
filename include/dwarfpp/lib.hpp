@@ -12,6 +12,8 @@
 #include <utility>
 #include <memory>
 #include <stack>
+#include <unordered_set>
+#include <unordered_map>
 #include <vector>
 #include <queue>
 #include <cassert>
@@ -31,13 +33,6 @@
 
 namespace dwarf
 {
-	using std::string;
-	using std::vector;
-	using std::stack;
-	using std::endl;
-	using std::ostream;
-	using std::cerr;
-
 	// forward declarations, for "friend" declarations
 	namespace encap
 	{
@@ -51,6 +46,15 @@ namespace dwarf
 
 namespace dwarf
 {
+	using std::string;
+	using std::vector;
+	using std::stack;
+	using std::unordered_set;
+	using std::unordered_map;
+	using std::endl;
+	using std::ostream;
+	using std::cerr;
+	
 	namespace core
 	{
 		using std::unique_ptr;
@@ -422,7 +426,7 @@ namespace dwarf
 			friend struct GlobalList;
 			friend struct Arange;
 			friend struct ArangeList;
-		public: // was protected -- consider changing back
+		protected: // was protected -- consider changing back
 			typedef intrusive_ptr<basic_die> ptr_type;
 			Debug dbg;
 			/* NOTE: sticky_dies must come after dbg, because all Dwarf_Dies are 
@@ -430,15 +434,20 @@ namespace dwarf
 			 * will be invalid if we destruct the latter first, and bad results follow. */
 			map<Dwarf_Off, ptr_type > sticky_dies; // compile_unit_die is always sticky
 			map<Dwarf_Off, Dwarf_Off> parent_of;
+			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
 			FrameSection *p_fs;
 			Dwarf_Off current_cu_offset; // 0 means none
 			::Elf *returned_elf;
-			
+		public:
 			FrameSection&       get_frame_section()       { assert(p_fs); return *p_fs; }
 			const FrameSection& get_frame_section() const { assert(p_fs); return *p_fs; }
 
 			virtual ptr_type make_payload(const iterator_base& it)/* = 0*/;
 			virtual bool is_sticky(const abstract_die& d) /* = 0*/;
+			
+			void get_referential_structure(
+				map<Dwarf_Off, Dwarf_Off>& parent_of,
+				map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off>& refers_to) const;
 			
 		public:
 			root_die(int fd);
@@ -490,20 +499,23 @@ namespace dwarf
 			
 			/* This is the expensive version. */
 			template <typename Iter = iterator_df<> >
-			Iter find(Dwarf_Off off);
+			Iter find(Dwarf_Off off, 
+				opt<pair<Dwarf_Off, Dwarf_Half> > referencer = opt<pair<Dwarf_Off, Dwarf_Half> >());
 			/* This is the cheap version -- must give a valid offset. */
 			template <typename Iter = iterator_df<> >
 			Iter pos(Dwarf_Off off, unsigned depth, 
-				optional<Dwarf_Off> parent_off = optional<Dwarf_Off>() );
+				optional<Dwarf_Off> parent_off = optional<Dwarf_Off>(),
+				opt<pair<Dwarf_Off, Dwarf_Half> > referencer = opt<pair<Dwarf_Off, Dwarf_Half> >());
 			/* This is a synonym for "pos()". */
 			template <typename Iter = iterator_df<> >
 			Iter at(Dwarf_Off off, unsigned depth, 
-				optional<Dwarf_Off> parent_off = optional<Dwarf_Off>() )
-			{ return pos<Iter>(off, depth, parent_off); }
+				optional<Dwarf_Off> parent_off = optional<Dwarf_Off>(),
+				opt<pair<Dwarf_Off, Dwarf_Half> > referencer = opt<pair<Dwarf_Off, Dwarf_Half> >())
+			{ return pos<Iter>(off, depth, parent_off, referencer); }
 			/* Convenience for getting CUs */
 			template <typename Iter = iterator_df<compile_unit_die> >
-			Iter cu_pos(Dwarf_Off off)
-			{ return pos<Iter>(off, 1, optional<Dwarf_Off>()); }
+			Iter cu_pos(Dwarf_Off off, opt<pair<Dwarf_Off, Dwarf_Half> > referencer = opt<pair<Dwarf_Off, Dwarf_Half> >())
+			{ return pos<Iter>(off, 1, optional<Dwarf_Off>(), referencer); }
 			
 		private: // find() helpers
 			template <typename Iter = iterator_df<> >
@@ -1534,8 +1546,39 @@ begin_class(type, base_initializations(initialize_base(program_element)), declar
 			optional_root_arg) const;
 		bool operator==(const dwarf::core::type_die& t) const;
 end_class(type)
-void walk_type(core::iterator_df<core::type_die> t, core::iterator_df<core::program_element_die> origin, 
-	const std::function<bool(core::iterator_df<core::type_die>, core::iterator_df<core::program_element_die>)>& f);
+/* type_set and related utilities. */
+size_t type_hash_fn(iterator_df<type_die> t);
+bool type_eq_fn(iterator_df<type_die> t1, iterator_df<type_die> t2);
+struct type_set : public unordered_set< 
+	/* Key */   iterator_df<type_die>,
+	/* Hash */  std::function<size_t(iterator_df<type_die>)>,
+	/* Equal */ std::function<bool(iterator_df<type_die> t1, iterator_df<type_die> t2)>
+>
+{
+	type_set() : unordered_set({}, 0, type_hash_fn, type_eq_fn) {}
+};
+template <typename Value>
+struct type_map : public unordered_map< 
+	/* Key */   iterator_df<type_die>,
+	Value,
+	/* Hash */  std::function<size_t(iterator_df<type_die>)>,
+	/* Equal */ std::function<bool(iterator_df<type_die> t1, iterator_df<type_die> t2)>
+>
+{
+	typedef unordered_map< 
+		/* Key */   iterator_df<type_die>,
+		Value,
+		/* Hash */  std::function<size_t(iterator_df<type_die>)>,
+		/* Equal */ std::function<bool(iterator_df<type_die> t1, iterator_df<type_die> t2)>
+	> super;
+	type_map() : super({}, 0, type_hash_fn, type_eq_fn) {}
+};
+void walk_type(core::iterator_df<core::type_die> t, 
+	core::iterator_df<core::program_element_die> origin, 
+	const std::function<bool(core::iterator_df<core::type_die>, core::iterator_df<core::program_element_die>)>& pre_f,
+	const std::function<void(core::iterator_df<core::type_die>, core::iterator_df<core::program_element_die>)>& post_f
+	 = std::function<void(core::iterator_df<core::type_die>, core::iterator_df<core::program_element_die>)>(),
+	const type_set& currently_walking = type_set());
 /* with_type_describing_layout_die */
 	struct with_type_describing_layout_die : public virtual program_element_die
 	{
@@ -2150,15 +2193,18 @@ friend class factory;
 		 * We fill in the parent if depth <= 2, or if the user can tell us. */
 		template <typename Iter /* = iterator_df<> */ >
 		inline Iter root_die::pos(Dwarf_Off off, unsigned depth,
-			optional<Dwarf_Off> parent_off /* = optional<Dwarf_Off>() */ )
+			optional<Dwarf_Off> parent_off /* = optional<Dwarf_Off>() */,
+			opt<pair<Dwarf_Off, Dwarf_Half> > referencer /* = opt<pair<Dwarf_Off, Dwarf_Half> >() */ )
 		{
-			if (depth == 0) { assert(off == 0UL); return Iter(begin()); }
+			if (depth == 0) { assert(off == 0UL); assert(!referencer); return Iter(begin()); }
 			auto handle = Die::try_construct(*this, off);
 			assert(handle);
 			iterator_base base(std::move(handle), depth, *this);
 			if (depth == 1) parent_of[off] = 0UL;
 			else if (depth == 2) parent_of[off] = base.enclosing_cu_offset_here();
 			else if (parent_off) parent_of[off] = *parent_off;
+			
+			if (base && referencer) refers_to[*referencer] = base.offset_here();
 			
 			return Iter(std::move(base));
 		}		
@@ -2185,16 +2231,20 @@ friend class factory;
 		}
 		
 		template <typename Iter /* = iterator_df<> */ >
-		inline Iter root_die::find(Dwarf_Off off)
+		inline Iter root_die::find(Dwarf_Off off, 
+			opt<pair<Dwarf_Off, Dwarf_Half> > referencer /* = opt<pair<Dwarf_Off, Dwarf_Half> >() */)
 		{
 			Iter found_up = find_upwards(off);
 			if (found_up != iterator_base::END)
 			{
+				if (referencer) refers_to[*referencer] = found_up.offset_here();
 				return found_up;
 			} 
 			else
 			{
-				return find_downwards(off);
+				auto found = find_downwards(off);
+				if (found && referencer) refers_to[*referencer] = found.offset_here();
+				return found;
 			}
 		}
 		

@@ -682,6 +682,32 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			return d.get_tag() == DW_TAG_compile_unit;
 		}
 		
+		void
+		root_die::get_referential_structure(
+			map<Dwarf_Off, Dwarf_Off>& parent_of,
+			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off>& refers_to) const
+		{
+			/* We walk the whole tree depth-first. 
+			 * If we see any attributes that are references, we follow them. 
+			 * Then we return our maps. */
+			for (auto i = begin(); i != end(); ++i)
+			{
+				encap::attribute_map attrs = i.copy_attrs(const_cast<root_die&>(*this)); //(i.attrs_here(), i.get_handle(), *this);
+				for (auto i_a = attrs.begin(); i_a != attrs.end(); ++i_a)
+				{
+					if (i_a->second.get_form() == encap::attribute_value::REF)
+					{
+						auto found = const_cast<root_die *>(this)->find(
+							i_a->second.get_ref().off, 
+							make_pair(i.offset_here(), i_a->first));
+					}
+				}
+			}
+			
+			parent_of = this->parent_of;
+			refers_to = this->refers_to;
+		}
+		
 		Dwarf_Off Die::offset_here() const
 		{
 			Dwarf_Off off;
@@ -1654,66 +1680,89 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 	
 	namespace core
 	{
-		/* begin pasted from adt.cpp */
 /* from type_die */
-		void walk_type(iterator_df<type_die> t, iterator_df<program_element_die> reason, 
-			const std::function<bool(iterator_df<type_die>, iterator_df<program_element_die>)>& f)
+		size_t type_hash_fn(iterator_df<type_die> t) 
 		{
-			bool cont = f(t, reason); // i.e. we do walk "void"
-			if (!cont) return;
-			if (!t) return;
-
-			else if (t.is_a<type_chain_die>()) // unary case -- includes typedefs, arrays, pointer/reference, ...
-			{
-				// recursively walk the chain's target
-				walk_type(t.as_a<type_chain_die>()->find_type(), t, f);
-			}
-			else if (t.is_a<with_data_members_die>()) 
-			{
-				// recursively walk all members
-				auto member_children = t.as_a<with_data_members_die>().children().subseq_of<member_die>();
-				for (auto i_child = member_children.first;
-					i_child != member_children.second; ++i_child)
-				{
-					walk_type(i_child->find_type(), i_child.base().base(), f);
-				}
-				// visit all inheritances
-				auto inheritance_children = t.as_a<with_data_members_die>().children().subseq_of<inheritance_die>();
-				for (auto i_child = inheritance_children.first;
-					i_child != inheritance_children.second; ++i_child)
-				{
-					walk_type(i_child->find_type(), i_child.base().base(), f);
-				}
-			}
-			else if (t.is_a<subrange_type_die>())
-			{
-				// visit the base type
-				auto explicit_t = t.as_a<subrange_type_die>()->find_type();
-				// HACK: assume this is the same as for enums
-				walk_type(explicit_t ? explicit_t : t.enclosing_cu()->implicit_enum_base_type(), t, f);
-			}
-			else if (t.is_a<enumeration_type_die>())
-			{
-				// visit the base type
-				auto explicit_t = t.as_a<subrange_type_die>()->find_type();
-				walk_type(explicit_t ? explicit_t : t.enclosing_cu()->implicit_enum_base_type(), t, f);
-			}
-			else if (t.is_a<type_describing_subprogram_die>())
-			{
-				auto sub_t = t.as_a<type_describing_subprogram_die>();
-				walk_type(sub_t->find_type(), sub_t, f);
-				auto fps = sub_t.children().subseq_of<formal_parameter_die>();
-				for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
-				{
-					walk_type(i_fp->find_type(), i_fp.base().base(), f);
-				}
-			}
-			else
-			{
-				// what are our nullary cases?
-				assert(t.is_a<base_type_die>());
-			}
+			opt<uint32_t> summary = t ? t->summary_code() : opt<uint32_t>(0);
+			return summary ? *summary : 0;
 		}
+		bool type_eq_fn(iterator_df<type_die> t1, iterator_df<type_die> t2)
+		{
+			return (!t1 && !t2) || (t1 && t2 && *t1 == *t2);
+		}
+		void walk_type(iterator_df<type_die> t, iterator_df<program_element_die> reason, 
+			const std::function<bool(iterator_df<type_die>, iterator_df<program_element_die>)>& pre_f, 
+			const std::function<void(iterator_df<type_die>, iterator_df<program_element_die>)>& post_f,
+			const type_set& currently_walking /* = empty */)
+		{
+			if (currently_walking.find(t) != currently_walking.end()) return; // "grey node"
+			
+			bool continue_recursing;
+			if (pre_f) continue_recursing = pre_f(t, reason); // i.e. we do walk "void"
+			else continue_recursing = true;
+			
+			type_set next_currently_walking = currently_walking; 
+			next_currently_walking.insert(t);
+			
+			if (continue_recursing)
+			{
+
+				if (!t) { /* void case; just post-visit */ }
+				else if (t.is_a<type_chain_die>()) // unary case -- includes typedefs, arrays, pointer/reference, ...
+				{
+					// recursively walk the chain's target
+					walk_type(t.as_a<type_chain_die>()->find_type(), t, pre_f, post_f, next_currently_walking);
+				}
+				else if (t.is_a<with_data_members_die>()) 
+				{
+					// recursively walk all members
+					auto member_children = t.as_a<with_data_members_die>().children().subseq_of<member_die>();
+					for (auto i_child = member_children.first;
+						i_child != member_children.second; ++i_child)
+					{
+						walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f, next_currently_walking);
+					}
+					// visit all inheritances
+					auto inheritance_children = t.as_a<with_data_members_die>().children().subseq_of<inheritance_die>();
+					for (auto i_child = inheritance_children.first;
+						i_child != inheritance_children.second; ++i_child)
+					{
+						walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f, next_currently_walking);
+					}
+				}
+				else if (t.is_a<subrange_type_die>())
+				{
+					// visit the base type
+					auto explicit_t = t.as_a<subrange_type_die>()->find_type();
+					// HACK: assume this is the same as for enums
+					walk_type(explicit_t ? explicit_t : t.enclosing_cu()->implicit_enum_base_type(), t, pre_f, post_f, next_currently_walking);
+				}
+				else if (t.is_a<enumeration_type_die>())
+				{
+					// visit the base type
+					auto explicit_t = t.as_a<subrange_type_die>()->find_type();
+					walk_type(explicit_t ? explicit_t : t.enclosing_cu()->implicit_enum_base_type(), t, pre_f, post_f, next_currently_walking);
+				}
+				else if (t.is_a<type_describing_subprogram_die>())
+				{
+					auto sub_t = t.as_a<type_describing_subprogram_die>();
+					walk_type(sub_t->find_type(), sub_t, pre_f, post_f);
+					auto fps = sub_t.children().subseq_of<formal_parameter_die>();
+					for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
+					{
+						walk_type(i_fp->find_type(), i_fp.base().base(), pre_f, post_f, next_currently_walking);
+					}
+				}
+				else
+				{
+					// what are our nullary cases?
+					assert(t.is_a<base_type_die>());
+				}
+			} // end if continue_recursing
+
+			if (post_f) post_f(t, reason);
+		}
+		/* begin pasted from adt.cpp */
 		opt<Dwarf_Unsigned> type_die::calculate_byte_size(optional_root_arg_decl) const
 		{
 			return get_byte_size(opt_r); 
