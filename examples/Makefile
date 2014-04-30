@@ -8,6 +8,7 @@ CXXFLAGS += -O0 -g3
 endif
 
 CXXFLAGS += -I../include
+LDFLAGS += -L../lib
 
 HDRS := $(wildcard *.hpp)
 SRC := $(wildcard *.cpp)
