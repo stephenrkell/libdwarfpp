@@ -17,10 +17,10 @@
 #include <memory>
 #include <boost/iterator/iterator_adaptor.hpp>
 #include <boost/iterator/filter_iterator.hpp>
-#include <iterator_with_lens.hpp>
-#include <downcasting_iterator.hpp>
-#include <selective_iterator.hpp>
-#include <concatenating_iterator.hpp>
+#include <srk31/iterator_with_lens.hpp>
+#include <srk31/downcasting_iterator.hpp>
+#include <srk31/selective_iterator.hpp>
+#include <srk31/concatenating_iterator.hpp>
 
 #include <vector>
 #include <set>
