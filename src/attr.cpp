@@ -527,13 +527,19 @@ namespace dwarf
 				this->insert(make_pair(i->attr_here(), attribute_value(*i, d, r)));
 			}
 		}
-		std::ostream& operator<<(std::ostream& s, const attribute_map& m)
+		
+		void attribute_map::print(std::ostream& s, unsigned indent_level) const
 		{
-			for (auto i = m.begin(); i != m.end(); ++i)
+			for (auto i = begin(); i != end(); ++i)
 			{
+				for (unsigned u = 0; u < indent_level; ++u) s << "\t";
 				s << spec::DEFAULT_DWARF_SPEC.attr_lookup(i->first) 
 					<< ": " << i->second << endl;
 			}
+		}
+		std::ostream& operator<<(std::ostream& s, const attribute_map& m)
+		{
+			m.print(s, 0);
 			return s;
 		}
 		

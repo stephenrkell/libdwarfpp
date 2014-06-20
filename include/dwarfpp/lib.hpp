@@ -1038,7 +1038,10 @@ namespace dwarf
 				assert(this->operator bool());
 				return *get_root().make_payload(*this);
 			}
-			
+
+			// printing
+			void print(std::ostream& s, unsigned indent_level = 0) const;
+			void print_with_attrs(std::ostream& s, unsigned indent_level = 0) const;
 			friend std::ostream& operator<<(std::ostream& s, const iterator_base& it);
 		}; 
 		/* END class iterator_base */

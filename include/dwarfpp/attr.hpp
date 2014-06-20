@@ -269,6 +269,8 @@ namespace dwarf
 			// static 3-arg print function
 			//static std::ostream& 
 			//print_to(std::ostream& s, const AttributeList& attrs, root_die& r);
+			
+			void print(std::ostream& s, unsigned indent_level) const;
 		};
 		std::ostream& operator<<(std::ostream& s, const attribute_map& arg); 
 		
