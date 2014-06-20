@@ -54,4 +54,4 @@ dwarfpplibdump: dwarfpplibdump.o ../src/libdwarfpp.a
 
 .PHONY: clean
 clean:
-	rm -f $(PROGS) $(OBJS)
+	rm -f $(PROGS) $(OBJS) $(DEPS)

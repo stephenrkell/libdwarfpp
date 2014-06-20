@@ -17,7 +17,7 @@ cases := $(wildcard [a-z]*)
 
 default:
 	for case in $(cases); do \
-            $(MAKE) run-$$case; \
+            $(MAKE) run-$$case || break; \
         done
 
 clean:
@@ -33,6 +33,18 @@ build-%:
 
 run-%: # run the test case with itself as input
 	$(MAKE) -C "$*" "$*" && ( cd "$*" && ./$* ./$* )
+	
+profile-%:
+	$(MAKE) -C "$*" "$*" && \
+        sudo opcontrol --deinit && \
+        sudo sh -c "echo '0' > /proc/sys/kernel/nmi_watchdog" && \
+        rm -rf oprofile_data && \
+        sudo opcontrol --reset && \
+        sudo opcontrol --start --no-vmlinux --separate=lib,kernel --callgraph=3 && \
+        ( cd "$*" && ./$* ./$* ); \
+        sudo opcontrol --deinit && \
+        opreport -l --callgraph $(root)/src/libdwarfpp.so $*/$* && \
+        opreport -l $(root)/src/libdwarfpp.so $*/$* | head -n15
 
 gdbrun-%: # run the test case with itself as input
 	$(MAKE) -C "$*" "$*" && ( cd "$*" && gdb --args ./$* ./$* )
