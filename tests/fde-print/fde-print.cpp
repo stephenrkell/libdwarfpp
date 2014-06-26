@@ -80,7 +80,7 @@ void print_in_readelf_style(std::ostream& s, const core::Cie& cie)
 	s.fill('0');
 	s 	<< setw(8) << setfill('0') << std::hex << cie.get_offset()
 		<< ' ' 
-		<< setw(8) << setfill('0') << std::hex << cie.get_bytes_in_cie()
+		<< setw(16) << setfill('0') << std::hex << cie.get_bytes_in_cie()
 		<< ' ' 
 		<< setw(8) << setfill('0') << 0 << std::dec
 		<< " CIE"
@@ -134,7 +134,7 @@ void print_in_readelf_style(std::ostream& s, const encap::frame_instrlist& instr
 			case DW_CFA_advance_loc2:
 			case DW_CFA_advance_loc4:
 				loc += i_instr->fp_offset_or_block_len;
-				s << ": " << i_instr->fp_offset_or_block_len << " to " << setw(8) << setfill('0') << std::hex << loc << std::dec;
+				s << ": " << i_instr->fp_offset_or_block_len << " to " << setw(16) << setfill('0') << std::hex << loc << std::dec;
 				break;
 			case DW_CFA_offset:
 				s << ": " << reg(i_instr->fp_register) 
@@ -233,15 +233,15 @@ void print_in_readelf_style(std::ostream& s, const core::Fde& fde)
 	s.fill('0');
 	s 	<< setw(8) << setfill('0') << std::hex << fde.get_fde_offset()
 		<< ' ' 
-		<< setw(8) << setfill('0') << std::hex << fde.get_fde_byte_length()
+		<< setw(16) << setfill('0') << std::hex << fde.get_fde_byte_length()
 		<< ' ' 
 		<< setw(8) << setfill('0') << fde.get_id() << std::dec
 		<< " FDE cie="
 		<< setw(8) << setfill('0') << std::hex << fde.find_cie()->get_cie_offset()
 		<< " pc="
-		<< setw(8) << setfill('0') << std::hex << fde.get_low_pc()
+		<< setw(16) << setfill('0') << std::hex << fde.get_low_pc()
 		<< ".." 
-		<< setw(8) << setfill('0') << std::hex << (fde.get_low_pc() + fde.get_func_length())
+		<< setw(16) << setfill('0') << std::hex << (fde.get_low_pc() + fde.get_func_length())
 		<< endl;
 	auto augbytes = fde.get_augmentation_bytes();
 	if (augbytes.size() > 0) 
