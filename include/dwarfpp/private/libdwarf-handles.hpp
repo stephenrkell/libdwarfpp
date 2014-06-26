@@ -26,6 +26,7 @@
 			// define constructors analogous to the libdwarf resource-acquisition functions
 			Debug(int fd); /* FIXME: release Elf handle implicitly left open after dwarf_finish(). */
 			Debug(Elf *elf);
+			Debug() : handle(nullptr) {}
 			
 			raw_handle_type raw_handle()       { return handle.get(); }
 			raw_handle_type raw_handle() const { return handle.get(); }

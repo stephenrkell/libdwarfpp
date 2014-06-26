@@ -1930,7 +1930,9 @@ namespace dwarf
 				bool cu_move_succeeded = get_root().move_to_next_sibling(cu_iter);
 				if (cu_move_succeeded) 
 				{
-					i = core::iterator_base(core::Die::try_construct(cu_iter), /* depth */ 2, get_root());
+					i = core::iterator_base(core::Die(core::Die::try_construct(cu_iter)), 
+						/* depth */ 2, 
+						get_root());
 					++cus_moved;
 				} else {
 					break;

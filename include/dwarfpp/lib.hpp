@@ -129,8 +129,11 @@ namespace dwarf
 		protected:
 			virtual basic_die *make_non_cu_payload(Die::handle_type&& it, root_die& r) = 0;
 			compile_unit_die *make_cu_payload(Die::handle_type&& it, root_die& r);
+			compile_unit_die *make_new_cu(root_die& r, std::function<compile_unit_die*()> constructor);
 		public:
 			inline basic_die *make_payload(Die::handle_type&& it, root_die& r);
+			basic_die *make_new(const iterator_base& parent, Dwarf_Half tag);
+			
 			static inline factory& for_spec(dwarf::spec::abstract_def& def);
 			virtual basic_die *dummy_for_tag(Dwarf_Half tag) = 0;
 		};
@@ -367,9 +370,14 @@ namespace dwarf
 			{ assert(d.handle); return d.name_here(); }
 			inline Dwarf_Off get_enclosing_cu_offset() const 
 			{ assert(d.handle); return d.enclosing_cu_offset_here(); }
-			/* The same as all_attrs, but comes from abstract_die. */
+			/* The same as all_attrs, but comes from abstract_die. 
+			 * We want to delegate from basic_die to abstract_die, so
+			 * this function does the work and all_attrs delegates to it. */
 			inline encap::attribute_map copy_attrs(opt<root_die&> opt_r) const
-			{ return all_attrs(opt_r); }
+			{
+				//return all_attrs(opt_r); 
+				return encap::attribute_map(AttributeList(d), d, get_root(opt_r));
+			}
 			inline spec& get_spec(root_die& r) const 
 			{ assert(d.handle); return d.spec_here(r); }
 			
@@ -398,7 +406,6 @@ namespace dwarf
 			--(p->refcount);
 			if (p->refcount == 0) delete p;
 		}
-		
 		
 		//template <typename Pred, typename DerefAs = basic_die> 
 		//using iterator_sibs_where
@@ -434,6 +441,8 @@ namespace dwarf
 			 * will be invalid if we destruct the latter first, and bad results follow. */
 			map<Dwarf_Off, ptr_type > sticky_dies; // compile_unit_die is always sticky
 			map<Dwarf_Off, Dwarf_Off> parent_of;
+			map<Dwarf_Off, Dwarf_Off> first_child_of;
+			map<Dwarf_Off, Dwarf_Off> next_sibling_of;
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
 			FrameSection *p_fs;
 			Dwarf_Off current_cu_offset; // 0 means none
@@ -442,13 +451,20 @@ namespace dwarf
 			FrameSection&       get_frame_section()       { assert(p_fs); return *p_fs; }
 			const FrameSection& get_frame_section() const { assert(p_fs); return *p_fs; }
 
-			virtual ptr_type make_payload(const iterator_base& it)/* = 0*/;
-			virtual bool is_sticky(const abstract_die& d) /* = 0*/;
+			virtual ptr_type make_payload(const iterator_base& it);
+			virtual ptr_type make_new(const iterator_base& parent, Dwarf_Half tag);
+			virtual bool is_sticky(const abstract_die& d);
 			
 			void get_referential_structure(
 				map<Dwarf_Off, Dwarf_Off>& parent_of,
 				map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off>& refers_to) const;
-			
+
+		public: // HMM
+			virtual Dwarf_Off fresh_cu_offset();
+			virtual Dwarf_Off fresh_offset_under(const iterator_base& pos);
+		
+		protected:
+			root_die() : dbg(), p_fs(nullptr) {}
 		public:
 			root_die(int fd);
 			virtual ~root_die(); 
@@ -521,7 +537,7 @@ namespace dwarf
 			template <typename Iter = iterator_df<> >
 			Iter find_downwards(Dwarf_Off off);		
 			template <typename Iter = iterator_df<> >
-			Iter find_upwards(Dwarf_Off off);
+			Iter find_upwards(Dwarf_Off off, ptr_type maybe_ptr = nullptr);
 			
 		public:
 			::Elf *get_elf(); // hmm: lib-only?
@@ -589,7 +605,37 @@ namespace dwarf
 			void print_tree(iterator_base&& begin, std::ostream& s) const;
 		};	
 		std::ostream& operator<<(std::ostream& s, const root_die& d);
-		
+
+		struct in_memory_abstract_die: public virtual abstract_die
+		{
+			Dwarf_Off m_offset;
+			Dwarf_Off m_cu_offset;
+			Dwarf_Half m_tag;
+			encap::attribute_map m_attrs;
+			
+			Dwarf_Off get_offset() const { return m_offset; }
+			Dwarf_Half get_tag() const { return m_tag; }
+			opt<string> get_name() const 
+			{ return has_attr(DW_AT_name) ? m_attrs.find(DW_AT_name)->second.get_string() : opt<string>(); }
+			Dwarf_Off get_enclosing_cu_offset() const 
+			{ return m_cu_offset; }
+			bool has_attr(Dwarf_Half attr) const 
+			{ return m_attrs.find(attr) != m_attrs.end(); }
+			encap::attribute_map copy_attrs(opt<root_die&> opt_r) const
+			{ return m_attrs; }
+			inline spec& get_spec(root_die& r) const;
+			
+			in_memory_abstract_die(Dwarf_Off offset, Dwarf_Off cu_offset, Dwarf_Half tag)
+			 : m_offset(offset), m_cu_offset(cu_offset), m_tag(tag)
+			{}
+		};
+		struct in_memory_root_die : public root_die
+		{
+			virtual bool is_sticky(const abstract_die& d) { return true; }
+			ptr_type make_new(const iterator_base& parent, Dwarf_Half tag);
+			
+			in_memory_root_die() {}
+		};
 			
 		/* Integrating with ADT: now we have two kinds of iterators.
 		 * Core iterators, defined here, are fast, and when dereferenced
@@ -663,7 +709,16 @@ namespace dwarf
 				switch (state)
 				{
 					case HANDLE_ONLY: return cur_handle;
-					case WITH_PAYLOAD: return cur_payload->d;
+					case WITH_PAYLOAD: {
+						//in_memory_die *inmem = dynamic_cast<in_memory_die *>(cur_payload.get());
+						//if (inmem)
+						//{
+						//
+						//}
+						//else return 
+						if (cur_payload->d.handle) return cur_payload->d;
+						else return dynamic_cast<in_memory_abstract_die&>(*cur_payload);
+					}
 					default: assert(false);
 				}
 			}
@@ -705,9 +760,14 @@ namespace dwarf
 				assert(this->is_root_position());
 			}
 			
+			// this constructor sets us up using a payload ptr
+			//iterator_base(root_die::ptr_type p, unsigned depth, root_die& r)
+			// : cur_handle(Die(nullptr, nullptr)), cur_payload(p), state(WITH_PAYLOAD), 
+			//   m_depth(depth), p_root(&r) {}
+			
 			// this constructor sets us up using a handle -- 
 			// this does the exploitation of the sticky set
-			iterator_base(Die&& d, unsigned depth, root_die& r)
+			iterator_base(abstract_die&& d, unsigned depth, root_die& r)
 			 : cur_handle(Die(nullptr, nullptr)), cur_payload(nullptr) // will be replaced in function body...
 			{
 				// get the offset of the handle we've been passed
@@ -723,21 +783,21 @@ namespace dwarf
 					assert(cur_payload);
 					//m_depth = found->second->get_depth(); assert(depth == m_depth);
 					//p_root = &found->second->get_root();
-					assert(r.is_sticky(static_cast<const abstract_die&>(d)));
+					assert(r.is_sticky(d));
 				}
-				else if (r.is_sticky(static_cast<const abstract_die&>(d)))
+				else if (r.is_sticky(d))
 				{
 					// should be sticky, but does not exist yet -- use the factory
 					cur_handle = Die(nullptr, nullptr);
 					state = WITH_PAYLOAD;
-					cur_payload = factory::for_spec(d.spec_here(r)).make_payload(std::move(d.handle), r);
+					cur_payload = factory::for_spec(d.get_spec(r)).make_payload(std::move(dynamic_cast<Die&&>(d).handle), r);
 					assert(cur_payload);
 					r.sticky_dies[off] = cur_payload;
 				}
 				else
 				{
 					// not sticky
-					cur_handle = std::move(d.handle);
+					cur_handle = std::move(dynamic_cast<Die&&>(d).handle);
 					state = HANDLE_ONLY;
 				}
 				m_depth = depth; // now shared by both cases
@@ -1376,7 +1436,7 @@ namespace dwarf
 #define begin_class(fragment, base_inits, ...) \
 	struct fragment ## _die : virtual __VA_ARGS__ { \
 	friend struct dwarf3_factory_t; \
-	private: /* dummy constructor used only to construct dummy instances */\
+	protected: /* dummy constructor used only to construct dummy instances */\
 		fragment ## _die(spec& s) : basic_die(s, Die(nullptr, nullptr)) {} \
 	public: /* main constructor */ \
 		constructor(fragment, base_inits /* NOTE: base_inits is expanded via ',' into varargs list */) \
@@ -1925,6 +1985,9 @@ friend class factory;
 		//// FIXME: do I need this function?
 		//inline iterator_base root_die::scoped_resolve(const std::string& name)
 		//{ return scoped_resolve(this->begin(), name); }
+		
+		inline spec& in_memory_abstract_die::get_spec(root_die& r) const
+		{ return r.cu_pos(m_cu_offset).spec_here(); }
 
 		inline iterator_base
 		with_named_children_die::named_child(const std::string& name, optional_root_arg_decl) const
@@ -1968,7 +2031,7 @@ friend class factory;
 			if (d.tag_here() == DW_TAG_compile_unit) return make_cu_payload(std::move(d.handle), r);
 			else return make_non_cu_payload(std::move(d.handle), r);
 		}
-		
+
 		inline
 		dwarf::core::sequence<
 				typename subseq_t<iterator_sibs<>, is_a_t<compile_unit_die> >::transformed_iterator
@@ -2061,7 +2124,9 @@ friend class factory;
 		Die::try_construct(root_die& r, const iterator_base& it) /* siblingof */
 		{
 			raw_handle_type returned;
-			// auto tmp = dynamic_cast<Die *>(&it.get_handle());
+			
+			if (!dynamic_cast<Die *>(&it.get_handle())) return handle_type(nullptr, deleter(nullptr, r));
+			
 			int ret
 			 = dwarf_siblingof(r.dbg.handle.get(), dynamic_cast<Die&>(it.get_handle()).handle.get(), 
 			 	&returned, &current_dwarf_error);
@@ -2075,6 +2140,10 @@ friend class factory;
 					// parent of the sibling is the same as parent of "it"
 					r.parent_of[off] = found->second;
 				} else cerr << "Warning: parent cache did not know 0x" << std::hex << it.offset_here() << std::dec << endl;
+				
+				// first_child_of, next_sibling_of
+				r.next_sibling_of[it.offset_here()] = off;
+				
 				return handle_type(returned, deleter(r.dbg.handle.get(), r));
 			}
 			else return handle_type(nullptr, deleter(nullptr, r));
@@ -2083,6 +2152,10 @@ friend class factory;
 		Die::try_construct(root_die& r) /* siblingof in root case */
 		{
 			raw_handle_type returned;
+			Dwarf_Off current_cu_offset = r.current_cu_offset;
+			
+			if (!r.dbg.handle) return handle_type(nullptr, deleter(nullptr, r));
+			
 			int ret
 			 = dwarf_siblingof(r.dbg.handle.get(), nullptr, &returned, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
@@ -2090,6 +2163,11 @@ friend class factory;
 				// update parent cache
 				GET_HANDLE_OFFSET;
 				r.parent_of[off] = 0UL;
+				
+				// update first_child_of, next_sibling_of
+				assert(current_cu_offset != 0);
+				r.next_sibling_of[current_cu_offset] = off;
+				
 				return handle_type(returned, deleter(r.dbg.handle.get(), r));
 			}
 			else return handle_type(nullptr, deleter(nullptr, r));
@@ -2099,11 +2177,16 @@ friend class factory;
 		{
 			raw_handle_type returned;
 			root_die& r = it.get_root();
+			
+			if (!dynamic_cast<Die *>(&it.get_handle())) return handle_type(nullptr, deleter(nullptr, r));
+
 			int ret = dwarf_child(dynamic_cast<Die&>(it.get_handle()).handle.get(), &returned, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
 			{
 				GET_HANDLE_OFFSET;
 				r.parent_of[off] = it.offset_here();
+				// first_child_of, next_sibling_of
+				r.first_child_of[it.offset_here()] = off;
 				return handle_type(returned, deleter(it.get_root().dbg.handle.get(), r));
 			}
 			else return handle_type(nullptr, deleter(nullptr, r));
@@ -2113,6 +2196,9 @@ friend class factory;
 		Die::try_construct(root_die& r, Dwarf_Off off) /* offdie */
 		{
 			raw_handle_type returned;
+			
+			if (!r.dbg.handle) return handle_type(nullptr, deleter(nullptr, r));
+
 			int ret = dwarf_offdie(r.dbg.handle.get(), off, &returned, &current_dwarf_error);
 			if (ret == DW_DLV_OK)
 			{
@@ -2200,12 +2286,26 @@ friend class factory;
 			opt<pair<Dwarf_Off, Dwarf_Half> > referencer /* = opt<pair<Dwarf_Off, Dwarf_Half> >() */ )
 		{
 			if (depth == 0) { assert(off == 0UL); assert(!referencer); return Iter(begin()); }
+			
+			// always check the sticky set first
+			auto found = sticky_dies.find(off);
+			if (found != sticky_dies.end())
+			{
+				// it's there, so use find_upwards to get the iterator
+				assert(found->second);
+				return find_upwards(off, found->second);
+			}
+			
 			auto handle = Die::try_construct(*this, off);
 			assert(handle);
-			iterator_base base(std::move(handle), depth, *this);
+			iterator_base base(Die(std::move(handle)), depth, *this);
+			
 			if (depth == 1) parent_of[off] = 0UL;
 			else if (depth == 2) parent_of[off] = base.enclosing_cu_offset_here();
 			else if (parent_off) parent_of[off] = *parent_off;
+			
+			// do we know anything about the first_child_of and next_sibling_of?
+			// NO because we don't know where we are w.r.t. other siblings
 			
 			if (base && referencer) refers_to[*referencer] = base.offset_here();
 			
@@ -2213,7 +2313,7 @@ friend class factory;
 		}		
 		
 		template <typename Iter /* = iterator_df<> */ >
-		inline Iter root_die::find_upwards(Dwarf_Off off)
+		inline Iter root_die::find_upwards(Dwarf_Off off, root_die::ptr_type maybe_ptr)
 		{
 			/* Use the parent cache to verify our existence and
 			 * get our depth. */
@@ -2229,8 +2329,12 @@ friend class factory;
 			// if we got all the way to the root, cur will be 0
 			if (cur == 0)
 			{
-				return pos(off, height, parent_of[off]);
-			} else return iterator_base::END;
+				// CARE: this recursion is safe because pos never calls back to us
+				// with a non-null maybe_ptr
+				if (!maybe_ptr) return pos(off, height, parent_of[off]);
+				else return iterator_base(static_cast<abstract_die&&>(*maybe_ptr), height, *this);
+			} 
+			else return iterator_base::END;
 		}
 		
 		template <typename Iter /* = iterator_df<> */ >
