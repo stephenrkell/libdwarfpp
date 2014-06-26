@@ -13,7 +13,7 @@ export LDLIBS
 $(warning PATH is ${PATH})
 $(warning LD_LIBRARY_PATH is ${LD_LIBRARY_PATH})
 
-cases := $(wildcard [a-z]*)
+cases := $(filter-out makefile,$(wildcard [a-z]*))
 
 default:
 	for case in $(cases); do \

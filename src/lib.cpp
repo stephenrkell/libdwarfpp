@@ -371,8 +371,10 @@ namespace dwarf
 			if (found != first_child_of.end())
 			{
 				auto found_sticky = sticky_dies.find(found->second);
-				assert(found_sticky != sticky_dies.end());
-				return iterator_base(static_cast<abstract_die&&>(*found_sticky->second), it.depth() + 1, *this);
+				if (found_sticky != sticky_dies.end())
+				{
+					return iterator_base(static_cast<abstract_die&&>(*found_sticky->second), it.depth() + 1, *this);
+				} // else fall through
 			}
 			
 			// populate maybe_handle with the first child DIE's handle
@@ -389,6 +391,8 @@ namespace dwarf
 					return iterator_base::END;
 				}
 				maybe_handle = std::move(Die::try_construct(*this));
+				
+				if (maybe_handle) first_child_of[0UL] = current_cu_offset;
 			}
 			else
 			{
@@ -588,8 +592,10 @@ namespace dwarf
 			if (found != next_sibling_of.end())
 			{
 				auto found_sticky = sticky_dies.find(found->second);
-				assert(found_sticky != sticky_dies.end());
-				return iterator_base(static_cast<abstract_die&&>(*found_sticky->second), it.depth(), *this);
+				if (found_sticky != sticky_dies.end())
+				{
+					return iterator_base(static_cast<abstract_die&&>(*found_sticky->second), it.depth(), *this);
+				} // else fall through
 			}
 			
 			auto found_parent = parent_of.find(offset_here);
@@ -607,6 +613,7 @@ namespace dwarf
 				ret = advance_cu_context();
 				if (!ret) return iterator_base::END;
 				maybe_handle = Die::try_construct(*this);
+				if (maybe_handle) next_sibling_of[it.offset_here()] = current_cu_offset;
 			}
 			else
 			{

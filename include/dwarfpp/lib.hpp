@@ -2152,7 +2152,6 @@ friend class factory;
 		Die::try_construct(root_die& r) /* siblingof in root case */
 		{
 			raw_handle_type returned;
-			Dwarf_Off current_cu_offset = r.current_cu_offset;
 			
 			if (!r.dbg.handle) return handle_type(nullptr, deleter(nullptr, r));
 			
@@ -2164,9 +2163,7 @@ friend class factory;
 				GET_HANDLE_OFFSET;
 				r.parent_of[off] = 0UL;
 				
-				// update first_child_of, next_sibling_of
-				assert(current_cu_offset != 0);
-				r.next_sibling_of[current_cu_offset] = off;
+				// the *caller* updates first_child_of, next_sibling_of
 				
 				return handle_type(returned, deleter(r.dbg.handle.get(), r));
 			}
