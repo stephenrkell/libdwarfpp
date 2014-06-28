@@ -514,6 +514,8 @@ namespace dwarf
 				
 				if (prev_current_cu_offset == 0UL)
 				{
+					/* Assert sanity of first CU offset. */
+					assert(current_cu_offset > 0UL && current_cu_offset < 32);
 					first_cu_offset = optional<Dwarf_Off>(current_cu_offset);
 				} 
 				if (prev_next_cu_header) // sanity check
