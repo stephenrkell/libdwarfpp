@@ -239,14 +239,26 @@ namespace dwarf
 			}
 			else if (has_attr(DW_AT_specification))
 			{
-				return attr(DW_AT_specification, opt_r).get_refiter()->find_attr(a, opt_r);
+				/* For the purposes of this algorithm, if a debugging information entry S has a
+				   DW_AT_specification attribute that refers to another entry D (which has a 
+				   DW_AT_declaration attribute), then S inherits the attributes and children of D, 
+				   and S is processed as if those attributes and children were present in the 
+				   entry S. Exception: if a particular attribute is found in both S and D, the 
+				   attribute in S is used and the corresponding one in D is ignored.
+				 */
+				// FIXME: handle children similarly!
+
+				// NOTE: we don't find_attr because I don't think chains of s->d->d->d-> 
+				// are allowed.
+
+				return attr(DW_AT_specification, opt_r).get_refiter()->attr(a, opt_r);
 			}
 			else if (has_attr(DW_AT_declaration))
 			{
 				/* How do we get to the "real" DIE from this declaration? The 
 				 * declaration attr doesn't tell us, so we have to search.. */
 				iterator_df<> found = find_definition(opt_r);
-				if (found) return found->find_attr(a, opt_r);
+				if (found && found.offset_here() != get_offset()) return found->find_attr(a, opt_r);
 			}
 			return encap::attribute_value(); // a.k.a. a NO_ATTR-valued attribute_value
 		}
