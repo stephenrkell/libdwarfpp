@@ -1,6 +1,6 @@
 CXX ?= g++
 
-CXXFLAGS += -std=gnu++0x -fkeep-inline-functions -Wall -fPIC 
+CXXFLAGS += -std=gnu++14 -fkeep-inline-functions -Wall -fPIC 
 ifneq ($(NDEBUG),)
 $(warning Optimised build)
 CXXFLAGS += -O3 -g3
@@ -13,7 +13,7 @@ CXXFLAGS += -I../include/dwarfpp
 CXXFLAGS += -Wno-deprecated-declarations # TEMPorary HACK
 
 # add dependencies on dynamic libs libdwarfpp.so should pull in
-LDLIBS += -lboost_serialization # why do we need this?
+LDLIBS += -lsrk31c++ -lboost_serialization # why do we need this?
 
 SRC := $(wildcard *.cpp)
 DEPS := $(patsubst %.cpp,.%.d,$(SRC))
