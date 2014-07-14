@@ -938,18 +938,21 @@ namespace dwarf
 			
 			inline spec& spec_here() const;
 			
-		private:
+		public:
 			/* implement the abstract_die interface
-			 *  -- FIXME: this goes on Die instead? 
-			 *  -- FIXME: why don't we inherit abstract_die? 
-			 *  -- currently we have it on both Die and here. */
+			 *  -- NOTE: some methods are private because they 
+			       only work in the Die handle case, 
+			       not the "payload + in_memory" case (when get_handle() returns null). 
+			    FIXME: should we change this? */
 			inline Dwarf_Off get_offset() const { return offset_here(); }
 			inline Dwarf_Half get_tag() const { return tag_here(); }
 			// helper for raw names -> std::string names
+		private:
 			inline unique_ptr<const char, string_deleter> get_raw_name() const 
 			{ return dynamic_cast<Die&>(get_handle()).name_here(); } 
 			inline opt<string> get_name() const 
 			{ return /*opt<string>(string(get_raw_name().get())); */ get_handle().get_name(); }
+		public:
 			inline Dwarf_Off get_enclosing_cu_offset() const 
 			{ return enclosing_cu_offset_here(); }
 			inline bool has_attr(Dwarf_Half attr) const { return has_attr_here(attr); }
