@@ -10,7 +10,7 @@ CXXFLAGS += -I$(HOME)/opt/include
 CXXFLAGS += -I$(realpath $(TESTS_DIR)/../..)/libc++fileno/include
 
 LDFLAGS += -L$(realpath $(TESTS_DIR)/..)/src 
-LDFLAGS += -L$(realpath $(TESTS_DIR)/../..)/libsrk31c++/lib -Wl,-rpath,(realpath $(TESTS_DIR)/../..)/libsrk31c++/lib
+LDFLAGS += -L$(realpath $(TESTS_DIR)/../..)/libsrk31c++/lib -Wl,-rpath,$(realpath $(TESTS_DIR)/../..)/libsrk31c++/lib
 LDFLAGS += -L$(HOME)/opt/lib  
 LDFLAGS += -L$(realpath $(TESTS_DIR)/../..)/libc++fileno/lib
 
