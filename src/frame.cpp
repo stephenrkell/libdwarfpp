@@ -318,7 +318,16 @@ namespace dwarf
 						decoded.fp_expr_block = const_cast<Dwarf_Small*>(pos);
 						pos += decoded.fp_offset_or_block_len;
 						break;
-						
+					
+					/* HACK: somewhere better to put the vendor-specific stuff? */
+					case DW_CFA_GNU_args_size:
+						/* from LSB 3.1.1: 
+						 * "The DW_CFA_GNU_args_size instruction takes an unsigned LEB128 operand 
+						 * representing an argument size. This instruction specifies the total 
+						 * of the size of the arguments which have been pushed onto the stack.
+						 */
+						decoded.fp_offset_or_block_len = read_uleb128(&pos, limit);
+						break;
 					default:
 						assert(false);
 				} // end switch
@@ -787,7 +796,7 @@ namespace dwarf
 							current_row_defs[i_op->fp_register] = (register_def) { .k = register_def::INDETERMINATE };
 						}
 
-						} break;
+					} break;
 					// row state
 					case DW_CFA_restore_state: {
 						auto current_cfa = current_row_defs[DW_FRAME_CFA_COL3];
@@ -802,10 +811,13 @@ namespace dwarf
 						// do NOT remember CFA!
 						remembered_row_defs.top().erase(DW_FRAME_CFA_COL3);
 						break;
-					// padding 					
-					case DW_CFA_nop:      // this is a full zero byte
+					// padding 
+					case DW_CFA_nop: // this is a full zero byte
 						break;
 						cerr << "FIXME!" << endl;
+					case DW_CFA_GNU_args_size:
+						/* purely informational I think? */
+						break;
 					default: goto unsupported_for_now;
 					unsupported_for_now:
 						assert(false);
