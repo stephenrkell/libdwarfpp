@@ -95,25 +95,25 @@ namespace dwarf
 					return *(possibles.begin());
 			}
 		}
-
+		
 		typedef std::pair<const char *, int> forward_name_mapping_t;
 		typedef std::pair<int, const char *> inverse_name_mapping_t;
 		typedef std::pair<int, const int *> attr_class_mapping_t;       
 		typedef std::pair<int, const int *> form_class_mapping_t;       
-		typedef std::pair<int, const int *> op_operand_forms_mapping_t; 
+		typedef std::pair<int, const int *> op_operand_forms_mapping_t;
 
 #define DEFINE_MAPS(classname) \
-							const std::map<const char *, int> classname::tag_forward_map(&tag_forward_tbl[0], &tag_forward_tbl[sizeof tag_forward_tbl / sizeof (forward_name_mapping_t)]); \
+							const std::map<const char *, int, string_comparator> classname::tag_forward_map(&tag_forward_tbl[0], &tag_forward_tbl[sizeof tag_forward_tbl / sizeof (forward_name_mapping_t)]); \
 							const std::map<int, const char *> classname::tag_inverse_map(&tag_inverse_tbl[0], &tag_inverse_tbl[sizeof tag_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int> classname::attr_forward_map(&attr_forward_tbl[0], &attr_forward_tbl[sizeof attr_forward_tbl / sizeof (forward_name_mapping_t)]); \
+							const std::map<const char *, int, string_comparator> classname::attr_forward_map(&attr_forward_tbl[0], &attr_forward_tbl[sizeof attr_forward_tbl / sizeof (forward_name_mapping_t)]); \
 							const std::map<int, const char *> classname::attr_inverse_map(&attr_inverse_tbl[0], &attr_inverse_tbl[sizeof attr_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int> classname::form_forward_map(&form_forward_tbl[0], &form_forward_tbl[sizeof form_forward_tbl / sizeof (forward_name_mapping_t)]); \
+							const std::map<const char *, int, string_comparator> classname::form_forward_map(&form_forward_tbl[0], &form_forward_tbl[sizeof form_forward_tbl / sizeof (forward_name_mapping_t)]); \
 							const std::map<int, const char *> classname::form_inverse_map(&form_inverse_tbl[0], &form_inverse_tbl[sizeof form_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int> classname::encoding_forward_map(&encoding_forward_tbl[0], &encoding_forward_tbl[sizeof encoding_forward_tbl / sizeof (forward_name_mapping_t)]); \
+							const std::map<const char *, int, string_comparator> classname::encoding_forward_map(&encoding_forward_tbl[0], &encoding_forward_tbl[sizeof encoding_forward_tbl / sizeof (forward_name_mapping_t)]); \
 							const std::map<int, const char *> classname::encoding_inverse_map(&encoding_inverse_tbl[0], &encoding_inverse_tbl[sizeof encoding_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int> classname::op_forward_map(&op_forward_tbl[0], &op_forward_tbl[sizeof op_forward_tbl / sizeof (forward_name_mapping_t)]); \
+							const std::map<const char *, int, string_comparator> classname::op_forward_map(&op_forward_tbl[0], &op_forward_tbl[sizeof op_forward_tbl / sizeof (forward_name_mapping_t)]); \
 							const std::map<int, const char *> classname::op_inverse_map(&op_inverse_tbl[0], &op_inverse_tbl[sizeof op_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int> classname::interp_forward_map(&interp_forward_tbl[0], &interp_forward_tbl[sizeof interp_forward_tbl / sizeof (forward_name_mapping_t)]); \
+							const std::map<const char *, int, string_comparator> classname::interp_forward_map(&interp_forward_tbl[0], &interp_forward_tbl[sizeof interp_forward_tbl / sizeof (forward_name_mapping_t)]); \
 							const std::map<int, const char *> classname::interp_inverse_map(&interp_inverse_tbl[0], &interp_inverse_tbl[sizeof interp_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
 							const std::map<int, const int *>  classname::op_operand_forms_map(&op_operand_forms_tbl[0], &op_operand_forms_tbl[sizeof op_operand_forms_tbl / sizeof (op_operand_forms_mapping_t)]); \
 							const std::map<int, const int *>  classname::attr_class_map(&attr_class_tbl[0], &attr_class_tbl[sizeof attr_class_tbl / sizeof (attr_class_mapping_t)]); \

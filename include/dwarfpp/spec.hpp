@@ -79,21 +79,28 @@ namespace dwarf
 			
 			virtual ~abstract_def() {}
 		};
+		struct string_comparator
+		{
+			bool operator()(const char *arg1, const char *arg2) const 
+			{
+				return string(arg1) < string(arg2);
+			}
+		};
 
 		using std::cerr;
 		
 #define DECLARE_MAPS \
-			static const std::map<const char *, int> tag_forward_map; \
+			static const std::map<const char *, int, string_comparator> tag_forward_map; \
 			static const std::map<int, const char *> tag_inverse_map; \
-			static const std::map<const char *, int> form_forward_map; \
+			static const std::map<const char *, int, string_comparator> form_forward_map; \
 			static const std::map<int, const char *> form_inverse_map; \
-			static const std::map<const char *, int> attr_forward_map; \
+			static const std::map<const char *, int, string_comparator> attr_forward_map; \
 			static const std::map<int, const char *> attr_inverse_map; \
-			static const std::map<const char *, int> encoding_forward_map; \
+			static const std::map<const char *, int, string_comparator> encoding_forward_map; \
 			static const std::map<int, const char *> encoding_inverse_map; \
-			static const std::map<const char *, int> op_forward_map; \
+			static const std::map<const char *, int, string_comparator> op_forward_map; \
 			static const std::map<int, const char *> op_inverse_map; \
-			static const std::map<const char *, int> interp_forward_map; \
+			static const std::map<const char *, int, string_comparator> interp_forward_map; \
 			static const std::map<int, const char *> interp_inverse_map; \
 			static const std::map<int, const int *> op_operand_forms_map; \
 			static const std::map<int, const int *> attr_class_map; \
@@ -248,10 +255,10 @@ namespace dwarf
 			 * so we want to allow convertibility between these. This means that
 			 * K (method signature) and MappedK (map type parameters) 
 			 * are not necessarily the same. */
-			template <typename K, typename V>
+			template <typename K, typename V, typename Cmp>
 			V
 			map_union_lookup(
-				const std::map<K, V>& m1, 
+				const std::map<K, V, Cmp>& m1, 
 				V (Extended::*method)(K) const, 
 				const K& k) const
 			{
