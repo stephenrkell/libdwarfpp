@@ -251,7 +251,8 @@ namespace dwarf
 				// NOTE: we don't find_attr because I don't think chains of s->d->d->d-> 
 				// are allowed.
 
-				return attr(DW_AT_specification, opt_r).get_refiter()->attr(a, opt_r);
+				auto decl = attr(DW_AT_specification, opt_r).get_refiter();
+				if (decl.has_attr(a)) return decl->attr(a, opt_r);
 			}
 			else if (has_attr(DW_AT_declaration))
 			{
@@ -2165,6 +2166,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			}
 
 			summary_code_word_t output_word;
+			assert(output_word.val);
 			Dwarf_Half tag = concrete_t.tag_here();
 			if (concrete_t.is_a<base_type_die>())
 			{
@@ -2250,7 +2252,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				auto subp_t = concrete_t.as_a<type_describing_subprogram_die>();
 				
 				// shift in the argument and return types
-				if (subp_t->get_return_type()) output_word << type_summary_code(subp_t->get_return_type());
+				auto return_type = subp_t->get_return_type();
+				output_word << type_summary_code(return_type);
 
 				// shift in something to distinguish void(void) from void
 				output_word << "()";
@@ -2339,12 +2342,19 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				output_word << (opt_el_type ? type_summary_code(opt_el_type) : opt<uint32_t>())
 					<< (opt_el_count ? *opt_el_count : 0);
 					// FIXME: also the factoring into dimensions needs to be taken into account
-			} else 
+			}
+			else if (concrete_t.is_a<unspecified_type_die>())
+			{
+				cerr << "Warning: saw unspecified type " << concrete_t;
+				output_word.val = opt<uint32_t>();
+			}
+			else 
 			{
 				cerr << "Warning: didn't understand type " << concrete_t;
 			}
 
-			assert (!concrete_t || output_word.val != 0);
+			// pointer-to-incomplete, etc., will still give us incomplete answer
+			assert (!concrete_t || !(output_word.val) || *output_word.val != 0);
 
 			return output_word.val;
 			// return std::numeric_limits<uint32_t>::max();
@@ -2799,7 +2809,22 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				 * that have the same name but no "declaration" attribute. */
 				auto iter = r.find(get_offset());
 
-				/* Are we a CU-toplevel DIE? We only handle this case at the moment. */
+				/* Are we a CU-toplevel DIE? We only handle this case at the moment. 
+				   PROBLEM:
+				   
+				   declared C++ classes like like this:
+				 <2><1d8d>: Abbrev Number: 56 (DW_TAG_class_type)
+				    <1d8e>   DW_AT_name        : (indirect string, offset: 0x17b4): reverse_iterator
+				<__gnu_cxx::__normal_iterator<char const*, std::basic_string<char, std::char_traits<
+				char>, std::allocator<char> > > >       
+				    <1d92>   DW_AT_declaration : 1      
+
+				   The definition of the class has name "reverse_iterator"!
+				   The other stuff is encoded in the DW_TAG_template_type_parameter members.
+				   These act a lot like typedefs, so we should make them type_chains.
+				   
+				
+				*/
 				if (iter.depth() != 2) goto return_no_result;
 
 				iterator_sibs<with_data_members_die> i_sib = iter; ++i_sib;/* i.e. don't check ourselves */; 
