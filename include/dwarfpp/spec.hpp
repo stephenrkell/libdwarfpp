@@ -9,11 +9,13 @@
 #define DWARFPP_SPEC_HPP_
 
 #include <map>
+#include <string>
 #include <utility>
 #include <cstdlib>
 #include <iostream>
 #include <cassert>
 #include <algorithm>
+#include <type_traits>
 
 /* Basic idea of this file: 
  *
@@ -36,6 +38,7 @@ namespace dwarf
 {
 	namespace spec
 	{
+		using std::string;
 		extern "C"
 		{
 			#include "dwarf-onlystd.h"
@@ -43,24 +46,37 @@ namespace dwarf
 		struct abstract_def
 		{
 			virtual const char *tag_lookup(int tag) const = 0;
+			virtual int tag_for_name(const char *name) const = 0;
 			virtual bool tag_is_type(int tag) const = 0;
 			virtual bool tag_is_type_chain(int tag) const = 0;
 			virtual bool tag_has_named_children(int tag) const = 0;
+			
 			virtual const char *attr_lookup(int attr) const = 0;
+			virtual int attr_for_name(const char *name) const = 0;
 			virtual const int *attr_get_classes(int attr) const = 0;
 			virtual bool attr_describes_location(int attr) const = 0;
+			
 			virtual const char *form_lookup(int form) const = 0;
+			virtual int form_for_name(const char *name) const = 0;
 			virtual const int *form_get_classes(int form) const = 0;
+			
 			virtual const char *encoding_lookup(int encoding) const = 0;
+			virtual int encoding_for_name(const char *name) const = 0;
+			
 			virtual const char *op_lookup(int op) const = 0;
+			virtual int op_for_name(const char *name) const = 0;
 			virtual bool op_reads_register(int op) const = 0;
 			virtual size_t op_operand_count(int op) const = 0;
 			virtual const int *op_operand_form_list(int op) const = 0;
+			
 			virtual int get_explicit_interp(int attr, int form) const = 0;
 			virtual int get_interp(int attr, int form) const = 0;
+			
 			virtual const char *interp_lookup(int interp) const = 0;
+			
 			friend std::ostream& operator<<(std::ostream& o, const abstract_def& a);
 			virtual std::ostream& print(std::ostream& o) const = 0;
+			
 			virtual ~abstract_def() {}
 		};
 
@@ -145,25 +161,50 @@ namespace dwarf
 			virtual const char *tag_lookup(int tag) const 
 			{ cerr << "Saw unknown tag 0x" << std::hex << tag << std::dec << std::endl;
 				return "(unknown tag)"; }
+			virtual int tag_for_name(const char *name) const
+			{ 
+				cerr << "Saw unknown tag name "<< name << std::endl;
+				return -1;
+			}
 			virtual const char *attr_lookup(int attr) const 
 			{
 				cerr << "Saw unknown attr 0x" << std::hex << attr << std::dec << std::endl;
 				return "(unknown attribute)"; 
+			}
+			virtual int attr_for_name(const char *name) const
+			{ 
+				cerr << "Saw unknown attr name "<< name << std::endl;
+				return -1;
 			}
 			virtual const char *form_lookup(int form) const 
 			{
 				cerr << "Saw unknown form 0x" << std::hex << form << std::dec << std::endl;
 				return "(unknown form)"; 
 			}
+			virtual int form_for_name(const char *name) const
+			{ 
+				cerr << "Saw unknown form name "<< name << std::endl;
+				return -1;
+			}
 			virtual const char *encoding_lookup(int encoding) const 
 			{ 
 				cerr << "Saw unknown encoding 0x" << std::hex << encoding << std::dec << std::endl;
 				return "(unknown encoding)";
 			}
+			virtual int encoding_for_name(const char *name) const
+			{ 
+				cerr << "Saw unknown encoding name "<< name << std::endl;
+				return -1;
+			}
 			virtual const char *op_lookup(int op) const 
 			{ 
 				cerr << "Saw unknown opcode 0x" << std::hex << op << std::dec << std::endl;
 				return "(unknown opcode)"; 
+			}
+			virtual int op_for_name(const char *name) const
+			{ 
+				cerr << "Saw unknown op name "<< name << std::endl;
+				return -1;
 			}
 			virtual const char *interp_lookup(int interp) const 
 			{ return "(unknown class)"; }
@@ -203,11 +244,21 @@ namespace dwarf
 		struct extension_of : public virtual abstract_def
 		{
 			// try Extending's maps, else delegate to Extended's lookup method
+			/* Our maps use const char * but our methods take const string&,
+			 * so we want to allow convertibility between these. This means that
+			 * K (method signature) and MappedK (map type parameters) 
+			 * are not necessarily the same. */
 			template <typename K, typename V>
-			V*
-			map_union_lookup(const std::map<K, V*>& m1, V* (Extended::*method)(K) const, const K& k) const
+			V
+			map_union_lookup(
+				const std::map<K, V>& m1, 
+				V (Extended::*method)(K) const, 
+				const K& k) const
 			{
-				typename std::map<K, V*>::const_iterator found1 = m1.find(k);
+				typename std::map<
+					K,
+					V
+				>::const_iterator found1 = m1.find(k);
 				if (found1 != m1.end())
 				{
 					return found1->second;
@@ -218,21 +269,41 @@ namespace dwarf
 			{
 				return map_union_lookup(Extending::tag_inverse_map, &Extended::tag_lookup, tag);
 			}
+			int tag_for_name(const char *name) const
+			{
+				return map_union_lookup(Extending::tag_forward_map, &Extended::tag_for_name, name);
+			}
 			const char *attr_lookup(int attr) const 
 			{
 				return map_union_lookup(Extending::attr_inverse_map, &Extended::attr_lookup, attr);
+			}
+			int attr_for_name(const char *name) const
+			{
+				return map_union_lookup(Extending::attr_forward_map, &Extended::attr_for_name, name);
 			}
 			const char *form_lookup(int form) const 
 			{
 				return map_union_lookup(Extending::form_inverse_map, &Extended::form_lookup, form); 
 			}
+			int form_for_name(const char *name) const
+			{
+				return map_union_lookup(Extending::form_forward_map, &Extended::form_for_name, name);
+			}
 			const char *encoding_lookup(int encoding) const 
 			{
 				return map_union_lookup(Extending::encoding_inverse_map, &Extended::encoding_lookup, encoding); 
 			}
+			int encoding_for_name(const char *name) const
+			{
+				return map_union_lookup(Extending::encoding_forward_map, &Extended::encoding_for_name, name);
+			}
 			const char *op_lookup(int op) const 
 			{
 				return map_union_lookup(Extending::op_inverse_map, &Extended::op_lookup, op); 
+			}
+			int op_for_name(const char *name) const
+			{
+				return map_union_lookup(Extending::op_forward_map, &Extended::op_for_name, name);
 			}
 			const char *interp_lookup(int interp) const 
 			{
