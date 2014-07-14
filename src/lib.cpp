@@ -696,15 +696,8 @@ namespace dwarf
 			}
 		}
 		
-		root_die::ptr_type 
+		iterator_base
 		root_die::make_new(const iterator_base& parent, Dwarf_Half tag)
-		{
-			// the "basic" root die doesn't support making new non-CU DIEs
-			return nullptr;
-		}
-		
-		root_die::ptr_type 
-		in_memory_root_die::make_new(const iterator_base& parent, Dwarf_Half tag)
 		{
 			/* heap-allocate the right kind of (in-memory) DIE, 
 			 * creating the intrusive ptr, hence bumping the refcount */
@@ -713,7 +706,9 @@ namespace dwarf
 			Dwarf_Off o = dynamic_cast<in_memory_abstract_die&>(*p).get_offset();
 			sticky_dies.insert(make_pair(o, p));
 			parent_of.insert(make_pair(o, parent.offset_here()));
-			return p;
+			auto found = find(o);
+			assert(found);
+			return found;
 		}
 		
 		/* NOTE: I was thinking to put all factory code in namespace spec, 
@@ -810,7 +805,7 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(r), std::move(d.handle));
 						parent.is_root_position() ? 0 : parent.enclosing_cu_offset_here(), \
 						DW_TAG_ ## name), \
 					name ## _die(parent.depth() >= 1 ? parent.spec_here() : DEFAULT_DWARF_SPEC) \
-				{} \
+				{ if (parent.is_root_position()) m_cu_offset = m_offset; } \
 				/* We also (morally redundantly) override all the abstract_die methods 
 				 * to call the in_memory_abstract_die versions, in order to 
 				 * provide a unique final overrider. */ \

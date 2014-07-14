@@ -450,9 +450,10 @@ namespace dwarf
 		public:
 			FrameSection&       get_frame_section()       { assert(p_fs); return *p_fs; }
 			const FrameSection& get_frame_section() const { assert(p_fs); return *p_fs; }
-
+		protected:
 			virtual ptr_type make_payload(const iterator_base& it);
-			virtual ptr_type make_new(const iterator_base& parent, Dwarf_Half tag);
+		public:
+			virtual iterator_base make_new(const iterator_base& parent, Dwarf_Half tag);
 			virtual bool is_sticky(const abstract_die& d);
 			
 			void get_referential_structure(
@@ -629,12 +630,13 @@ namespace dwarf
 			 : m_offset(offset), m_cu_offset(cu_offset), m_tag(tag)
 			{}
 		};
+		
 		struct in_memory_root_die : public root_die
 		{
 			virtual bool is_sticky(const abstract_die& d) { return true; }
-			ptr_type make_new(const iterator_base& parent, Dwarf_Half tag);
 			
 			in_memory_root_die() {}
+			in_memory_root_die(int fd) : root_die(fd) {}
 		};
 			
 		/* Integrating with ADT: now we have two kinds of iterators.
