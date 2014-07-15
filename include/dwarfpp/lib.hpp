@@ -601,7 +601,7 @@ namespace dwarf
 			template <typename Iter>
 			inline void
 			scoped_resolve_all(const iterator_base& start, Iter path_pos, Iter path_end, 
-				std::vector<iterator_base >& results, int max = 0);
+				std::vector<iterator_base >& results, unsigned max = 0);
 			
 			void print_tree(iterator_base&& begin, std::ostream& s) const;
 		};	
@@ -623,6 +623,8 @@ namespace dwarf
 			bool has_attr(Dwarf_Half attr) const 
 			{ return m_attrs.find(attr) != m_attrs.end(); }
 			encap::attribute_map copy_attrs(opt<root_die&> opt_r) const
+			{ return m_attrs; }
+			encap::attribute_map& attrs(opt<root_die&> opt_r) 
 			{ return m_attrs; }
 			inline spec& get_spec(root_die& r) const;
 			
@@ -1960,10 +1962,10 @@ friend class factory;
 		template <typename Iter>
 		inline void
 		root_die::scoped_resolve_all(const iterator_base& start, Iter path_pos, Iter path_end, 
-			std::vector<iterator_base >& results, int max /*= 0*/) 
+			std::vector<iterator_base >& results, unsigned max /*= 0*/) 
 		{
 			if (max != 0 && results.size() >= max) return;
-			auto found_from_here = resolve(path_pos, path_end);
+			auto found_from_here = resolve(start, path_pos, path_end);
 			if (found_from_here) 
 			{ 
 				results.push_back(found_from_here); 
@@ -1971,12 +1973,12 @@ friend class factory;
 			if (start.tag_here() == 0) return; // can't recurse
 			else // find our nearest encloser that has named children
 			{
-				auto p_encl = parent(start);
-				while (!p_encl.is_a<with_named_children_die>() == 0)
+				auto p_encl = start;
+				do
 				{
 					if (p_encl.tag_here() == 0) { return; } // abort! we ran out of parents
 					this->move_to_parent(p_encl);
-				}
+				} while (!p_encl.is_a<with_named_children_die>());
 				// success; continue resolving
 				scoped_resolve_all(p_encl, path_pos, path_end, results, max);
 				// by definition, we're finished

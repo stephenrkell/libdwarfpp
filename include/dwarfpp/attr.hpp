@@ -93,7 +93,7 @@ namespace dwarf
                 weak_ref(bool arg) : off(0UL), abs(false), referencing_off(0), p_ds(0), p_root(0), referencing_attr(0)
                 { /* Same as above but extra dummy argument, to suppress warning (see clone()). */}
                 virtual weak_ref& operator=(const weak_ref& r); // assignment
-                virtual weak_ref *clone() { 
+                virtual weak_ref *clone() const { 
                 	weak_ref *n = new weak_ref(true); // FIXME: deleted how? containing attribute's destructor? yes, I think so
                     n->p_ds = this->p_ds; // this is checked during assignment
 					n->p_root = this->p_root;
@@ -199,17 +199,25 @@ namespace dwarf
 				// spec is no longer passed because it's deducible from r and d.get_offset()
 		public:
 			attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a);
-// 			//attribute_value() {} // allow uninitialised temporaries
- 			attribute_value(spec::abstract_dieset& ds, Dwarf_Bool b) : p_ds(&ds), orig_form(DW_FORM_flag), f(FLAG), v_flag(b) {}
- 			attribute_value(spec::abstract_dieset& ds, address addr) : p_ds(&ds), orig_form(DW_FORM_addr), f(ADDR), v_addr(addr) {}		
- 			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned u) : p_ds(&ds), orig_form(DW_FORM_udata), f(UNSIGNED), v_u(u) {}				
- 			attribute_value(spec::abstract_dieset& ds, Dwarf_Signed s) : p_ds(&ds), orig_form(DW_FORM_sdata), f(SIGNED), v_s(s) {}			
- 			attribute_value(spec::abstract_dieset& ds, const char *s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}
- 			attribute_value(spec::abstract_dieset& ds, const std::string& s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}				
- 			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
- 			attribute_value(spec::abstract_dieset& ds, std::shared_ptr<spec::basic_die> ref_target);
+			attribute_value(spec::abstract_dieset& ds, Dwarf_Bool b) : p_ds(&ds), orig_form(DW_FORM_flag), f(FLAG), v_flag(b) {}
+			attribute_value(spec::abstract_dieset& ds, address addr) : p_ds(&ds), orig_form(DW_FORM_addr), f(ADDR), v_addr(addr) {}		
+			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned u) : p_ds(&ds), orig_form(DW_FORM_udata), f(UNSIGNED), v_u(u) {}				
+			attribute_value(spec::abstract_dieset& ds, Dwarf_Signed s) : p_ds(&ds), orig_form(DW_FORM_sdata), f(SIGNED), v_s(s) {}			
+			attribute_value(spec::abstract_dieset& ds, const char *s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}
+			attribute_value(spec::abstract_dieset& ds, const std::string& s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}				
+			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
+			attribute_value(spec::abstract_dieset& ds, std::shared_ptr<spec::basic_die> ref_target);
 			attribute_value(spec::abstract_dieset& ds, const encap::loclist& l);
 			attribute_value(spec::abstract_dieset& ds, const encap::rangelist& l);
+			
+			attribute_value(Dwarf_Bool b)         : p_ds(nullptr), orig_form(DW_FORM_flag),     f(FLAG),     v_flag(b) {}
+			attribute_value(address addr)         : p_ds(nullptr), orig_form(DW_FORM_addr),     f(ADDR),     v_addr(addr) {}		
+			attribute_value(Dwarf_Unsigned u)     : p_ds(nullptr), orig_form(DW_FORM_udata),    f(UNSIGNED), v_u(u) {}				
+			attribute_value(Dwarf_Signed s)       : p_ds(nullptr), orig_form(DW_FORM_sdata),    f(SIGNED),   v_s(s) {}			
+			attribute_value(const char *s)        : p_ds(nullptr), orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}
+			attribute_value(const std::string& s) : p_ds(nullptr), orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}				
+			attribute_value(const weak_ref& r)          : p_ds(nullptr), orig_form(DW_FORM_ref_addr), f(REF),      v_ref(r.clone()) {}
+			
 		public:
 			
 			Dwarf_Bool get_flag() const { assert(f == FLAG); return v_flag; }

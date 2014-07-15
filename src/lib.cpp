@@ -333,20 +333,23 @@ namespace dwarf
 				assert(found->second < it.offset_here());
 				//cerr << "Parent cache says parent of 0x" << std::hex << found->first
 				// << " is 0x" << std::hex << found->second << std::dec << endl;
-				auto maybe_handle = Die::try_construct(*this, found->second);
 				
-				if (maybe_handle)
-				{
-					// update it
-					iterator_base new_it(Die(std::move(maybe_handle)), it.get_depth() - 1, *this);
-					assert(new_it.offset_here() == found->second);
-					return new_it;
-				}
-				else
-				{
-					// no such DIE?!
-					assert(false);
-				}
+				// this is using the "dieoff" constructor
+				// auto maybe_handle = Die::try_construct(*this, found->second);
+				//if (maybe_handle)
+				//{
+				//	// update "it" with its parent
+				//	iterator_base new_it(Die(std::move(maybe_handle)), it.get_depth() - 1, *this);
+				//	assert(new_it.offset_here() == found->second);
+				//	return new_it;
+				//}
+				//else
+				//{
+				//	// no such DIE?!
+				//	assert(false);
+				//}
+				// just use pos()
+				return pos(found->second, it.depth() - 1, optional<Dwarf_Off>());
 			}
 		}
 		
@@ -458,9 +461,10 @@ namespace dwarf
 			auto children = start.children_here();
 			for (auto i_child = std::move(children.first); i_child != children.second; ++i_child)
 			{
-				/* Use strcmp because name_here returns us a fancy char*, not a std::string. */
-				if (i_child.get_raw_name() != nullptr
-					&& 0 == strcmp(i_child.get_raw_name().get(), name.c_str()))
+				// /* Use strcmp because name_here returns us a fancy char*, not a std::string. */
+				//if (i_child.get_raw_name() != nullptr
+				// 	&& 0 == strcmp(i_child.get_raw_name().get(), name.c_str()))
+				if (i_child.name_here() && *i_child.name_here() == name)
 				{
 					return std::move(i_child);
 				}
@@ -801,7 +805,7 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(r), std::move(d.handle));
 					in_memory_abstract_die( \
 							  parent.is_root_position() ? \
 							  parent.root().fresh_cu_offset() \
-							: parent.root().fresh_offset_under(parent.root().enclosing_cu(parent)), \
+							: parent.root().fresh_offset_under(/*parent.root().enclosing_cu(parent)*/parent), \
 						parent.is_root_position() ? 0 : parent.enclosing_cu_offset_here(), \
 						DW_TAG_ ## name), \
 					name ## _die(parent.depth() >= 1 ? parent.spec_here() : DEFAULT_DWARF_SPEC) \
@@ -919,6 +923,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			if (sticky_dies.rbegin() == sticky_dies.rend())
 			{
 				first_child_of[0UL] = 1;
+				parent_of[1] = 0UL;
 				return 1;
 			}
 			
@@ -933,6 +938,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			}
 			assert(off != 0);
 			next_sibling_of[biggest_cu_off] = off + 1;
+
+			parent_of[off + 1] = 0UL;
+
 			return off + 1;
 		}
 		
@@ -1010,6 +1018,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				next_sibling_of[found_last_sib->second] = offset_to_issue;
 			}
 			
+			parent_of[offset_to_issue] = pos.offset_here();
+			
 			return offset_to_issue;
 		}
 		
@@ -1019,7 +1029,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			int ret = dwarf_dieoffset(raw_handle(), &off, &current_dwarf_error);
 			assert(ret == DW_DLV_OK);
 			return off;
-		}		
+		}
 		Dwarf_Off iterator_base::offset_here() const
 		{
 			if (!is_real_die_position()) { assert(is_root_position()); return 0; }
