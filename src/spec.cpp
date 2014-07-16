@@ -326,7 +326,7 @@ pair_type name[] = { \
 							make_decl(DW_AT_frame_base, interp::loclistptr, interp::exprloc ) \
 							make_decl(DW_AT_friend, interp::reference ) \
 							make_decl(DW_AT_identifier_case, interp::constant|interp::UNSIGNED ) \
-							make_decl(DW_AT_macro_info, interp::macptr ) \
+							make_decl(DW_AT_macro_info, interp::reference, interp::macptr ) \
 							make_decl(DW_AT_namelist_item, interp::reference ) \
 							make_decl(DW_AT_priority, interp::reference ) \
 							make_decl(DW_AT_segment, interp::loclistptr, interp::exprloc ) \
@@ -415,7 +415,7 @@ pair_type name[] = { \
 							make_decl(DW_FORM_ref8, interp::reference)  \
 							make_decl(DW_FORM_ref_udata, interp::reference)  \
 							make_decl(DW_FORM_indirect, interp::EOL) \
-							make_decl(DW_FORM_sec_offset, interp::lineptr, interp::loclistptr, interp::macptr, interp::rangelistptr) \
+							make_decl(DW_FORM_sec_offset, interp::reference, interp::lineptr, interp::loclistptr, interp::macptr, interp::rangelistptr) \
 							make_decl(DW_FORM_exprloc, interp::exprloc, interp::EOL ) \
 							make_decl(DW_FORM_flag_present, interp::flag ) \
 							last_decl(DW_FORM_ref_sig8, interp::reference ) 

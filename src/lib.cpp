@@ -802,7 +802,7 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(r), std::move(d.handle));
 				: \
 					/* initialize basic_die directly, since it's a virtual base */ \
 					basic_die(parent.depth() >= 1 ? parent.spec_here() : DEFAULT_DWARF_SPEC), \
-					in_memory_abstract_die( \
+					in_memory_abstract_die(parent.root(), \
 							  parent.is_root_position() ? \
 							  parent.root().fresh_cu_offset() \
 							: parent.root().fresh_offset_under(/*parent.root().enclosing_cu(parent)*/parent), \
@@ -810,6 +810,8 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(r), std::move(d.handle));
 						DW_TAG_ ## name), \
 					name ## _die(parent.depth() >= 1 ? parent.spec_here() : DEFAULT_DWARF_SPEC) \
 				{ if (parent.is_root_position()) m_cu_offset = m_offset; } \
+				root_die& get_root(opt<root_die&> opt_r) const \
+				{ return *p_root; } \
 				/* We also (morally redundantly) override all the abstract_die methods 
 				 * to call the in_memory_abstract_die versions, in order to 
 				 * provide a unique final overrider. */ \
@@ -2902,7 +2904,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		
 /* from spec::with_dynamic_location_die */ 
 		opt<Dwarf_Unsigned> 
-		with_dynamic_location_die::byte_offset_in_enclosing_type(optional_root_arg_decl) const
+		with_dynamic_location_die::byte_offset_in_enclosing_type(optional_root_arg_decl,
+			bool assume_packed_if_no_location /* = false */) const
 		{
 			if (get_tag() != DW_TAG_member && get_tag() != DW_TAG_inheritance)
 			{
@@ -2931,6 +2934,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				// if we don't have a location for this field,
 				// we tolerate it iff it's the first non-declaration one in a struct/class
 				// OR contained in a union
+				// OR if the caller passed assume_packed_if_no_location
 				// HACK: support class types (and others) here
 				auto parent_first_member
 				 = enclosing_type_die.children().subseq_of<core::with_dynamic_location_die>().first;
@@ -2944,18 +2948,64 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					// at the latest, we should hit ourselves
 					assert(parent_first_member.base().base() != iterator_base::END);
 				}
+				
+				// if we are the first member of a struct, or any member of a union, we're okay
 				if (it.offset_here() == parent_first_member.base().base().offset_here()
 				 || enclosing_type_die.tag_here() == DW_TAG_union_type)
 				{
 					return opt<Dwarf_Unsigned>(0U);
 				}
-				else 
+				
+				/* Otherwise we might still be okay. */
+				if (assume_packed_if_no_location)
 				{
-					// error
-					std::cerr << "Warning: encountered DWARF member lacking a location: "
-						<< it << std::endl;
-					return opt<Dwarf_Unsigned>();
+					auto previous_member = parent_first_member;
+					// if there is one member or more before us...
+					if (previous_member.base().base() != it)
+					{
+						do
+						{
+							auto next_member = previous_member;
+							// advance to the next non-decl member or inheritance DIE 
+							do
+							{
+								++next_member;
+							} while (next_member.base().base() != it
+								&& (!(next_member.base().base().is_a<member_die>() || next_member.base().base().is_a<inheritance_die>())
+								|| (next_member->get_declaration() && *next_member->get_declaration())));
+							// break if we hit ourselves
+							if (next_member.base().base() == it) break;
+							previous_member = std::move(next_member);
+						} while (true); 
+
+						if (previous_member.base().base()) 
+						{
+							auto prev_memb_t = previous_member->get_type();
+							if (prev_memb_t)
+							{
+								auto opt_prev_byte_size = prev_memb_t->calculate_byte_size();
+								if (opt_prev_byte_size)
+								{
+									/* Do we have an offset for the previous member? */
+									auto opt_prev_member_offset = previous_member->byte_offset_in_enclosing_type(
+										opt_r, true);
+
+									/* If that succeeded, we can go ahead. */
+									if (opt_prev_member_offset)
+									{
+										return opt<Dwarf_Unsigned>(*opt_prev_member_offset + *opt_prev_byte_size);
+									}
+								}
+							}
+						}
+					}
 				}
+				
+				
+				// if we got here, we really can't figure it out
+				std::cerr << "Warning: encountered DWARF member lacking a location: "
+					<< it << std::endl;
+				return opt<Dwarf_Unsigned>();
 			}
 			else if (data_member_location->size() != 1)
 			{

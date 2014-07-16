@@ -171,6 +171,8 @@ namespace dwarf
 		struct is_a_t
 		{
 			inline bool operator()(const iterator_base& it) const;
+			bool operator==(const is_a_t<Payload>&) const { return true; }
+			bool operator!=(const is_a_t<Payload>&) const { return false; }
 		}; // defined below, once we have factory
 		// We want to partially specialize a function template, 
 		// which we can't do. So pull out the core into a class
@@ -314,7 +316,7 @@ namespace dwarf
 			virtual encap::attribute_map find_all_attrs(optional_root_arg) const;
 			// get a single attr, seeing through abstract_origin / specification links
 			virtual encap::attribute_value find_attr(Dwarf_Half a, optional_root_arg) const;
-			root_die& get_root(opt<root_die&> opt_r) const // NOT defaulted!
+			virtual root_die& get_root(opt<root_die&> opt_r) const // NOT defaulted!
 			{ 
 				return opt_r 
 					? *opt_r 
@@ -609,6 +611,7 @@ namespace dwarf
 
 		struct in_memory_abstract_die: public virtual abstract_die
 		{
+			root_die *p_root;
 			Dwarf_Off m_offset;
 			Dwarf_Off m_cu_offset;
 			Dwarf_Half m_tag;
@@ -627,9 +630,11 @@ namespace dwarf
 			encap::attribute_map& attrs(opt<root_die&> opt_r) 
 			{ return m_attrs; }
 			inline spec& get_spec(root_die& r) const;
+			root_die& get_root(opt<root_die&> opt_r) const
+			{ return opt_r ? *opt_r : *p_root; }
 			
-			in_memory_abstract_die(Dwarf_Off offset, Dwarf_Off cu_offset, Dwarf_Half tag)
-			 : m_offset(offset), m_cu_offset(cu_offset), m_tag(tag)
+			in_memory_abstract_die(root_die& r, Dwarf_Off offset, Dwarf_Off cu_offset, Dwarf_Half tag)
+			 : p_root(&r), m_offset(offset), m_cu_offset(cu_offset), m_tag(tag)
 			{}
 		};
 		
@@ -787,7 +792,8 @@ namespace dwarf
 					assert(cur_payload);
 					//m_depth = found->second->get_depth(); assert(depth == m_depth);
 					//p_root = &found->second->get_root();
-					assert(r.is_sticky(d));
+					
+					assert(r.is_sticky(d) || dynamic_cast<in_memory_abstract_die *>(&d));
 				}
 				else if (r.is_sticky(d))
 				{
@@ -1694,7 +1700,7 @@ void walk_type(core::iterator_df<core::type_die> t,
 		/** This gets an offset in an enclosing object. NOTE that it's only 
 		    defined for members and inheritances (and not even all of those), 
 		    but it's here for convenience. */
-		virtual opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(optional_root_arg) const;
+		virtual opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(optional_root_arg, bool assume_packed_if_no_location = false) const;
 
 		/** This gets a location list describing the location of the thing, 
 			assuming that the instantiating_instance_location has been pushed
