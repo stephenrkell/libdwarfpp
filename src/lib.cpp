@@ -2333,12 +2333,14 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						cerr << "Warning: saw member " << *i_member << " with no apparent offset." << endl;
 						continue;
 					}
-					assert(i_member->get_type());
+					auto member_type = i_member->get_type();
+					assert(member_type);
+					assert(member_type.is_a<type_die>());
 
 					output_word << (opt_offset ? *opt_offset : 0);
 					// FIXME: also its bit offset!
 
-					output_word << type_summary_code(i_member->get_type());
+					output_word << type_summary_code(member_type);
 				}
 			}
 			else if (concrete_t.is_a<array_type_die>())
@@ -3000,7 +3002,6 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						}
 					}
 				}
-				
 				
 				// if we got here, we really can't figure it out
 				std::cerr << "Warning: encountered DWARF member lacking a location: "
