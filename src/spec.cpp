@@ -432,7 +432,10 @@ pair_type name[] = { \
 		#define make_form_associative_entry(form_name, ...) make_pair(form_name, form_classes_ ## form_name),
 		#define last_form_associative_entry(form_name, ...) make_pair(form_name, form_classes_ ## form_name)
 		MAKE_LOOKUP(form_class_mapping_t, form_class_tbl, make_form_associative_entry, last_form_associative_entry, FORM_DECL_LIST);
-
+/* temporary HACK while dwarf.h catches up. */
+#ifndef DW_ATE_utf
+#define DW_ATE_utf 0x10
+#endif
 		#define ENCODING_PAIR_LIST(make_pair, last_pair) \
 							make_pair(DW_ATE_address)  \
 							make_pair(DW_ATE_boolean)  \
@@ -448,8 +451,8 @@ pair_type name[] = { \
 							make_pair(DW_ATE_edited)  \
 							make_pair(DW_ATE_signed_fixed)  \
 							make_pair(DW_ATE_unsigned_fixed)  \
-							last_pair(DW_ATE_decimal_float) 
-
+							make_pair(DW_ATE_decimal_float) \
+							last_pair(DW_ATE_utf) 
 		MAKE_LOOKUP(forward_name_mapping_t, encoding_forward_tbl, PAIR_ENTRY_FORWARDS, PAIR_ENTRY_FORWARDS_LAST, ENCODING_PAIR_LIST);
 		MAKE_LOOKUP(inverse_name_mapping_t, encoding_inverse_tbl, PAIR_ENTRY_BACKWARDS, PAIR_ENTRY_BACKWARDS_LAST, ENCODING_PAIR_LIST);
 
