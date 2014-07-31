@@ -591,6 +591,15 @@ namespace dwarf
 			template <typename Iter>
 			inline iterator_base 
 			resolve(const iterator_base& start, Iter path_pos, Iter path_end);
+			template <typename Iter>
+			inline void 
+			resolve_all(const iterator_base& start, Iter path_pos, Iter path_end,
+				std::vector<iterator_base >& results, unsigned max = 0);
+			
+			template <typename Iter>
+			inline void 
+			resolve_all_visible_from_root(Iter path_pos, Iter path_end,
+				std::vector<iterator_base >& results, unsigned max = 0);
 			inline iterator_base 
 			resolve(const iterator_base& start, const std::string& name);
 
@@ -982,6 +991,28 @@ namespace dwarf
 				{
 					assert(state == WITH_PAYLOAD);
 					return cur_payload->all_attrs(opt_r);
+				}
+			}
+			inline encap::attribute_value attr(Dwarf_Half attr, opt<root_die&> opt_r = opt<root_die&>()) const
+			{
+				if (is_root_position()) return encap::attribute_value();
+				
+				if (state == HANDLE_ONLY)
+				{
+					AttributeList l(dynamic_cast<Die&>(get_handle()));
+					for (auto i = l.copied_list.begin(); i != l.copied_list.end(); ++i)
+					{
+						if (i->attr_here() == attr)
+						{
+							return encap::attribute_value(*i, dynamic_cast<Die&>(get_handle()), get_root());
+						}
+					}
+					return encap::attribute_value();
+				} 
+				else 
+				{
+					assert(state == WITH_PAYLOAD);
+					return cur_payload->attr(attr);
 				}
 			}
 			inline spec& get_spec(root_die& r) const { return spec_here(); }
@@ -1930,22 +1961,60 @@ friend class factory;
 /****************************************************************/
 		/* root_die's name resolution functions */
 		template <typename Iter>
-		inline iterator_base 
-		root_die::resolve(const iterator_base& start, Iter path_pos, Iter path_end)
+		inline void 
+		root_die::resolve_all(const iterator_base& start, Iter path_pos, Iter path_end,
+			std::vector<iterator_base >& results, unsigned max /*= 0*/)
 		{
-			if (path_pos == path_end) return start;
+			if (path_pos == path_end) 
+			{ results.push_back(start); if (max != 0 && results.size() >= max) return; }
+
 			Iter cur_plus_one = path_pos; cur_plus_one++;
-			if (cur_plus_one == path_end) return start.named_child(*path_pos);
+			if (cur_plus_one == path_end)
+			{
+				auto c = start.named_child(*path_pos);
+				if (c) { results.push_back(c); if (max != 0 && results.size() >= max) return; }
+			}
 			else
 			{
 				auto found = start.named_child(*path_pos);
-				if (found == iterator_base::END) return iterator_base::END;
-				// HMM -- I *think* this should now be sufficient
-				/*auto p_next_hop = 
-					std::dynamic_pointer_cast<with_named_children_die>(found);
-				if (!p_next_hop) return iterator_base::END;
-				else */ return resolve(found, ++path_pos, path_end);
+				if (found == iterator_base::END) return;
+				resolve_all(found, ++path_pos, path_end, results, max);
 			}			
+		}
+		
+		template <typename Iter>
+		inline iterator_base 
+		root_die::resolve(const iterator_base& start, Iter path_pos, Iter path_end)
+		{
+			std::vector<iterator_base > results;
+			resolve_all(start, path_pos, path_end, results, 1);
+			if (results.size() > 0) return *results.begin();
+			else return iterator_base::END;
+		}
+
+		template <typename Iter>
+		inline void 
+		root_die::resolve_all_visible_from_root(Iter path_pos, Iter path_end, 
+			std::vector<iterator_base >& results, unsigned max /*= 0*/)
+		{
+			assert(path_pos != path_end);
+			
+			auto vg_seq = grandchildren();
+			for (auto i_g = std::move(vg_seq.first); i_g != vg_seq.second; ++i_g)
+			{
+				if (i_g.base().base().name_here()
+					&& (*i_g.base().base().name_here()) == *path_pos
+					&& (
+						!i_g.base().base().has_attr_here(DW_AT_visibility) 
+						|| i_g.base().base().attr(DW_AT_visibility) != DW_VIS_local)
+						)
+				{
+					/* It's visible; use resolve_all from hereon. */
+					Iter cur_plus_one = path_pos; cur_plus_one++;
+					resolve_all(i_g.base().base(), cur_plus_one, path_end, results, max);
+					if (max != 0 && results.size() >= max) break;
+				}
+			}
 		}
 
 		inline iterator_base 
@@ -1959,7 +2028,7 @@ friend class factory;
 		inline iterator_base 
 		root_die::scoped_resolve(const iterator_base& start, Iter path_pos, Iter path_end)
 		{
-			std::vector<iterator_base > results;
+			std::vector<iterator_base > results = {};
 			scoped_resolve_all(start, path_pos, path_end, results, 1);
 			if (results.size() > 0) return *results.begin();
 			else return iterator_base::END;
@@ -1975,6 +2044,7 @@ friend class factory;
 			if (found_from_here) 
 			{ 
 				results.push_back(found_from_here); 
+				if (max != 0 && results.size() >= max) return;
 			}
 			if (start.tag_here() == 0) return; // can't recurse
 			else // find our nearest encloser that has named children
@@ -1982,7 +2052,12 @@ friend class factory;
 				auto p_encl = start;
 				do
 				{
-					if (p_encl.tag_here() == 0) { return; } // abort! we ran out of parents
+					if (p_encl.tag_here() == 0) 
+					{ 
+						// we ran out of parents; try visible things in other CUs, then give up
+						resolve_all_visible_from_root(path_pos, path_end, results, max);
+						return; 
+					}
 					this->move_to_parent(p_encl);
 				} while (!p_encl.is_a<with_named_children_die>());
 				// success; continue resolving

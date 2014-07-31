@@ -63,6 +63,7 @@ namespace dwarf
 				friend class encap::die; // for the "convert to strong references" hack
 				friend class encap::dieset;
 				friend class core::basic_die; // for use of the NO_ATTR constructor in find_attr
+				friend class core::iterator_base; // the same in iterator_base::attr()
 		public: 
 			struct weak_ref { 
 				friend class attribute_value;
