@@ -435,6 +435,9 @@ namespace dwarf
 			friend struct GlobalList;
 			friend struct Arange;
 			friend struct ArangeList;
+			
+			friend struct type_die; // for equal_to
+			
 		protected: // was protected -- consider changing back
 			typedef intrusive_ptr<basic_die> ptr_type;
 			Debug dbg;
@@ -446,6 +449,7 @@ namespace dwarf
 			map<Dwarf_Off, Dwarf_Off> first_child_of;
 			map<Dwarf_Off, Dwarf_Off> next_sibling_of;
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
+			map<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
 			FrameSection *p_fs;
 			Dwarf_Off current_cu_offset; // 0 means none
 			::Elf *returned_elf;
@@ -565,6 +569,10 @@ namespace dwarf
 			 * search (slow). This is the fallback implementation used by the iterator.
 			 */
 			iterator_base find_named_child(const iterator_base& start, const string& name);
+			/* This one is only for searches anchored at the root, so no need for "start". */
+			iterator_base find_visible_named_grandchild(const string& name);
+			
+			bool is_under(const iterator_base& i1, const iterator_base& i2);
 			
 			// libdwarf has this weird stateful CU API
 			optional<Dwarf_Off> first_cu_offset;
@@ -720,6 +728,7 @@ namespace dwarf
 			// this one is okay for public use,
 			// *as long as* clients know that the handle might be null!
 		public:
+			string summary() const { return this->abstract_die::summary(); }
 			abstract_die& get_handle() const
 			{
 				if (!is_real_die_position()) 
@@ -769,7 +778,9 @@ namespace dwarf
 			bool is_end_position() const 
 			{ return !p_root && !cur_handle.handle && !cur_payload; }
 			bool is_real_die_position() const 
-			{ return !is_root_position() && !is_end_position(); } 
+			{ return !is_root_position() && !is_end_position(); }
+			bool is_under(const iterator_base& i) const
+			{ return p_root->is_under(*this, i); }
 			
 			// this constructor sets us up at begin(), i.e. the root DIE position
 			explicit iterator_base(root_die& r)

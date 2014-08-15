@@ -472,6 +472,25 @@ namespace dwarf
 			return iterator_base::END;
 		}
 		
+		iterator_base
+		root_die::find_visible_named_grandchild(const string& name)
+		{
+			vector<string> name_vec(1, name);
+			std::vector<iterator_base > found;
+			resolve_all_visible_from_root(name_vec.begin(), name_vec.end(), 
+				found, 1);
+			return found.size() > 0 ? *found.begin() : iterator_base::END;
+		}
+		
+		bool root_die::is_under(const iterator_base& i1, const iterator_base& i2)
+		{
+			// is i1 under i2?
+			if (i1 == i2) return true;
+			else if (i2.depth() >= i1.depth()) return false;
+			// now we have i2.depth < i1.depth
+			else return is_under(i1.parent(), i2);
+		}
+		
 		bool root_die::advance_cu_context()
 		{
 			// boost::optional doesn't let us get a writable lvalue out of an
@@ -2073,7 +2092,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				else
 				{
 					// what are our nullary cases?
-					assert(t.is_a<base_type_die>());
+					assert(t.is_a<base_type_die>() || t.is_a<unspecified_type_die>());
 				}
 			} // end if continue_recursing
 
@@ -2393,6 +2412,15 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			{
 				return true;
 			}
+			/* If the two iterators share a root, check the cache */
+			if (t && &t.root() == &self.root())
+			{
+				auto found = self.root().equal_to.find(t.offset_here());
+				if (found != self.root().equal_to.end())
+				{
+					return found->second.second;
+				}
+			}
 			// we have to find t
 			bool ret;
 			bool t_may_equal_self;
@@ -2412,7 +2440,16 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			ret = true;
 			// if we're unequal then we should not be the same DIE (equality is reflexive)
 		out:
-			assert(ret || !(&t.get_root() == &self.get_root() && t.offset_here() == self.offset_here()));
+			/* If we're returning false, we'd better not be the same DIE. */
+			assert(ret || !t || 
+				!(&t.get_root() == &self.get_root() && t.offset_here() == self.offset_here()));
+			/* If the two iterators share a root, cache the result */
+			if (t && &t.root() == &self.root())
+			{
+				self.root().equal_to.insert(make_pair(self.offset_here(), make_pair(t.offset_here(), ret)));
+				self.root().equal_to.insert(make_pair(t.offset_here(), make_pair(self.offset_here(), ret)));
+			}
+			
 			return ret;
 		}
 		bool type_die::operator==(const dwarf::core::type_die& t) const
@@ -2609,7 +2646,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			return get_tag() == t.tag_here() && 
 				(
 					(!get_type() && !t.as_a<type_chain_die>()->get_type())
-				||  get_type()->equal(t.as_a<type_chain_die>()->get_type(), assuming_equal));
+				||  (get_type() && t.as_a<type_chain_die>()->get_type() && 
+					get_type()->equal(t.as_a<type_chain_die>()->get_type(), assuming_equal)));
 		}
 		iterator_df<type_die> type_chain_die::get_concrete_type(optional_root_arg_decl) const
 		{

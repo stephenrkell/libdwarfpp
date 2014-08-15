@@ -10,6 +10,11 @@ endif
 CXXFLAGS += -I../include
 LDFLAGS += -L../lib
 
+# while we sort out the old libdwarfpp stuff
+CXXFLAGS += -Wno-deprecated-declarations
+# really necessary?
+CXXFLAGS += -fno-eliminate-unused-debug-symbols -fno-eliminate-unused-debug-types
+
 HDRS := $(wildcard *.hpp)
 SRC := $(wildcard *.cpp)
 OBJS := $(patsubst %.cpp,%.o,$(SRC))
