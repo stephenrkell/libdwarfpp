@@ -9,7 +9,8 @@ using namespace dwarf;
 
 int main(int argc, char **argv)
 {
-	std::ifstream in(argv[0]);
+	assert(argc > 1);
+	std::ifstream in(argv[1]);
 	core::root_die root(fileno(in));
 	cout << root;
 	return 0;

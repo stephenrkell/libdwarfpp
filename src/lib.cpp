@@ -868,6 +868,8 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(r), std::move(d.handle));
 				return make_new_cu(r, [parent](){ return new in_memory_compile_unit_die(parent); });
 			}
 			
+			if (parent.depth() == 1) r.visible_named_grandchildren_is_complete = false;
+			
 			//Dwarf_Off parent_off = parent.offset_here();
 			//Dwarf_Off new_off = /*parent.is_root_position() ? r.fresh_cu_offset() : */ r.fresh_offset_under(r.enclosing_cu(parent));
 			//Dwarf_Off cu_off = /*(tag == DW_TAG_compile_unit) ? new_off : */ parent.enclosing_cu_offset_here();
@@ -2116,6 +2118,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		
 		opt<uint32_t> type_die::summary_code(optional_root_arg_decl) const
 		{
+			/* if we have it cached, return that */
+			if (cached_summary_code) return *cached_summary_code;
+		
 			/* FIXME: factor this into the various subclass cases. */
 			// we have to find ourselves. :-(
 			auto t = get_root(opt_r).find(get_offset()).as_a<type_die>();
@@ -2384,6 +2389,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			// pointer-to-incomplete, etc., will still give us incomplete answer
 			assert (!concrete_t || !(output_word.val) || *output_word.val != 0);
 
+			this->cached_summary_code = output_word.val; 
+			
 			return output_word.val;
 			// return std::numeric_limits<uint32_t>::max();
 			

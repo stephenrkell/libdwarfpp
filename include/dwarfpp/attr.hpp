@@ -220,29 +220,40 @@ namespace dwarf
 			attribute_value(const weak_ref& r)          : p_ds(nullptr), orig_form(DW_FORM_ref_addr), f(REF),      v_ref(r.clone()) {}
 			
 		public:
-			
-			Dwarf_Bool get_flag() const { assert(f == FLAG); return v_flag; }
+			bool is_flag() const { return f == FLAG; }
+			Dwarf_Bool get_flag() const { assert(is_flag()); return v_flag; }
 			// allow mix-and-match among signed and unsigned
+			bool is_unsigned() const { return f == UNSIGNED || f == SIGNED; }
 			Dwarf_Unsigned get_unsigned() const 
-			{ assert(f == UNSIGNED || f == SIGNED); return (f == UNSIGNED) ? v_u : static_cast<Dwarf_Unsigned>(v_s); }
+			{ assert(is_unsigned()); return (f == UNSIGNED) ? v_u : static_cast<Dwarf_Unsigned>(v_s); }
+			bool is_signed() const { return f == SIGNED || f == UNSIGNED; }
 			Dwarf_Signed get_signed() const 
-			{ assert(f == SIGNED || f == UNSIGNED); return (f == SIGNED) ? v_s : static_cast<Dwarf_Signed>(v_u); }
-			const std::vector<unsigned char> *get_block() const { assert(f == BLOCK); return v_block; }
-			const std::string& get_string() const { assert(f == STRING); return *v_string; }
+			{ assert(is_signed()); return (f == SIGNED) ? v_s : static_cast<Dwarf_Signed>(v_u); }
+			bool is_block() const { return f == BLOCK; }
+			const std::vector<unsigned char> *get_block() const { assert(is_block()); return v_block; }
+			bool is_string() const { return f == STRING; }
+			const std::string& get_string() const { assert(is_string()); return *v_string; }
 			/* I added the tolerance of UNSIGNED here because sometimes high_pc is an address, 
 			 * other times it's unsigned... BUT it means something different in the latter 
 			 * case (lopc-relative) so it's best to handle this difference higher up. */
-			address get_address() const { assert(f == ADDR/* || f == UNSIGNED*/); return/* (f == ADDR) ?*/ v_addr /*: address(static_cast<Dwarf_Addr>(v_u))*/; }
-			const loclist& get_loclist() const { assert(f == LOCLIST); return *v_loclist; }
-			const rangelist& get_rangelist() const { assert(f == RANGELIST); return *v_rangelist; }
-
-			weak_ref& get_ref() const { assert(f == REF); return *v_ref; }
-			Dwarf_Off get_refoff() const { assert(f == REF); return v_ref->off; }
-			Dwarf_Off get_refoff_is_type() const { assert(f == REF); return v_ref->off; }
+			bool is_address() const { return f == ADDR /* || f == UNSIGNED*/; }
+			address get_address() const { assert(is_address()); return/* (f == ADDR) ?*/ v_addr /*: address(static_cast<Dwarf_Addr>(v_u))*/; }
+			bool is_loclist() const { return f == LOCLIST; }
+			const loclist& get_loclist() const { assert(is_loclist()); return *v_loclist; }
+			bool is_rangelist() const { return f == RANGELIST; }
+			const rangelist& get_rangelist() const { assert(is_rangelist()); return *v_rangelist; }
+			bool is_ref() const { return f == REF; }
+			weak_ref& get_ref() const { assert(is_ref()); return *v_ref; }
+			Dwarf_Off get_refoff() const { assert(is_ref()); return v_ref->off; }
+			Dwarf_Off get_refoff_is_type() const { assert(is_ref()); return v_ref->off; }
+			bool is_refiter() const { return f == REF; }
 			core::iterator_df<> get_refiter() const;// { assert(f == REF); return v_ref->off; }
+			bool is_refiter_is_type() const { return f == REF; /* FIXME */ }
 			core::iterator_df<core::type_die> get_refiter_is_type() const;// { assert(f == REF); return v_ref->off; }
+			bool is_refdie() const { return f == REF; /* FIXME */ }
 			std::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
 			//spec::basic_die& get_refdie() const; // defined in cpp file
+			bool is_refdie_is_type() const { return f == REF; /* FIXME */ }
 			std::shared_ptr<spec::type_die> get_refdie_is_type() const; 
 			//spec::type_die& get_refdie_is_type() { return dynamic_cast<spec::type_die&>(get_refdie()); }
 			/* ^^^ I think a plain reference is okay here because the "this" pointer

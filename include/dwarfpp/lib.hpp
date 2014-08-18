@@ -62,6 +62,7 @@ namespace dwarf
 		using std::make_pair;
 		using std::string;
 		using std::map;
+		using std::multimap;
 		using std::deque;
 		using boost::optional;
 		using boost::intrusive_ptr;
@@ -437,6 +438,7 @@ namespace dwarf
 			friend struct ArangeList;
 			
 			friend struct type_die; // for equal_to
+			friend class factory; // for visible_named_grandchildren_is_complete
 			
 		protected: // was protected -- consider changing back
 			typedef intrusive_ptr<basic_die> ptr_type;
@@ -450,6 +452,10 @@ namespace dwarf
 			map<Dwarf_Off, Dwarf_Off> next_sibling_of;
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
 			map<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
+
+			multimap<string, Dwarf_Off> visible_named_grandchildren;
+			bool visible_named_grandchildren_is_complete;
+
 			FrameSection *p_fs;
 			Dwarf_Off current_cu_offset; // 0 means none
 			::Elf *returned_elf;
@@ -1530,12 +1536,23 @@ namespace dwarf
  */
 #define attr_optional(name, stored_t) \
 	opt<stored_type_ ## stored_t> get_ ## name(optional_root_arg) const \
-    { if (has_attr(DW_AT_ ## name)) return attr(DW_AT_ ## name, opt_r).get_ ## stored_t (); \
+    { if (has_attr(DW_AT_ ## name)) \
+      {  /* we have to check the form matches our expectations */ \
+         encap::attribute_value a = attr(DW_AT_ ## name, opt_r); \
+         if (!a.is_ ## stored_t ()) { \
+            cerr << "Warning: attribute " #name " not a " #stored_t << endl; \
+            return opt<stored_type_ ## stored_t>(); \
+         } else return a.get_ ## stored_t (); \
+      } \
       else return opt<stored_type_ ## stored_t>(); } \
 	opt<stored_type_ ## stored_t> find_ ## name(optional_root_arg) const \
     { encap::attribute_value found = find_attr(DW_AT_ ## name, opt_r); \
-      if (found.get_form() != encap::attribute_value::NO_ATTR) return found.get_ ## stored_t (); \
-      else return opt<stored_type_ ## stored_t>(); }
+      if (found.get_form() != encap::attribute_value::NO_ATTR) { \
+         if (!found.is_ ## stored_t ()) { \
+            cerr << "Warning: attribute " #name " not a " #stored_t << endl; \
+            return opt<stored_type_ ## stored_t>(); \
+         } else return found.get_ ## stored_t (); \
+      } else return opt<stored_type_ ## stored_t>(); }
 
 #define super_attr_optional(name, stored_t) attr_optional(name, stored_t)
 
@@ -1650,6 +1667,7 @@ struct summary_code_word_t
 	summary_code_word_t() : val(0) {}
 };
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
+		mutable opt< opt< uint32_t > > cached_summary_code;
 		attr_optional(byte_size, unsigned)
 		virtual opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
 		// virtual bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
@@ -2010,22 +2028,68 @@ friend class factory;
 		{
 			assert(path_pos != path_end);
 			
-			auto vg_seq = grandchildren();
-			for (auto i_g = std::move(vg_seq.first); i_g != vg_seq.second; ++i_g)
+			/* We want to be able to iterate over grandchildren s.t. 
+			 * 
+			 * - we hit the cached-visible ones first
+			 * - we hit them all eventually
+			 * - we only hit each one once.
+			 */
+			set<Dwarf_Off> hit_in_cache;
+			Iter cur_plus_one = path_pos; cur_plus_one++;
+			
+			auto recurse = [this, &results, path_end, max, cur_plus_one](const iterator_base& i) {
+				/* It's visible; use resolve_all from hereon. */
+				resolve_all(i, cur_plus_one, path_end, results, max);
+			};
+			
+			auto matching_cached = visible_named_grandchildren.equal_range(*path_pos);
+			for (auto i_cached = matching_cached.first;
+				i_cached != matching_cached.second; 
+				++i_cached)
 			{
-				if (i_g.base().base().name_here()
-					&& (*i_g.base().base().name_here()) == *path_pos
-					&& (
-						!i_g.base().base().has_attr_here(DW_AT_visibility) 
-						|| i_g.base().base().attr(DW_AT_visibility) != DW_VIS_local)
-						)
+				recurse(pos(i_cached->second, 2));
+				if (max != 0 && results.size() >= max) return;
+			}
+
+			/* Now we have to be exhaustive. But don't bother if we know that 
+			 * our cache is exhaustive. */
+			if (!visible_named_grandchildren_is_complete)
+			{
+				auto vg_seq = grandchildren();
+				for (auto i_g = std::move(vg_seq.first); i_g != vg_seq.second; ++i_g)
 				{
-					/* It's visible; use resolve_all from hereon. */
-					Iter cur_plus_one = path_pos; cur_plus_one++;
-					resolve_all(i_g.base().base(), cur_plus_one, path_end, results, max);
-					if (max != 0 && results.size() >= max) break;
+					/* skip any we saw before */
+					if (hit_in_cache.find(i_g.base().base().offset_here()) != hit_in_cache.end()) continue;
+
+					/* install in cache */
+					visible_named_grandchildren.insert(make_pair(*path_pos, i_g.base().base().offset_here()));
+
+					if (i_g.base().base().name_here())
+					{
+						/* install in cache */
+						string name = *i_g.base().base().name_here();
+						visible_named_grandchildren.insert(
+							make_pair(name, i_g.base().base().offset_here()
+							)
+						);
+
+						if (name == *path_pos
+							&& (
+								!i_g.base().base().has_attr_here(DW_AT_visibility) 
+								|| i_g.base().base().attr(DW_AT_visibility) != DW_VIS_local
+							)
+						)
+						{
+							/* It's visible; use resolve_all from hereon. */
+							recurse(i_g.base().base());
+							if (max != 0 && results.size() >= max) break;
+						}
+					}
 				}
 			}
+			
+			/* If we got here, we searched everything. */
+			visible_named_grandchildren_is_complete = true;
 		}
 
 		inline iterator_base 
