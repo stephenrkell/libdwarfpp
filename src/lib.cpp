@@ -275,7 +275,15 @@ namespace dwarf
 		}
 		
 		root_die::root_die(int fd)
-		 : dbg(fd), p_fs(new FrameSection(get_dbg(), true)), current_cu_offset(0UL), returned_elf(nullptr) 
+		 : dbg(fd), p_fs(new FrameSection(get_dbg(), true)), 
+		   current_cu_offset(0UL), returned_elf(nullptr), first_cu_offset(),
+			last_seen_cu_header_length(),
+			last_seen_version_stamp(),
+			last_seen_abbrev_offset(),
+			last_seen_address_size(),
+			last_seen_offset_size(),
+			last_seen_extension_size(),
+			 last_seen_next_cu_header()
 		{ assert(p_fs != 0); }
 		
 		root_die::~root_die() { delete p_fs; }
