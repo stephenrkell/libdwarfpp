@@ -1995,7 +1995,7 @@ friend class factory;
 			std::vector<iterator_base >& results, unsigned max /*= 0*/)
 		{
 			if (path_pos == path_end) 
-			{ results.push_back(start); if (max != 0 && results.size() >= max) return; }
+			{ results.push_back(start); /* out of names, so unconditional */ return; }
 
 			Iter cur_plus_one = path_pos; cur_plus_one++;
 			if (cur_plus_one == path_end)
@@ -2026,7 +2026,7 @@ friend class factory;
 		root_die::resolve_all_visible_from_root(Iter path_pos, Iter path_end, 
 			std::vector<iterator_base >& results, unsigned max /*= 0*/)
 		{
-			assert(path_pos != path_end);
+			if (path_pos == path_end) return;
 			
 			/* We want to be able to iterate over grandchildren s.t. 
 			 * 
@@ -2056,13 +2056,19 @@ friend class factory;
 			if (!visible_named_grandchildren_is_complete)
 			{
 				auto vg_seq = grandchildren();
+				/* Cache all named grandchildren. */
 				for (auto i_g = std::move(vg_seq.first); i_g != vg_seq.second; ++i_g)
 				{
+					///* HACK */
+					//if (i_g.base().base().name_here())
+					//{
+					//	string name = *i_g.base().base().name_here();
+					//	std::cerr << "Saw grandchild: " << name << " from CU at 0x" 
+					//		<< std::hex << i_g.base().base().enclosing_cu().offset_here() << std::dec 
+					//		<< endl;
+					//}
 					/* skip any we saw before */
 					if (hit_in_cache.find(i_g.base().base().offset_here()) != hit_in_cache.end()) continue;
-
-					/* install in cache */
-					visible_named_grandchildren.insert(make_pair(*path_pos, i_g.base().base().offset_here()));
 
 					if (i_g.base().base().name_here())
 					{
@@ -2082,7 +2088,7 @@ friend class factory;
 						{
 							/* It's visible; use resolve_all from hereon. */
 							recurse(i_g.base().base());
-							if (max != 0 && results.size() >= max) break;
+							if (max != 0 && results.size() >= max) return;
 						}
 					}
 				}
@@ -2121,25 +2127,23 @@ friend class factory;
 				results.push_back(found_from_here); 
 				if (max != 0 && results.size() >= max) return;
 			}
-			if (start.tag_here() == 0) return; // can't recurse
-			else // find our nearest encloser that has named children
+			
+			// find our nearest encloser that has named children, and tail-recurse
+			auto p_encl = start;
+			do
 			{
-				auto p_encl = start;
-				do
-				{
-					if (p_encl.tag_here() == 0) 
-					{ 
-						// we ran out of parents; try visible things in other CUs, then give up
-						resolve_all_visible_from_root(path_pos, path_end, results, max);
-						return; 
-					}
-					this->move_to_parent(p_encl);
-				} while (!p_encl.is_a<with_named_children_die>());
-				// success; continue resolving
-				scoped_resolve_all(p_encl, path_pos, path_end, results, max);
-				// by definition, we're finished
-				return;
-			}
+				this->move_to_parent(p_encl);
+				if (p_encl.tag_here() == 0) 
+				{ 
+					// we ran out of parents; try visible things in other CUs, then give up
+					resolve_all_visible_from_root(path_pos, path_end, results, max);
+					return; 
+				}
+			} while (!p_encl.is_a<with_named_children_die>());
+
+			// successfully moved to an encloser; tail-call to continue resolving
+			scoped_resolve_all(p_encl, path_pos, path_end, results, max);
+			// by definition, we're finished
 		}
 		template <typename Iter/* = iterator_df<compile_unit_die>*/ >
 		inline Iter root_die::enclosing_cu(const iterator_base& it)
