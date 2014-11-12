@@ -39,6 +39,13 @@ using boost::optional;
 using srk31::host_is_little_endian;
 using srk31::host_is_big_endian;
 
+static bool debug;
+static void init() __attribute__((constructor));
+static void init()
+{
+	debug = (getenv("DWARFPP_DEBUG_FRAME") && 0 != atoi(getenv("DWARFPP_DEBUG_FRAME")));
+}
+
 namespace dwarf
 {
 	namespace encap
@@ -679,10 +686,10 @@ namespace dwarf
 			}
 			std::stack< map<int, register_def> > remembered_row_defs;
 
-			cerr << "Interpreting instrlist " << instrlist << endl;
+			if (debug) cerr << "Interpreting instrlist " << instrlist << endl;
 			for (auto i_op = instrlist.begin(); i_op != instrlist.end(); ++i_op)
 			{
-				cerr << "\tInterpreting instruction " << *i_op << endl;
+				if (debug) cerr << "\tInterpreting instruction " << *i_op << endl;
 				switch (i_op->fp_base_op << 6 | i_op->fp_extended_op)
 				{
 					// row creation
@@ -1127,6 +1134,11 @@ namespace dwarf
 								boost::associative_property_map< decltype(vertex_to_index) >
 								  i(vertex_to_index);
 
+								/* We want to start at the CFA. So if we don't 
+								 * have the CFA node in the vertex map, abort. */
+								if (vertex_to_index.find(DW_FRAME_CFA_COL3) == vertex_to_index.end())
+								{ goto continue_loop; }
+								
 								dijkstra_shortest_paths(g, 
 									/* start at CFA */ DW_FRAME_CFA_COL3,
 									predecessor_map(p).
@@ -1196,7 +1208,7 @@ namespace dwarf
 
 								if (found_path)
 								{
-									cerr << "Found that in vaddr range " 
+									if (debug) cerr << "Found that in vaddr range " 
 										<< std::hex << row_overlap_interval << std::dec 
 										<< " we can rewrite DW_OP_breg" << (unsigned) regnum 
 										<< " " << std::showpos << regoff << std::noshowpos
@@ -1210,7 +1222,7 @@ namespace dwarf
 											if (regnum == DW_FRAME_CFA_COL3) return "CFA";
 											else return dwarf_regnames_for_elf_machine(fs.get_elf_machine())[regnum];
 										};
-										cerr << reg_name(i_edge->from_reg) 
+										if (debug) cerr << reg_name(i_edge->from_reg) 
 											<< std::showpos << i_edge->difference << std::noshowpos
 											<< " == " << reg_name(i_edge->to_reg) << endl;
 									}
@@ -1271,7 +1283,7 @@ namespace dwarf
 									};
 									i_op = out_iter.get_iter();
 									// rewriting done!
-									cerr << "Rewritten loc expr is " << copied_loc_expr << endl;
+									if (debug) cerr << "Rewritten loc expr is " << copied_loc_expr << endl;
 									assert(i_op >= copied_loc_expr.begin());
 									assert(i_op <= copied_loc_expr.end());
 									// do a special increment: point i_op after out_iter
