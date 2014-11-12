@@ -57,6 +57,8 @@ libdwarfpp.a: $(OBJS)
 #libdwarfpp.so: $(SRC)
 #	$(CXX) $(CXXFLAGS) -shared -o "$@" $^ $(LDLIBS)
 
+# NO, we can't do this, because ldwarf is an archive which is not PIC
+# libdwarfpp.so: LDLIBS += -ldwarf
 # use this version when developing (avoid recompiling whole of huge .so file)
 libdwarfpp.so: $(OBJS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o "$@" $^ $(LDLIBS)
