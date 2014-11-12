@@ -459,9 +459,18 @@ namespace dwarf
 			int ret = (use_eh ? dwarf_get_fde_list_eh : dwarf_get_fde_list)(
 						dbg.raw_handle(), &cie_data, &cie_element_count, 
 						&fde_data, &fde_element_count, &current_dwarf_error);
-
-			assert(ret == DW_DLV_OK || ret == DW_DLV_NO_ENTRY);
-			if (ret == DW_DLV_NO_ENTRY)
+			/* If we get an error message about mangled DWARF, treat it as 
+			   NO_ENTRY but print a warning. */
+			if (ret == DW_DLV_ERROR)
+			{
+				if (dwarf_errno(current_dwarf_error) == DW_DLE_MDE)
+				{
+					cerr << "warning: libdwarf reported mangled frame entries" << endl;
+				}
+				else assert(false);
+			}
+			
+			if (ret != DW_DLV_OK)
 			{
 				/* Set up empty arrays. */
 				fde_element_count = 0;
