@@ -1,84 +1,20 @@
-Very preliminary pre-pre-pre-release README:
+Very preliminary README:
 
-You will need recent g++ (at least 4.5) to build most of the code. Also
+You will need recent g++ (at least 4.7) to build most of the code. Also
 libdwarf, libunwind, boost, and other things you probably already have.
 
-For pmirror, you *also* need malloc_hooks.c:
-<http://www.inf.usi.ch/postdoc/kells/software/malloc_hooks.c>
--- I should really put it in a repository, but it doesn't
-really belong in any. Although it's a C file, put it in an include dir.
-
-The code is rough in countless ways.
-
 The easiest way to get started is probably to look at the (smaller) 
-examples in libdwarfpp.hg/examples and (non-automated) tests in 
-libdwarfpp/tests (some are rotted though!), and then to read the header 
-files lib.hpp and spec_adt.hpp. Or just ask me your questions. :-) 
+examples in examples/.
 
 Configuration: none of these codebases is autotooled. I handle
-configuration by creating per-machine "makefile" alongside each 
-top-level Makefile, of the form
+configuration by creating per-machine "makefile" (or config.mk) 
+alongside each top-level Makefile, of the form
 
 CXXFLAGS += ...
 LDFLAGS += ...
 include Makefile
 
-Efficiency: I did a bit of profiling a while ago, which confirmed my 
-suspicion that the inefficiency is mainly in the navigation code.  I've 
-just now sketched out some improvements, in the class 
-dwarf::spec::cursor (in spec_adt.hpp), but not finished it yet. Overall, 
-the idea is to pull navigation out of the DIE abstraction and into the 
-iterator, or something like it. At the moment, the iterators call into 
-the DIE abstraction to navigate, which often involves getting a new 
-handle from libdwarf just to calculate the next position, then releasing 
-the libdwarf handle and the memory that holds it, only to call down and 
-get a new handle when the iterator is dereferenced. I'm currently 
-wondering whether it's best to shove the pointer inside the iterator 
-rather than have a separate "cursor" concept... am now inclined this way.
-
-Deprecation warnings: I just marked the slow navigation interface as 
-deprecated, a bit prematurely as the replacement isn't ready yet. So 
-that's why you get a ton of warnings!
-
-Maturity: I just made a bunch of code changes that aren't very well 
-tested, so in short, anything might happen. I'll be responsive about 
-fixing issues though.
-
 Completeness: various things are part-done, like the DWARF evaluator 
 (only supports the opcodes I've needed so far) and support for multiple 
 DWARF standards (mostly there, but not hooked up properly; in practice 
 it doesn't matter too much).
-
-Documentation: there is not much! Overall, libdwarfpp factors like so:
-
-namespace dwarf::lib -- one-for-one wrappers of libdwarf
-handles, in RAII style. This is supposed to be a pretty
-mechanical translation, although it is done by hand. There is
-also a DWARF expression evaluator in here (probably in the
-wrong namespace).
-
-namespace dwarf::encap -- native C++ data structures for
-holding various chunks of decoded DWARF data. This is notably
-attribute values, but also whole DIEs, for cases where you
-want them in memory (see below).
-
-namespace dwarf::spec -- functions for interpreting DWARF data in a way 
-that depends on name/number assignments in the DWARF standard. This 
-include names for the various tag/attribute/encoding binary values, but 
-also, the most useful bit of the library: generated interfaces (by a 
-Python script) for most DWARF tags, with accessors for the attributes 
-they are likely to have. Also, an "abstract_dieset" data type 
-representing a collection of DWARF info (a file). And there are some 
-abstractions over multiple DWARF tags (with_named_children, 
-with_static_location, ...) that are quite useful.
-
-This "dieset" abstraction is then implemented in lib::
-and encap::, respectively as a direct access layer over
-libdwarf, or as an eagerly as a copied-out native C++ data
-structure (basically a std::map). Only the latter is mutable,
-as I haven't wrapped the libdwarf "producer" interface yet.
-
-Formatting, cruft: the code is mostly a mess, and has been growing 
-organically for over three years now. (Also, be warned that I'm a 
-tabs-not-spaces guy, who converted part-way through writing this code. :-)
-
