@@ -477,7 +477,7 @@ namespace dwarf
 			virtual Dwarf_Off fresh_offset_under(const iterator_base& pos);
 		
 		protected:
-			root_die() : dbg(), p_fs(nullptr) {}
+			root_die() : dbg(), visible_named_grandchildren_is_complete(false), p_fs(nullptr) {}
 		public:
 			root_die(int fd);
 			virtual ~root_die(); 
