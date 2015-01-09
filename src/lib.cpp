@@ -2433,10 +2433,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			/* If the two iterators share a root, check the cache */
 			if (t && &t.root() == &self.root())
 			{
-				auto found = self.root().equal_to.find(t.offset_here());
-				if (found != self.root().equal_to.end())
+				auto found_seq = self.root().equal_to.equal_range(t.offset_here());
+				for (auto i_found = found_seq.first; i_found != found_seq.second; ++i_found)
 				{
-					return found->second.second;
+					if (i_found->second.first == self.offset_here())
+					{
+						return i_found->second.second;
+					}
 				}
 			}
 			// we have to find t
