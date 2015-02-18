@@ -2736,7 +2736,6 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					if (!opt_upper_bound) break; // give up
 					
 					Dwarf_Unsigned upper_bound = *opt_upper_bound;
-					assert(upper_bound < 100000000); // detects most garbage
 					count = upper_bound - lower_bound + 1;
 					break;
 				}
