@@ -227,7 +227,7 @@ namespace dwarf
 						// ... so assert something that says we can read it back
 						if (cie.get_data_alignment_factor() < 0)
 						{
-							assert((Dwarf_Signed) decoded.fp_offset_or_block_len < 0);
+							assert((Dwarf_Signed) decoded.fp_offset_or_block_len <= 0);
 						}
 						break;
 					case DW_CFA_restore:
