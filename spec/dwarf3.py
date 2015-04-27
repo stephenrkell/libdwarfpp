@@ -192,7 +192,7 @@ tags = [ \
 ("reference_type", ( [("address_class", False)], [], ["address_holding_type"]  ) ), \
 ("rvalue_reference_type", ( [("address_class", False)], [], ["address_holding_type"]  ) ), \
 ("compile_unit", ( [ ("language", True), ("comp_dir", False), ("producer", False), ("low_pc", False), ("high_pc", False), ("ranges", False), ("name", False), ("calling_convention", False)], [ "subprogram", "variable", "base_type", "pointer_type", "reference_type" ] + member_types, ["with_named_children", "with_static_location"]  ) ), \
-("string_type", ( [], [], ["type"]  ) ), \
+("string_type", ( [ ("bit_size", False), ("string_length", False) ], [], ["type"]  ) ), \
 ("structure_type", ( [], [ "member", "access_declaration", "inheritance" ] + member_types, ["with_data_members", "with_named_children"]  ) ), \
 ("subroutine_type", ( [("calling_convention", False), ("pure", False), ("address_class", False)], ["formal_parameter", "unspecified_parameters"], ["type_describing_subprogram"]  ) ), \
 ("typedef", ( [], [], ["type_chain"]  ) ), \

@@ -1871,6 +1871,11 @@ end_class(with_data_members)
 		opt<Dwarf_Unsigned> ultimate_element_count(optional_root_arg) const; \
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, optional_root_arg) const; \
 		iterator_df<type_die> get_concrete_type(optional_root_arg) const;
+#define extra_decls_string_type \
+		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, optional_root_arg) const; \
+		opt<Dwarf_Unsigned> fixed_length_in_bytes() const; \
+		opt<encap::loclist> dynamic_length_in_bytes() const; \
+		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
 #define extra_decls_pointer_type \
         /* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_reference_type \
@@ -1939,6 +1944,7 @@ friend class factory;
 #undef extra_decls_subprogram
 #undef extra_decls_compile_unit
 #undef extra_decls_array_type
+#undef extra_decls_string_type
 #undef extra_decls_variable
 #undef extra_decls_structure_type
 #undef extra_decls_union_type

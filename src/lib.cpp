@@ -2387,6 +2387,24 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					<< (opt_el_count ? *opt_el_count : 0);
 					// FIXME: also the factoring into dimensions needs to be taken into account
 			}
+			else if (concrete_t.is_a<string_type_die>())
+			{
+				// Fortran strings can be fixed-length or variable-length
+				auto opt_dynamic_length = concrete_t.as_a<string_type_die>()->get_string_length();
+				unsigned byte_len;
+				if (opt_dynamic_length)
+				{
+					// treat it as length 0
+					byte_len = 0;
+				}
+				else
+				{
+					auto opt_byte_size = concrete_t.as_a<string_type_die>()->fixed_length_in_bytes();
+					assert(opt_byte_size);
+					byte_len = *opt_byte_size;
+				}
+				output_word << DW_TAG_string_type << byte_len;
+			}
 			else if (concrete_t.is_a<unspecified_type_die>())
 			{
 				cerr << "Warning: saw unspecified type " << concrete_t;
@@ -2551,6 +2569,45 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			if (!types_equal) return false;
 			
 			return true;
+		}
+/* from string_type_die */
+		bool string_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
+		{
+			if (!t) return false;
+			
+			cerr << "Testing string_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
+			
+			if (get_tag() != t.tag_here()) return false;
+			if (get_name() != t.name_here()) return false;
+
+			// our has-dynamic-lengthness should be equal
+			bool dynamic_lengthness_equal = (t.as_a<string_type_die>()->get_string_length()
+				== get_string_length());
+			if (!dynamic_lengthness_equal) return false;
+			// if we don't have dynamic length, any static length should be equal
+			if (!get_string_length())
+			{
+				auto our_opt_byte_size = get_byte_size();
+				auto other_opt_byte_size = t.as_a<string_type_die>()->get_byte_size();
+				if (our_opt_byte_size != other_opt_byte_size) return false;
+			}
+			return true;
+		}
+		opt<Dwarf_Unsigned> string_type_die::fixed_length_in_bytes() const
+		{
+			if (this->get_string_length()) return opt<Dwarf_Unsigned>();
+			return this->get_byte_size();
+		}
+		opt<Dwarf_Unsigned> string_type_die::calculate_byte_size(optional_root_arg_decl) const
+		{
+			return this->fixed_length_in_bytes();
+		}
+		opt<encap::loclist> string_type_die::dynamic_length_in_bytes() const
+		{
+			auto opt_string_length = this->get_string_length();
+			if (!opt_string_length) return false;
+			return *opt_string_length;
 		}
 /* from subrange_type_die */
 		bool subrange_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
