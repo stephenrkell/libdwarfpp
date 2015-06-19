@@ -8,7 +8,7 @@ CXXFLAGS += -O0 -g3
 endif
 
 CXXFLAGS += -I../include
-LDFLAGS += -L../lib
+LDFLAGS += -L../lib -Wl,-rpath,$(realpath ../lib)
 
 # while we sort out the old libdwarfpp stuff
 CXXFLAGS += -Wno-deprecated-declarations

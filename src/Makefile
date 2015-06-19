@@ -13,7 +13,7 @@ CXXFLAGS += -I../include/dwarfpp
 CXXFLAGS += -Wno-deprecated-declarations # TEMPorary HACK
 
 # add dependencies on dynamic libs libdwarfpp.so should pull in
-LDLIBS += -lsrk31c++ -lboost_serialization # why do we need this?
+LDLIBS += -lsrk31c++
 
 SRC := $(wildcard *.cpp)
 DEPS := $(patsubst %.cpp,.%.d,$(SRC))
