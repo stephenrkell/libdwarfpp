@@ -476,9 +476,9 @@ namespace dwarf
 			virtual Dwarf_Off fresh_cu_offset();
 			virtual Dwarf_Off fresh_offset_under(const iterator_base& pos);
 		
-		protected:
-			root_die() : dbg(), visible_named_grandchildren_is_complete(false), p_fs(nullptr) {}
 		public:
+			root_die() : dbg(), visible_named_grandchildren_is_complete(false), p_fs(nullptr),
+				current_cu_offset(0), returned_elf(nullptr) {}
 			root_die(int fd);
 			virtual ~root_die(); 
 			// we don't provide this constructor because sharing the CU state is a bad idea
