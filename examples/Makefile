@@ -1,3 +1,5 @@
+-include config.mk
+
 CXX ?= g++
 
 CXXFLAGS += -std=c++0x

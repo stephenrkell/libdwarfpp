@@ -1,3 +1,5 @@
+config.mk
+
 # Compiled Object files
 *.slo
 *.lo
