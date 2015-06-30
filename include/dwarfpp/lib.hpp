@@ -166,8 +166,8 @@ namespace dwarf
 		// children
 		// so how do we iterate over "children satisfying predicate, derefAs'd X"? 
 		//pair< 
-		//    filter_iterator< predicate_t, iterator_sibs< X > >,
-		//    filter_iterator< predicate_t, iterator_sibs< X > >
+		//	filter_iterator< predicate_t, iterator_sibs< X > >,
+		//	filter_iterator< predicate_t, iterator_sibs< X > >
 		template <typename Payload>
 		struct is_a_t
 		{
@@ -201,9 +201,13 @@ namespace dwarf
 			template <typename Pred>
 			sequence<
 				srk31::selective_iterator<Pred, Iter>
-			> subseq_with(Pred pred = Pred()) 
-			{ return subseq_t<Pred, Iter>().operator()(std::move(*this)); }
-
+			> subseq_with(const Pred& pred) 
+			{
+				return subseq_t<
+					Iter,
+					Pred
+				>(pred).operator()(std::move(*this)); 
+			}
 			template <typename D>
 			sequence<
 				typename subseq_t<Iter, is_a_t<D> >::transformed_iterator
@@ -219,6 +223,10 @@ namespace dwarf
 		template <typename Iter, typename Pred>
 		struct subseq_t
 		{
+			/* See subseq_with to understand why this is a reference. */
+			const Pred& m_pred;
+			subseq_t(const Pred& pred) : m_pred(pred) {}
+			
 			typedef srk31::selective_iterator<Pred, Iter> filtered_iterator;
 
 			inline pair<filtered_iterator, filtered_iterator> 
@@ -460,7 +468,7 @@ namespace dwarf
 			Dwarf_Off current_cu_offset; // 0 means none
 			::Elf *returned_elf;
 		public:
-			FrameSection&       get_frame_section()       { assert(p_fs); return *p_fs; }
+			FrameSection&	   get_frame_section()	   { assert(p_fs); return *p_fs; }
 			const FrameSection& get_frame_section() const { assert(p_fs); return *p_fs; }
 		protected:
 			virtual ptr_type make_payload(const iterator_base& it);
@@ -675,11 +683,11 @@ namespace dwarf
 		 * ADT iterators are slow, and yield shared_ptrs to instances. 
 		 * Q. When is it okay to save these pointers? 
 		 * A. Only when they are sticky! This is true in both ADT and
-		 *    core cases. If we save a ptr/ref to a non-sticky DIE, 
-		 *    in the core case it might go dangly, and in the ADT case
-		 *    it might become disconnected (i.e. next time we get the 
-		 *    same DIE, we will get a different instance, and if we make
-		 *    changes, they needn't be reflected).
+		 *	core cases. If we save a ptr/ref to a non-sticky DIE, 
+		 *	in the core case it might go dangly, and in the ADT case
+		 *	it might become disconnected (i.e. next time we get the 
+		 *	same DIE, we will get a different instance, and if we make
+		 *	changes, they needn't be reflected).
 		 * To integrate these, is it as simple as
 		 * - s/shared_ptr/intrusive_ptr/ in ADT;
 		 * - include a refcount in every basic_die (basic_die_core?);
@@ -977,9 +985,9 @@ namespace dwarf
 		public:
 			/* implement the abstract_die interface
 			 *  -- NOTE: some methods are private because they 
-			       only work in the Die handle case, 
-			       not the "payload + in_memory" case (when get_handle() returns null). 
-			    FIXME: should we change this? */
+				   only work in the Die handle case, 
+				   not the "payload + in_memory" case (when get_handle() returns null). 
+				FIXME: should we change this? */
 			inline Dwarf_Off get_offset() const { return offset_here(); }
 			inline Dwarf_Half get_tag() const { return tag_here(); }
 			// helper for raw names -> std::string names
@@ -1178,23 +1186,23 @@ namespace dwarf
 			) ? true : false;
 		}
 		
-    	template <typename Iter, typename Pred>
+		template <typename Iter, typename Pred>
 		inline 
-        pair<
+		pair<
 			typename subseq_t<Iter, Pred>::filtered_iterator, 
 			typename subseq_t<Iter, Pred>::filtered_iterator
 		>
-        subseq_t<Iter, Pred>::operator()(const pair<Iter, Iter>& in_seq)
+		subseq_t<Iter, Pred>::operator()(const pair<Iter, Iter>& in_seq)
 		{ 
 			return make_pair(
-				filtered_iterator(in_seq.first, in_seq.second),
-				filtered_iterator(in_seq.second, in_seq.second)
+				filtered_iterator(in_seq.first, in_seq.second, this->m_pred),
+				filtered_iterator(in_seq.second, in_seq.second, this->m_pred)
 			);
 		}
 
-    	template <typename Iter, typename Pred>
+		template <typename Iter, typename Pred>
 		inline 
-        pair<
+		pair<
 			typename subseq_t<Iter, Pred>::filtered_iterator, 
 			typename subseq_t<Iter, Pred>::filtered_iterator
 		> 
@@ -1205,14 +1213,14 @@ namespace dwarf
 			 * filter iterators. */
 			assert(in_seq.second == iterator_base::END);
 			return make_pair(
-				filtered_iterator(std::move(in_seq.first), iterator_base::END),
-				filtered_iterator(std::move(in_seq.second), iterator_base::END)
+				filtered_iterator(std::move(in_seq.first), iterator_base::END, this->m_pred),
+				filtered_iterator(std::move(in_seq.second), iterator_base::END, this->m_pred)
 			);
 		}
 
-    	template <typename Iter, typename Payload>
+		template <typename Iter, typename Payload>
 		inline 
-        pair<
+		pair<
 			typename subseq_t<Iter, is_a_t<Payload> >::transformed_iterator, 
 			typename subseq_t<Iter, is_a_t<Payload> >::transformed_iterator
 		> 
@@ -1248,13 +1256,13 @@ namespace dwarf
 		 * In the case of BFS it may be expensive. */
 		template <typename DerefAs /* = basic_die */>
 		struct iterator_df : public iterator_base,
-		                     public boost::iterator_facade<
-		                       iterator_df<DerefAs>
-		                     , DerefAs
-		                     , boost::forward_traversal_tag
-		                     , DerefAs& //boost::use_default /* Reference */
-		                     , Dwarf_Signed /* difference */
-		                     >
+							 public boost::iterator_facade<
+							   iterator_df<DerefAs>
+							 , DerefAs
+							 , boost::forward_traversal_tag
+							 , DerefAs& //boost::use_default /* Reference */
+							 , Dwarf_Signed /* difference */
+							 >
 		{
 			typedef iterator_df<DerefAs> self;
 			typedef DerefAs DerefType;
@@ -1315,13 +1323,13 @@ namespace dwarf
 	
 		template <typename DerefAs /* = basic_die */>
 		struct iterator_bf : public iterator_base,
-		                     public boost::iterator_facade<
-		                       iterator_bf<DerefAs>
-		                     , DerefAs
-		                     , boost::forward_traversal_tag
-		                     , DerefAs& // boost::use_default /* Reference */
-		                     , Dwarf_Signed /* difference */
-		                     >
+							 public boost::iterator_facade<
+							   iterator_bf<DerefAs>
+							 , DerefAs
+							 , boost::forward_traversal_tag
+							 , DerefAs& // boost::use_default /* Reference */
+							 , Dwarf_Signed /* difference */
+							 >
 		{
 			typedef iterator_bf<DerefAs> self;
 			friend class boost::iterator_core_access;
@@ -1420,13 +1428,13 @@ namespace dwarf
 		
 		template <typename DerefAs /* = basic_die*/>
 		struct iterator_sibs : public iterator_base,
-		                       public boost::iterator_facade<
-		                       iterator_sibs<DerefAs> /* I (CRTP) */
-		                     , DerefAs /* V */
-		                     , boost::forward_traversal_tag
-		                     , DerefAs& //boost::use_default /* Reference */
-		                     , Dwarf_Signed /* difference */
-		                     >
+							   public boost::iterator_facade<
+							   iterator_sibs<DerefAs> /* I (CRTP) */
+							 , DerefAs /* V */
+							 , boost::forward_traversal_tag
+							 , DerefAs& //boost::use_default /* Reference */
+							 , Dwarf_Signed /* difference */
+							 >
 		{
 			typedef iterator_sibs<DerefAs> self;
 			friend class boost::iterator_core_access;
@@ -1486,7 +1494,7 @@ namespace dwarf
 
 		
 /****************************************************************/
-/* begin generated ADT includes                                 */
+/* begin generated ADT includes								 */
 /****************************************************************/
 #define forward_decl(t) class t ## _die;
 #define declare_base(base) base ## _die
@@ -1536,34 +1544,34 @@ namespace dwarf
  */
 #define attr_optional(name, stored_t) \
 	opt<stored_type_ ## stored_t> get_ ## name(optional_root_arg) const \
-    { if (has_attr(DW_AT_ ## name)) \
-      {  /* we have to check the form matches our expectations */ \
-         encap::attribute_value a = attr(DW_AT_ ## name, opt_r); \
-         if (!a.is_ ## stored_t ()) { \
-            cerr << "Warning: attribute " #name " not a " #stored_t << endl; \
-            return opt<stored_type_ ## stored_t>(); \
-         } else return a.get_ ## stored_t (); \
-      } \
-      else return opt<stored_type_ ## stored_t>(); } \
+	{ if (has_attr(DW_AT_ ## name)) \
+	  {  /* we have to check the form matches our expectations */ \
+		 encap::attribute_value a = attr(DW_AT_ ## name, opt_r); \
+		 if (!a.is_ ## stored_t ()) { \
+			cerr << "Warning: attribute " #name " not a " #stored_t << endl; \
+			return opt<stored_type_ ## stored_t>(); \
+		 } else return a.get_ ## stored_t (); \
+	  } \
+	  else return opt<stored_type_ ## stored_t>(); } \
 	opt<stored_type_ ## stored_t> find_ ## name(optional_root_arg) const \
-    { encap::attribute_value found = find_attr(DW_AT_ ## name, opt_r); \
-      if (found.get_form() != encap::attribute_value::NO_ATTR) { \
-         if (!found.is_ ## stored_t ()) { \
-            cerr << "Warning: attribute " #name " not a " #stored_t << endl; \
-            return opt<stored_type_ ## stored_t>(); \
-         } else return found.get_ ## stored_t (); \
-      } else return opt<stored_type_ ## stored_t>(); }
+	{ encap::attribute_value found = find_attr(DW_AT_ ## name, opt_r); \
+	  if (found.get_form() != encap::attribute_value::NO_ATTR) { \
+		 if (!found.is_ ## stored_t ()) { \
+			cerr << "Warning: attribute " #name " not a " #stored_t << endl; \
+			return opt<stored_type_ ## stored_t>(); \
+		 } else return found.get_ ## stored_t (); \
+	  } else return opt<stored_type_ ## stored_t>(); }
 
 #define super_attr_optional(name, stored_t) attr_optional(name, stored_t)
 
 #define attr_mandatory(name, stored_t) \
 	stored_type_ ## stored_t get_ ## name(optional_root_arg) const \
-    { assert(has_attr(DW_AT_ ## name)); \
-      return attr(DW_AT_ ## name, opt_r).get_ ## stored_t (); } \
+	{ assert(has_attr(DW_AT_ ## name)); \
+	  return attr(DW_AT_ ## name, opt_r).get_ ## stored_t (); } \
 	stored_type_ ## stored_t find_ ## name(optional_root_arg) const \
-    { encap::attribute_value found = find_attr(DW_AT_ ## name, opt_r); \
-      assert(found.get_form() != encap::attribute_value::NO_ATTR); \
-      return found.get_ ## stored_t (); }
+	{ encap::attribute_value found = find_attr(DW_AT_ ## name, opt_r); \
+	  assert(found.get_form() != encap::attribute_value::NO_ATTR); \
+	  return found.get_ ## stored_t (); }
 
 
 #define super_attr_mandatory(name, stored_t) attr_mandatory(name, stored_t)
@@ -1673,7 +1681,7 @@ begin_class(type, base_initializations(initialize_base(program_element)), declar
 		// virtual bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const;
 		virtual iterator_df<type_die> get_concrete_type(optional_root_arg) const;
 		virtual iterator_df<type_die> get_unqualified_type(optional_root_arg) const;
-		virtual opt<uint32_t>         summary_code(optional_root_arg) const;
+		virtual opt<uint32_t>		 summary_code(optional_root_arg) const;
 		virtual bool may_equal(core::iterator_df<core::type_die> t, 
 			const std::set< std::pair<core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, 
 			optional_root_arg) const;
@@ -1758,8 +1766,8 @@ void walk_type(core::iterator_df<core::type_die> t,
 			dwarf::lib::regs *p_regs = 0) const = 0;
 			
 		/** This gets an offset in an enclosing object. NOTE that it's only 
-		    defined for members and inheritances (and not even all of those), 
-		    but it's here for convenience. */
+			defined for members and inheritances (and not even all of those), 
+			but it's here for convenience. */
 		virtual opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(optional_root_arg, bool assume_packed_if_no_location = false) const;
 
 		/** This gets a location list describing the location of the thing, 
@@ -1788,31 +1796,31 @@ void walk_type(core::iterator_df<core::type_die> t,
 	};
 /* type_chain_die */
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
-        attr_optional(type, refdie_is_type)
-        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
-        iterator_df<type_die> get_concrete_type(optional_root_arg) const;
+		attr_optional(type, refdie_is_type)
+		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
+		iterator_df<type_die> get_concrete_type(optional_root_arg) const;
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, optional_root_arg) const;
 end_class(type_chain)
 /* type_describing_subprogram_die */
 begin_class(type_describing_subprogram, base_initializations(initialize_base(type)), declare_base(type))
-        attr_optional(type, refdie_is_type)
-        virtual iterator_df<type_die> get_return_type(optional_root_arg) const = 0;
-        virtual bool is_variadic(optional_root_arg) const;
+		attr_optional(type, refdie_is_type)
+		virtual iterator_df<type_die> get_return_type(optional_root_arg) const = 0;
+		virtual bool is_variadic(optional_root_arg) const;
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, optional_root_arg) const;
 end_class(type_describing_subprogram)
 /* address_holding_type_die */
 begin_class(address_holding_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
-        attr_optional(address_class, unsigned)
-        iterator_df<type_die> get_concrete_type(optional_root_arg) const;
-        opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
+		attr_optional(address_class, unsigned)
+		iterator_df<type_die> get_concrete_type(optional_root_arg) const;
+		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
 end_class(type_chain)
 /* qualified_type_die */
 begin_class(qualified_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
-        iterator_df<type_die> get_unqualified_type(optional_root_arg) const;
+		iterator_df<type_die> get_unqualified_type(optional_root_arg) const;
 end_class(qualified_type)
 /* with_data_members_die */
 begin_class(with_data_members, base_initializations(initialize_base(type)), declare_base(type))
-        child_tag(member)
+		child_tag(member)
 		iterator_base find_definition(optional_root_arg) const; // for turning declarations into defns
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, optional_root_arg) const; 
 end_class(with_data_members)
@@ -1820,11 +1828,11 @@ end_class(with_data_members)
 #define has_stack_based_location \
 	bool location_requires_object_base() const { return false; } \
 	opt<Dwarf_Off> spans_addr( \
-                    Dwarf_Addr aa, \
-                    Dwarf_Signed fb, \
+					Dwarf_Addr aa, \
+					Dwarf_Signed fb, \
 					root_die& r, \
-                    Dwarf_Off dr_ip, \
-                    dwarf::lib::regs *p_regs) const \
+					Dwarf_Off dr_ip, \
+					dwarf::lib::regs *p_regs) const \
 					{ return spans_stack_addr(aa, fb, r, dr_ip, p_regs); } \
 	Dwarf_Addr calculate_addr( \
 				Dwarf_Addr fb, \
@@ -1836,11 +1844,11 @@ end_class(with_data_members)
 #define has_object_based_location \
 	bool location_requires_object_base() const { return true; } \
 	opt<Dwarf_Off> spans_addr( \
-                    Dwarf_Addr aa, \
-                    Dwarf_Signed io, \
+					Dwarf_Addr aa, \
+					Dwarf_Signed io, \
 					root_die& r, \
-                    Dwarf_Off dr_ip, \
-                    dwarf::lib::regs *p_regs) const \
+					Dwarf_Off dr_ip, \
+					dwarf::lib::regs *p_regs) const \
 					{ return spans_addr_in_object(aa, io, r, dr_ip, p_regs); } \
 	Dwarf_Addr calculate_addr( \
 				Dwarf_Addr io, \
@@ -1850,16 +1858,16 @@ end_class(with_data_members)
 				{ return calculate_addr_in_object(io, r, dr_ip, p_regs); } \
 	encap::loclist get_dynamic_location(optional_root_arg_decl) const;
 #define extra_decls_subprogram \
-        opt< std::pair<Dwarf_Off, iterator_df<with_dynamic_location_die> > > \
-        spans_addr_in_frame_locals_or_args( \
-                    Dwarf_Addr absolute_addr, \
+		opt< std::pair<Dwarf_Off, iterator_df<with_dynamic_location_die> > > \
+		spans_addr_in_frame_locals_or_args( \
+					Dwarf_Addr absolute_addr, \
 					root_die& r, \
-                    Dwarf_Off dieset_relative_ip, \
-                    Dwarf_Signed *out_frame_base, \
-                    dwarf::lib::regs *p_regs = 0) const; \
+					Dwarf_Off dieset_relative_ip, \
+					Dwarf_Signed *out_frame_base, \
+					dwarf::lib::regs *p_regs = 0) const; \
 		iterator_df<type_die> get_return_type(optional_root_arg) const;
 #define extra_decls_variable \
-        bool has_static_storage(optional_root_arg) const; \
+		bool has_static_storage(optional_root_arg) const; \
 		has_stack_based_location
 #define extra_decls_formal_parameter \
 		has_stack_based_location
@@ -1877,9 +1885,9 @@ end_class(with_data_members)
 		opt<encap::loclist> dynamic_length_in_bytes() const; \
 		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
 #define extra_decls_pointer_type \
-        /* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_reference_type \
-        /* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
+		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
 #define extra_decls_base_type \
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, optional_root_arg) const; \
 		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */
@@ -1992,7 +2000,7 @@ friend class factory;
 #undef child_tag
 
 /****************************************************************/
-/* end generated ADT includes                                   */
+/* end generated ADT includes								   */
 /****************************************************************/
 		/* root_die's name resolution functions */
 		template <typename Iter>
@@ -2757,8 +2765,8 @@ friend class factory;
 			/* dwarf_loclist_n returns us
 			 * a pointer 
 			 *   to an array 
-			 *      of pointers 
-			 *        to Locdescs.
+			 *	  of pointers 
+			 *		to Locdescs.
 			 * We will copy each pointer in the array into our vector of Locdesc handles. */
 			Dwarf_Locdesc **block_start;
 			Dwarf_Signed count = 0;
@@ -3154,8 +3162,8 @@ friend class factory;
 		};
 
 		/* Attributes may be freely passed by value, because there is 
-         * no libdwarf resource allocation done when getting attributes
-         * (it's all done when getting the attribute array). 
+		 * no libdwarf resource allocation done when getting attributes
+		 * (it's all done when getting the attribute array). 
 		 * In other words, an attribute is just a <base, offset> pair
 		 * denoting a position in an attribute_array, which is assumed
 		 * to outlive the attribute itself. */
@@ -3164,7 +3172,7 @@ friend class factory;
 			friend class attribute_array;
 			friend class block;
 			friend class loclist;
-            friend class ranges;
+			friend class ranges;
 			core::Attribute::raw_handle_type p_raw_attr;
 			attribute_array *p_a;
 			int i;
@@ -3200,7 +3208,7 @@ friend class factory;
 			friend class attribute;
 			friend class block;
 			friend class loclist;
-            friend class ranges; 
+			friend class ranges; 
 			Dwarf_Attribute *p_attrs;
 			die& d;
 			Dwarf_Error *const p_last_error;
@@ -3227,7 +3235,7 @@ friend class factory;
 			}
 			Dwarf_Signed count() { return cnt; }
 			attribute get(int i) { return attribute(*this, i); }
-            attribute operator[](Dwarf_Half attr) { return attribute(attr, *this); }
+			attribute operator[](Dwarf_Half attr) { return attribute(attr, *this); }
 
 			virtual ~attribute_array()	{
 				for (int i = 0; i < cnt; i++)
