@@ -1,5 +1,8 @@
 config.mk
 
+__pycache__/
+*.py[cod]
+
 # http://www.gnu.org/software/automake
 
 Makefile.in
