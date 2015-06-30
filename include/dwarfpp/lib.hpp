@@ -2502,7 +2502,7 @@ friend class factory;
 			{
 				i_found_parent = parent_of.find(cur);
 				++height;
-			} while (i_found_parent != parent_of.end() && (cur = i_found_parent->second, true));
+			} while (cur > 0 && i_found_parent != parent_of.end() && (cur = i_found_parent->second, true));
 			
 			// if we got all the way to the root, cur will be 0
 			if (cur == 0)
