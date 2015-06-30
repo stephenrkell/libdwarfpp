@@ -1,3 +1,5 @@
+-include config.mk
+
 CXX ?= g++
 
 CXXFLAGS += -std=gnu++14 -fkeep-inline-functions -Wall -fPIC 
