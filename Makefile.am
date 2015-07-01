@@ -8,6 +8,9 @@ pkgconfig_DATA = libdwarfpp.pc
 dwarfpp_includedir = $(includedir)/dwarfpp
 dwarfpp_include_HEADERS = include/dwarfpp/adt.hpp include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.hpp include/dwarfpp/attr.hpp include/dwarfpp/dwarf-onlystd-v2.h include/dwarfpp/lib.hpp include/dwarfpp/core.hpp include/dwarfpp/encap_graph.hpp include/dwarfpp/opt.hpp include/dwarfpp/dwarf3-adt.h include/dwarfpp/encap.hpp include/dwarfpp/regs.hpp include/dwarfpp/dwarf3-factory.h include/dwarfpp/encap_sibling_graph.hpp include/dwarfpp/spec_adt.hpp include/dwarfpp/dwarf-ext-GNU.h include/dwarfpp/expr.hpp include/dwarfpp/spec.hpp
 
+dwarfpp_private_includedir = $(includedir)/dwarfpp/private
+dwarfpp_private_include_HEADERS = include/dwarfpp/private/libdwarf-handles.hpp include/dwarfpp/private/libdwarf.hpp
+
 lib_LTLIBRARIES = src/libdwarfpp.la
 src_libdwarfpp_la_SOURCES = src/adt.cpp src/encap_adt.cpp src/expr.cpp src/lib.cpp src/rep.cpp src/attr.cpp src/encap.cpp src/frame.cpp src/regs.cpp src/spec.cpp
 src_libdwarfpp_la_LIBADD = -ldwarf -lelf $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS)
