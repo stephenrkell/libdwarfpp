@@ -1,7 +1,11 @@
-config.mk
+/Makefile
 
 __pycache__/
 *.py[cod]
+
+.deps/
+.libs/
+
 
 # http://www.gnu.org/software/automake
 
@@ -17,12 +21,22 @@ Makefile.in
 /install-sh
 /missing
 /stamp-h1
+/m4/
+/config.guess
+/config.sub
+/config.status
+/config.log
+/ltmain.sh
+/libtool
+
 
 # Compiled Object files
 *.slo
 *.lo
 *.o
 *.obj
+
+*.pc
 
 # Dependencies
 .*.d
@@ -59,3 +73,5 @@ Makefile.in
 # WTF Dropbox
 
 .fuse_hidden*
+.nfs*
+.dropbox*

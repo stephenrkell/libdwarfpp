@@ -1,0 +1,15 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+pkgincludedir=${includedir}/@PACKAGE@
+pkglibdir=@pkglibdir@
+datarootdir=@datarootdir@
+datadir=@datadir@
+
+Name: libdwarfpp
+Description: C++ front-end to libdwarf, with extra goodies
+Version: 0.1
+Requires: libsrk31cxx libcxxfileno
+Cflags: -I${includedir}
+Libs: -L${libdir} -ldwarf -lelf -ldwarfpp
