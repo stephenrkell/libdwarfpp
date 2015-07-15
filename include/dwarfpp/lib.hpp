@@ -636,7 +636,7 @@ namespace dwarf
 			scoped_resolve_all(const iterator_base& start, Iter path_pos, Iter path_end, 
 				std::vector<iterator_base >& results, unsigned max = 0);
 			
-			void print_tree(iterator_base&& begin, std::ostream& s) const;
+			 void print_tree(iterator_base/*&&*/ begin, std::ostream& s) const;
 		};	
 		std::ostream& operator<<(std::ostream& s, const root_die& d);
 

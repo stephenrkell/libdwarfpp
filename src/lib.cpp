@@ -141,11 +141,11 @@ namespace dwarf
 		 * If we made it a method on iterator_base, it would have
 		 * to copy itself. f we make it a method on root_die, it does
 		 * not have to copy. */
-		void root_die::print_tree(iterator_base&& begin, std::ostream& s) const
+		 void root_die::print_tree(iterator_base/*&&*/ begin, std::ostream& s) const
 		{
 			unsigned start_depth = begin.m_depth;
 			Dwarf_Off start_offset = begin.offset_here();
-			for (iterator_df<> i = std::move(begin);
+			for (iterator_df<> i = begin;//std::move(begin);
 				(i.is_root_position() || i.is_real_die_position()) 
 					&& (i.offset_here() == start_offset || i.depth() > start_depth); 
 				++i)
@@ -2037,8 +2037,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		}
 		bool type_eq_fn(iterator_df<type_die> t1, iterator_df<type_die> t2)
 		{
-			return (!t1 && !t2) || (t1 && t2 && *t1 == *t2);
+			 return (!t1 && !t2) || ((t1 && t2) && (t1.offset_here() == t2.offset_here() || *t1 == *t2));
 		}
+
+		 
+
 		void walk_type(iterator_df<type_die> t, iterator_df<program_element_die> reason, 
 			const std::function<bool(iterator_df<type_die>, iterator_df<program_element_die>)>& pre_f, 
 			const std::function<void(iterator_df<type_die>, iterator_df<program_element_die>)>& post_f,
@@ -2060,7 +2063,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				else if (t.is_a<type_chain_die>()) // unary case -- includes typedefs, arrays, pointer/reference, ...
 				{
 					// recursively walk the chain's target
-					walk_type(t.as_a<type_chain_die>()->find_type(), t, pre_f, post_f, next_currently_walking);
+					 walk_type(t.as_a<type_chain_die>()->find_type(), t, pre_f, post_f, next_currently_walking);
 				}
 				else if (t.is_a<with_data_members_die>()) 
 				{
@@ -2069,15 +2072,20 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					for (auto i_child = member_children.first;
 						i_child != member_children.second; ++i_child)
 					{
-						walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f, next_currently_walking);
+						walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f , next_currently_walking);
 					}
 					// visit all inheritances
 					auto inheritance_children = t.as_a<with_data_members_die>().children().subseq_of<inheritance_die>();
 					for (auto i_child = inheritance_children.first;
 						i_child != inheritance_children.second; ++i_child)
 					{
-						walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f, next_currently_walking);
+						 walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f , next_currently_walking);
 					}
+
+/*					auto children_with_type = t.as_a<with_data_members_die>().children().subseq_of<with_type_describing_layout_die>();
+					for (auto i_child = children_with_type.first; i_child != children_with_type.second; i_child++) {
+						 walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f , next_currently_walking);
+						 }*/
 				}
 				else if (t.is_a<subrange_type_die>())
 				{
@@ -2428,7 +2436,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		{
 			if (!t) return false;
 			
-			cerr << "Testing type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			if (getenv("DEBUG_EQUALITY")) cerr << "Testing type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			return t.tag_here() == get_tag(); // will be refined in subclasses
@@ -2536,7 +2544,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		{
 			if (!t) return false;
 			
-			cerr << "Testing array_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			if (getenv("DEBUG_EQUALITY")) cerr << "Testing array_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2575,7 +2583,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		{
 			if (!t) return false;
 			
-			cerr << "Testing string_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			if (getenv("DEBUG_EQUALITY")) cerr << "Testing string_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2613,7 +2621,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		bool subrange_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
-			cerr << "Testing subrange_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			if (getenv("DEBUG_EQUALITY")) cerr << "Testing subrange_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2646,7 +2654,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		bool enumeration_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
-			cerr << "Testing enumeration_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			if (getenv("DEBUG_EQUALITY")) cerr << "Testing enumeration_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2719,7 +2727,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		}
 		bool type_chain_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
-			cerr << "Testing type_chain_die::may_equal() (default case)" << endl;
+			if (getenv("DEBUG_EQUALITY")) cerr << "Testing type_chain_die::may_equal() (default case)" << endl;
 			
 			return get_tag() == t.tag_here() && 
 				(
@@ -2855,7 +2863,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		bool with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
-			cerr << "Testing with_data_members_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			if (getenv("DEBUG_EQUALITY")) cerr << "Testing with_data_members_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -3594,7 +3602,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		bool type_describing_subprogram_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, optional_root_arg_decl) const
 		{
 			if (!t) return false;
-			cerr << "Testing type_describing_subprogram_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			if (getenv("DEBUG_EQUALITY")) cerr << "Testing type_describing_subprogram_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
