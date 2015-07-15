@@ -1,3 +1,18 @@
+/docs/
+/examples/core-query
+/examples/dwarfppdump
+/examples/dwarfppencapdump
+/examples/dwarfpplibdump
+/examples/print_spec
+/examples/sranges
+/examples/subseq
+/include/dwarfpp/dwarf-ext-GNU.h
+/include/dwarfpp/dwarf-onlystd-v2.h
+/include/dwarfpp/dwarf-onlystd.h
+/include/dwarfpp/dwarf3-adt.h
+/include/dwarfpp/dwarf3-factory.h
+
+
 /Makefile
 
 __pycache__/
