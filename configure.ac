@@ -28,6 +28,24 @@ AC_CHECK_HEADERS([algorithm cassert cstdlib dwarf.h elf.h functional iostream it
 
 AC_CHECK_HEADERS([dwarf.h elf.h libdwarf.h libelf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h elf.h libdwarf.h libelf.h])])
 
+AC_ARG_WITH([libdwarf-prefix],
+            [AS_HELP_STRING([--with-libdwarf-prefix=DIR],
+              [prefix under which libdwarf is installed])],
+            [
+                if test -d "$withval"
+                then
+                        ac_libdwarf_prefix="$withval"
+                else
+                        AC_MSG_ERROR(--with-libdwarf-prefix expected directory name)
+                fi
+            ],
+            [ac_libdwarf_prefix=/usr])
+
+#LIBDWARF_PREFIX=/usr
+#AS_IF([test "x$with_libdwarf_prefix" != x],
+#[AC_SUBST([LIBDWARF_PREFIX], ["$ac_optarg"])])
+AC_SUBST([libdwarf_prefix], [$ac_libdwarf_prefix])
+
 AX_BOOST_BASE
 
 AC_CHECK_HEADER([boost/iostreams/filtering_stream.hpp], [], [AC_MSG_FAILURE([boost::iostreams is required])])
@@ -39,9 +57,32 @@ AC_HAVE_LIBRARY(boost_serialization, [], [AC_MSG_FAILURE([boost::iostreams is re
 AC_CHECK_HEADER([boost/system/api_config.hpp], [], [AC_MSG_FAILURE([boost::system is required])])
 AC_HAVE_LIBRARY(boost_system, [], [AC_MSG_FAILURE([boost::system is required])])
 
+#AC_HAVE_LIBRARY(elf, [], [AC_MSG_FAILURE([libelf is required])])
+#AC_HAVE_LIBRARY(dwarf, [], [AC_MSG_FAILURE([libdwarf is required])])
 
-AC_HAVE_LIBRARY(elf, [], [AC_MSG_FAILURE([libelf is required])])
-AC_HAVE_LIBRARY(dwarf, [], [AC_MSG_FAILURE([libdwarf is required])])
+AC_CHECK_LIB([elf], [elf_new], [])
+AC_CHECK_LIB([dwarf], [dwarf_init], [])
+
+# If the user (sanely) supplied _CXXFLAGS, and not _CFLAGS, 
+# duplicate the latter to the former.  See rant about pkg-config in Makefile.am.
+# We save the old _CFLAGS.
+USER_LIBCXXFILENO_CFLAGS="$LIBCXXFILENO_CFLAGS"
+LIBCXXFILENO_CFLAGS="$LIBCXXFILENO_CXXFLAGS"
+USER_LIBSRK31CXX_CFLAGS="$LIBSRK31CXX_CFLAGS"
+LIBSRK31CXX_CFLAGS="$LIBSRK31CXX_CXXFLAGS"
+
+# Now, all the information from pkg-config or from user _CXXFLAGS) is in _CFLAGS.
+# We might also have USER_ _CFLAGS, if the user did what pkg.m4 stupidly told them.
+# We use this information (i.e. propagate to _CXXFLAGS) only if the user *didn't* give us
+# _CXXFLAGS.
+AM_CONDITIONAL(SUPPLIED_LIBCXXFILENO_CFLAGS, [test x"$USER_LIBCXXFILENO_CFLAGS" != x && test x"$LIBCXXFILENO_CXXFLAGS" = x])
+AM_CONDITIONAL(SUPPLIED_LIBSRK31CXX_CFLAGS, [test x"$USER_LIBSRK31CXX_CFLAGS" != x && test x"$LIBSRK31CXX_CXXFLAGS" = x])
+
+# HACK: antlr3cxx doesn't need any libs, but PKG_CHECK_MODULES will 
+# complain if we don't have LIBANTLR3CXX_LIBS set to something
+# non-empty. So use an effect-free linker option.
+# LIBANTLR3CXX_LIBS=-Wl,-g
+# -- actually, the invoker of configure should do this.
 
 PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES([LIBCXXFILENO], [libcxxfileno])
