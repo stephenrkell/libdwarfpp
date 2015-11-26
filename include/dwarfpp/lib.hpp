@@ -2495,15 +2495,27 @@ friend class factory;
 		{
 			/* Use the parent cache to verify our existence and
 			 * get our depth. */
-			int height = -1;
+			int height = 0; // we're at least at depth 0; will increment every time we go up successfully
 			Dwarf_Off cur = off;
-			map<Dwarf_Off, Dwarf_Off>::iterator i_found_parent;
-			do
+			//map<Dwarf_Off, Dwarf_Off>::iterator i_found_parent;
+			//do
+			//{
+			//	i_found_parent = parent_of.find(cur);
+			//	++height;
+			//} while (i_found_parent != parent_of.end() && (cur = i_found_parent->second, true));
+
+			/* 
+			   What we want is 
+			   - to search all the way to the top
+			   - when we hit offset 0, `height' should be the depth of `off'
+			 */
+			for (map<Dwarf_Off, Dwarf_Off>::iterator i_found_parent = parent_of.find(cur);
+				cur != 0 && i_found_parent != parent_of.end();
+				i_found_parent = parent_of.find(cur))
 			{
-				i_found_parent = parent_of.find(cur);
+				cur = i_found_parent->second;
 				++height;
-			} while (i_found_parent != parent_of.end() && (cur = i_found_parent->second, true));
-			
+			}
 			// if we got all the way to the root, cur will be 0
 			if (cur == 0)
 			{
