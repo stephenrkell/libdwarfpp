@@ -28,23 +28,22 @@ AC_CHECK_HEADERS([algorithm cassert cstdlib dwarf.h elf.h functional iostream it
 
 AC_CHECK_HEADERS([dwarf.h elf.h libdwarf.h libelf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h elf.h libdwarf.h libelf.h])])
 
-AC_ARG_WITH([libdwarf-prefix],
-            [AS_HELP_STRING([--with-libdwarf-prefix=DIR],
-              [prefix under which libdwarf is installed])],
+AC_ARG_WITH([libdwarf-includes],
+            [AS_HELP_STRING([--with-libdwarf-includes=DIR],
+              [where to find libdwarf headers])],
             [
                 if test -d "$withval"
                 then
-                        ac_libdwarf_prefix="$withval"
+                        ac_libdwarf_includes="$withval"
                 else
-                        AC_MSG_ERROR(--with-libdwarf-prefix expected directory name)
+                        AC_MSG_ERROR(--with-libdwarf-includes expected directory name)
                 fi
             ],
-            [ac_libdwarf_prefix=/usr])
+            [ac_libdwarf_includes=/usr/include])
 
-#LIBDWARF_PREFIX=/usr
-#AS_IF([test "x$with_libdwarf_prefix" != x],
-#[AC_SUBST([LIBDWARF_PREFIX], ["$ac_optarg"])])
-AC_SUBST([libdwarf_prefix], [$ac_libdwarf_prefix])
+AC_SUBST([libdwarf_includes], [$ac_libdwarf_includes])
+CFLAGS="-I$libdwarf_includes $CFLAGS"
+CXXFLAGS="-I$libdwarf_includes $CXXFLAGS"
 
 AX_BOOST_BASE
 
@@ -56,9 +55,6 @@ AC_CHECK_HEADER([boost/serialization/traits.hpp], [], [AC_MSG_FAILURE([boost::se
 AC_HAVE_LIBRARY(boost_serialization, [], [AC_MSG_FAILURE([boost::iostreams is required])])
 AC_CHECK_HEADER([boost/system/api_config.hpp], [], [AC_MSG_FAILURE([boost::system is required])])
 AC_HAVE_LIBRARY(boost_system, [], [AC_MSG_FAILURE([boost::system is required])])
-
-#AC_HAVE_LIBRARY(elf, [], [AC_MSG_FAILURE([libelf is required])])
-#AC_HAVE_LIBRARY(dwarf, [], [AC_MSG_FAILURE([libdwarf is required])])
 
 AC_CHECK_LIB([elf], [elf_new], [])
 AC_CHECK_LIB([dwarf], [dwarf_init], [])
@@ -77,12 +73,6 @@ LIBSRK31CXX_CFLAGS="$LIBSRK31CXX_CXXFLAGS"
 # _CXXFLAGS.
 AM_CONDITIONAL(SUPPLIED_LIBCXXFILENO_CFLAGS, [test x"$USER_LIBCXXFILENO_CFLAGS" != x && test x"$LIBCXXFILENO_CXXFLAGS" = x])
 AM_CONDITIONAL(SUPPLIED_LIBSRK31CXX_CFLAGS, [test x"$USER_LIBSRK31CXX_CFLAGS" != x && test x"$LIBSRK31CXX_CXXFLAGS" = x])
-
-# HACK: antlr3cxx doesn't need any libs, but PKG_CHECK_MODULES will 
-# complain if we don't have LIBANTLR3CXX_LIBS set to something
-# non-empty. So use an effect-free linker option.
-# LIBANTLR3CXX_LIBS=-Wl,-g
-# -- actually, the invoker of configure should do this.
 
 PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES([LIBCXXFILENO], [libcxxfileno])
