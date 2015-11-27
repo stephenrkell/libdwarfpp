@@ -26,7 +26,8 @@ AC_PROG_INSTALL
 
 AC_CHECK_HEADERS([algorithm cassert cstdlib dwarf.h elf.h functional iostream iterator libdwarf.h libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector], [], [AC_MSG_FAILURE([required standard headers: algorithm cassert cstdlib dwarf.h elf.h functional iostream iterator libdwarf.h libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector])])
 
-AC_CHECK_HEADERS([dwarf.h elf.h libdwarf.h libelf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h elf.h libdwarf.h libelf.h])])
+AC_CHECK_HEADERS([elf.h libelf.h], [], [AC_MSG_FAILURE([required headers: elf.h libelf.h])])
+AC_CHECK_HEADERS([dwarf.h libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h])])
 
 AC_ARG_WITH([libdwarf-includes],
             [AS_HELP_STRING([--with-libdwarf-includes=DIR],
@@ -42,6 +43,7 @@ AC_ARG_WITH([libdwarf-includes],
             [ac_libdwarf_includes=/usr/include])
 
 AC_SUBST([libdwarf_includes], [$ac_libdwarf_includes])
+AC_CHECK_HEADERS([$ac_libdwarf_includes/dwarf.h $ac_libdwarf_includes/libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h (looked in $ac_libdwarf_includes)])])
 CFLAGS="-I$libdwarf_includes $CFLAGS"
 CXXFLAGS="-I$libdwarf_includes $CXXFLAGS"
 
