@@ -35,6 +35,11 @@ include/dwarfpp/dwarf3-adt.h: spec/gen-adt-cpp.py spec/dwarf3.py
 include/dwarfpp/dwarf3-factory.h: spec/gen-factory-cpp.py spec/dwarf3.py
 	python spec/gen-factory-cpp.py > "$@"
 
+lib/libdwarfpp.so: $(lib_LTLIBRARIES)
+	mkdir -p lib && cd lib && ln -s ../src/.libs/libdwarfpp.so .
+
+all: lib/libdwarfpp.so
+
 noinst_PROGRAMS = examples/core-query examples/dwarfppdump examples/dwarfppencapdump examples/dwarfpplibdump examples/print_spec examples/sranges examples/subseq
 
 examples_core_query_SOURCES = examples/core-query.cpp
