@@ -1287,6 +1287,12 @@ namespace dwarf
 			void increment()
 			{
 				Dwarf_Off start_offset = offset_here();
+				if (get_root().move_to_first_child(base_reference()))
+				{
+					// our offsets should only go up
+					assert(offset_here() > start_offset);
+					return;
+				}
 				do
 				{
 					if (get_root().move_to_next_sibling(base_reference()))
