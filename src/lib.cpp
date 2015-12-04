@@ -2764,7 +2764,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		{
 			auto element_type = get_type(opt_r);
 			assert(element_type != iterator_base::END);
-			opt<Dwarf_Unsigned> count;
+			opt<Dwarf_Unsigned> opt_total_count;
 			root_die& r = get_root(opt_r);
 			// we have to find ourselves. :-(
 			auto self = r.find(get_offset());
@@ -2775,29 +2775,49 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			auto subrs = self.children_here().subseq_of<subrange_type_die>();
 			for (auto i_subr = std::move(subrs.first); i_subr != subrs.second; ++i_subr)
 			{
-				auto opt_count = i_subr->get_count(r);
-				if (opt_count) 
+				/* The subrange might come with a "count" or upper/lower bounds. */
+				auto opt_this_subr_count = i_subr->get_count(r);
+				if (!opt_this_subr_count)
 				{
-					count = *opt_count;
-					break;
+					auto opt_lower_bound = i_subr->get_lower_bound(r);
+					if (!opt_lower_bound && !opt_implicit_lower_bound)
+					{
+						/* do nothing -- we have no count, so we'll fail */
+					}
+					else
+					{
+						Dwarf_Unsigned lower_bound;
+						if (opt_lower_bound) lower_bound = *opt_lower_bound;
+						else if (opt_implicit_lower_bound) lower_bound = *opt_implicit_lower_bound;
+						else assert(0);
+						
+						opt<Dwarf_Unsigned> opt_upper_bound = i_subr->get_upper_bound(r);
+						if (opt_upper_bound) 
+						{
+							Dwarf_Unsigned upper_bound = *opt_upper_bound;
+							opt_this_subr_count = opt<Dwarf_Unsigned>(upper_bound - lower_bound + 1);
+						}
+						else
+						{
+							/* again, do nothing -- we'll fail */
+						}
+					}
+				}
+				
+				if (opt_this_subr_count) 
+				{
+					opt_total_count = opt_total_count ? 
+						*opt_total_count * *opt_this_subr_count
+						: opt_this_subr_count;
 				}
 				else
 				{
-					auto opt_lower_bound = i_subr->get_lower_bound(r);
-					Dwarf_Unsigned lower_bound;
-					if (opt_lower_bound) lower_bound = *opt_lower_bound;
-					else if (opt_implicit_lower_bound) lower_bound = *opt_implicit_lower_bound;
-					else break; // give up
-					
-					opt<Dwarf_Unsigned> opt_upper_bound = i_subr->get_upper_bound(r);
-					if (!opt_upper_bound) break; // give up
-					
-					Dwarf_Unsigned upper_bound = *opt_upper_bound;
-					count = upper_bound - lower_bound + 1;
+					/* We have a subrange with no bounds. So we have no overall count. */
+					opt_total_count = opt<Dwarf_Unsigned>();
 					break;
 				}
 			}
-			return count;
+			return opt_total_count;
 		}
 
 		opt<Dwarf_Unsigned> array_type_die::calculate_byte_size(optional_root_arg_decl) const
