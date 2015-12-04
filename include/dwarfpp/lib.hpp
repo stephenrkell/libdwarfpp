@@ -1872,6 +1872,7 @@ end_class(with_data_members)
 		has_stack_based_location
 #define extra_decls_array_type \
 		opt<Dwarf_Unsigned> element_count(optional_root_arg) const; \
+		vector<opt<Dwarf_Unsigned> > dimension_element_counts(optional_root_arg) const; \
 		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const; \
 		/* bool is_rep_compatible(iterator_df<type_die> arg, optional_root_arg) const; */ \
 		iterator_df<type_die> ultimate_element_type(optional_root_arg) const; \

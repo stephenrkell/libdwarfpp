@@ -2762,13 +2762,39 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 /* from spec::array_type_die */
 		opt<Dwarf_Unsigned> array_type_die::element_count(optional_root_arg_decl) const
 		{
+			auto all_counts = this->dimension_element_counts(opt_r);
+			opt<Dwarf_Unsigned> opt_total_count;
+			
+			for (auto i_count = all_counts.begin(); i_count != all_counts.end(); ++i_count)
+			{
+				if (*i_count) 
+				{
+					opt_total_count = opt_total_count ? 
+						*opt_total_count * (**i_count)
+						: (*i_count);
+				}
+				else
+				{
+					/* We have a subrange with no bounds. So we have no overall count. */
+					opt_total_count = opt<Dwarf_Unsigned>();
+					break;
+				}
+			}
+			
+			return opt_total_count;
+		}
+		
+		vector< opt<Dwarf_Unsigned> > array_type_die::dimension_element_counts(optional_root_arg_decl) const
+		{
 			auto element_type = get_type(opt_r);
 			assert(element_type != iterator_base::END);
-			opt<Dwarf_Unsigned> opt_total_count;
+			vector< opt<Dwarf_Unsigned> > all_counts;
+
 			root_die& r = get_root(opt_r);
 			// we have to find ourselves. :-(
 			auto self = r.find(get_offset());
 			assert(self != iterator_base::END);
+
 			auto enclosing_cu = r.cu_pos(get_enclosing_cu_offset());
 			auto opt_implicit_lower_bound = enclosing_cu->implicit_array_base();
 			
@@ -2782,7 +2808,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					auto opt_lower_bound = i_subr->get_lower_bound(r);
 					if (!opt_lower_bound && !opt_implicit_lower_bound)
 					{
-						/* do nothing -- we have no count, so we'll fail */
+						/* do nothing -- we have no count */
 					}
 					else
 					{
@@ -2799,25 +2825,14 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						}
 						else
 						{
-							/* again, do nothing -- we'll fail */
+							/* again, do nothing  */
 						}
 					}
 				}
 				
-				if (opt_this_subr_count) 
-				{
-					opt_total_count = opt_total_count ? 
-						*opt_total_count * *opt_this_subr_count
-						: opt_this_subr_count;
-				}
-				else
-				{
-					/* We have a subrange with no bounds. So we have no overall count. */
-					opt_total_count = opt<Dwarf_Unsigned>();
-					break;
-				}
+				all_counts.push_back(opt_this_subr_count);
 			}
-			return opt_total_count;
+			return all_counts;
 		}
 
 		opt<Dwarf_Unsigned> array_type_die::calculate_byte_size(optional_root_arg_decl) const
