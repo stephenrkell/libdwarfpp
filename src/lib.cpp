@@ -16,7 +16,6 @@
 #include <srk31/algorithm.hpp>
 #include <sstream>
 #include <libelf.h>
-#include <cstring> /* We use strcmp in linear search-by-name -- likely this will change */ 
 
 namespace dwarf
 {
@@ -472,9 +471,6 @@ namespace dwarf
 			auto children = start.children_here();
 			for (auto i_child = std::move(children.first); i_child != children.second; ++i_child)
 			{
-				// /* Use strcmp because name_here returns us a fancy char*, not a std::string. */
-				//if (i_child.get_raw_name() != nullptr
-				// 	&& 0 == strcmp(i_child.get_raw_name().get(), name.c_str()))
 				if (i_child.name_here() && *i_child.name_here() == name)
 				{
 					return std::move(i_child);
