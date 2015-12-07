@@ -354,7 +354,6 @@ namespace dwarf
 		using dwarf::encap::read_8byte_be;
 		using dwarf::encap::read_4byte_be;
 		using dwarf::encap::read_2byte_be;
-		using dwarf::encap::read_2byte_be;
 	
 		::Elf *FrameSection::get_elf() const
 		{
@@ -1059,8 +1058,9 @@ namespace dwarf
 							continue;
 						}
 
-						// Compute the edge set -- 
-						// we only want register_plus_offset register definitions
+						// Compute the edge set -- edges are encoded by
+						// - register_plus_offset register definitions
+						// - CFA definitions? FIXME.
 						register_graph g;
 						for (auto i_ent = i_row->second.begin(); i_ent != i_row->second.end(); ++i_ent)
 						{
