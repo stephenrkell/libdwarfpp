@@ -1,6 +1,7 @@
 #include <fstream>
 #include <sstream>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iomanip>
 #include <boost/optional.hpp>
@@ -19,6 +20,7 @@ using std::setfill;
 using std::map;
 using namespace dwarf;
 using dwarf::lib::Dwarf_Addr;
+using dwarf::lib::dwarf_regnames_for_elf_machine;
 using dwarf::core::Fde;
 using dwarf::core::FrameSection;
 using dwarf::core::Cie;
@@ -34,8 +36,8 @@ lib::Dwarf_Debug dbg;
 
 int main(int argc, char **argv)
 {
-	cout << "Opening " << argv[0] << "..." << endl;
-	std::ifstream in(argv[0]);
+	cout << "Opening " << argv[1] << "..." << endl;
+	std::ifstream in(argv[1]);
 	core::root_die root(fileno(in));
 	
 	dbg = root.get_dbg().raw_handle();
@@ -49,7 +51,7 @@ int main(int argc, char **argv)
 	ostringstream s;
 	print_in_readelf_style(s, fs, root);
 	string str = s.str();
-	// cerr << str;
+	if (getenv("PRINT_DECODED_FDE")) cerr << str;
 	
 	const char *data_start = str.c_str();
 	const char *data_end = data_start + strlen(data_start);
@@ -62,7 +64,7 @@ int main(int argc, char **argv)
 	 * so our output is more compact. To compensate for this, we use 
 	 * uniq to filter out successive identical lines, ignoring the first
 	 * 16 characters i.e. the base address of the interval. */
-	FILE *pipein = popen((string("diff -u /dev/stdin /dev/fd/3 3<<END\n$( readelf -wF ") + argv[0] + " | uniq -s16 )\nEND").c_str(), "w");
+	FILE *pipein = popen((string("diff -u /dev/stdin /dev/fd/3 3<<END\n$( readelf -wF ") + argv[1] + " | uniq -s16 )\nEND").c_str(), "w");
 	assert(pipein);
 	
 	while (data_pos < data_end)

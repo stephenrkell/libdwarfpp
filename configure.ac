@@ -80,4 +80,4 @@ PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES([LIBCXXFILENO], [libcxxfileno])
 PKG_CHECK_MODULES([LIBSRK31CXX], [libsrk31cxx])
 
-AC_OUTPUT([Makefile libdwarfpp.pc])
+AC_OUTPUT([Makefile libdwarfpp.pc config.mk])

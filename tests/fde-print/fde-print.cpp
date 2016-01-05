@@ -1,6 +1,7 @@
 #include <fstream>
 #include <sstream>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iomanip>
 #include <fileno.hpp>
@@ -18,6 +19,7 @@ using std::setfill;
 using std::map;
 using namespace dwarf;
 using dwarf::lib::Dwarf_Addr;
+using dwarf::lib::dwarf_regnames_for_elf_machine;
 using dwarf::core::Fde;
 
 void print_in_readelf_style(std::ostream& s, const core::FrameSection& fs, core::root_die& r);
@@ -28,8 +30,8 @@ lib::Dwarf_Debug dbg;
 
 int main(int argc, char **argv)
 {
-	cout << "Opening " << argv[0] << "..." << endl;
-	std::ifstream in(argv[0]);
+	cout << "Opening " << argv[1] << "..." << endl;
+	std::ifstream in(argv[1]);
 	core::root_die root(fileno(in));
 	
 	dbg = root.get_dbg().raw_handle();
@@ -43,14 +45,14 @@ int main(int argc, char **argv)
 	ostringstream s;
 	print_in_readelf_style(s, fs, root);
 	string str = s.str();
-	cerr << str;
+	if (getenv("PRINT_FDE")) cerr << str;
 	
 	const char *data_start = str.c_str();
 	const char *data_end = data_start + strlen(data_start);
 	const char *data_pos = data_start;
 	
 	// now diff this string against what readelf gives us
-	FILE *pipein = popen((string("diff -u /dev/stdin /dev/fd/3 3<<END\n$( readelf -wf ") + argv[0] + ")\nEND").c_str(), "w");
+	FILE *pipein = popen((string("diff -u /dev/stdin /dev/fd/3 3<<END\n$( readelf -wf ") + argv[1] + ")\nEND").c_str(), "w");
 	assert(pipein);
 	
 	while (data_pos < data_end)

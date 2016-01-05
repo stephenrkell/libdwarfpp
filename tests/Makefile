@@ -1,9 +1,11 @@
-$(warning PATH is ${PATH})
-$(warning LD_LIBRARY_PATH is ${LD_LIBRARY_PATH})
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 root := $(realpath $(dir $(THIS_MAKEFILE))/..)
+include $(root)/config.mk
+$(warning PATH is ${PATH})
+$(warning LD_LIBRARY_PATH is ${LD_LIBRARY_PATH})
 CXXFLAGS += -I$(root)/include
 CXXFLAGS += -g
+CXXFLAGS += -std=c++14
 LDFLAGS += -L$(root)/lib -Wl,-rpath,$(root)/lib
 LDLIBS += -ldwarfpp -ldwarf -lelf -lsrk31c++ -lc++fileno -lboost_system
 
@@ -29,10 +31,10 @@ clean-%:
 	rm -f $*/$*
 
 build-%:
-	$(MAKE) -C "$*" -f ../makefile "$*"
+	$(MAKE) -C "$*" -f ../Makefile "$*"
 
 run-%: # run the test case with itself as input
-	$(MAKE) -C "$*" -f ../makefile "$*" && ( cd "$*" && ./$* ./$* )
+	$(MAKE) -C "$*" -f ../Makefile "$*" && ( cd "$*" && ./$* ./$* )
 	
 profile-%:
 	$(MAKE) -C "$*" "$*" && \
@@ -47,7 +49,7 @@ profile-%:
         opreport -l $(root)/src/libdwarfpp.so $*/$* | head -n15
 
 gdbrun-%: # run the test case with itself as input
-	$(MAKE) -C "$*" -f ../makefile "$*" && ( cd "$*" && gdb --args ./$* ./$* )
+	$(MAKE) -C "$*" -f ../Makefile "$*" && ( cd "$*" && gdb --args ./$* ./$* )
 
 cleanrun-%:
 	rm -f $*/$* && $(MAKE) run-$*
