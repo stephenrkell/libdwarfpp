@@ -255,7 +255,7 @@ namespace dwarf
 						decoded.fp_offset_or_block_len = (host_is_big_endian() ^ use_host_byte_order) 
 							? read_4byte_le(&pos, limit)
 							: read_4byte_be(&pos, limit);
-					
+						break;
 					// case DW_CFA_offset: // already dealt with, above
 					
 					case DW_CFA_restore_extended: goto uleb128_register_only;
