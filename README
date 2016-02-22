@@ -1,20 +1,32 @@
-Very preliminary README:
+New README for libdwarfpp, 2016/2/22:
 
-You will need recent g++ (at least 4.7) to build most of the code. Also
-libdwarf, libunwind, boost, and other things you probably already have.
+To build this you'll need a recent-ish C++ compiler, a GNU build system,
+recent-ish boost, and my other repositories libsrk31c++ and
+libc++fileno.
 
-The easiest way to get started is probably to look at the (smaller) 
-examples in examples/.
+Autotools support is new and is untested except on Debian-based
+machines; improvements are welcome.
 
-Configuration: none of these codebases is autotooled. I handle
-configuration by creating per-machine "makefile" (or config.mk) 
-alongside each top-level Makefile, of the form
+There's not much documentation for the library. The easiest way to get
+started is probably to look at the (smaller) examples in examples/.
 
-CXXFLAGS += ...
-LDFLAGS += ...
-include Makefile
+What's included:
+
+- an iterator-based DIE tree abstraction (root_die)
+- friendly abstraction of DIE attributes, location lists etc.
+- a DWARF expression evaluator (see caveats below)
+- DIEs abstracted into per-tag data types
+- ... providing many useful utility methods
+- ... particularly for computing addresses
+- can add and modify DIEs in memory (but not write out, yet; see below)
+- frame information support (including eh_frame)
 
 Completeness: various things are part-done, like the DWARF evaluator 
 (only supports the opcodes I've needed so far) and support for multiple 
 DWARF standards (mostly there, but not hooked up properly; in practice 
-it doesn't matter too much).
+it doesn't matter too much). Many backwards iterators are also missing
+(patches welcome). Register definitions are only for x86 arches at
+present.
+
+It can't generate DWARF output, yet, although this wouldn't be a
+disruptive thing to add (still a non-trivial effort, though).
