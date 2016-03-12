@@ -224,6 +224,15 @@ namespace dwarf
 				Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len,
 				optional< const instrs_results & > initial_instrs_results = optional< const instrs_results & >()) const;
 		};
+
+#define LIBDWARF_OK(ret) \
+	((ret) == DW_DLV_OK ? 1 : \
+		((((ret) == DW_DLV_ERROR) ? ( \
+			(dwarf_errno(current_dwarf_error) == DW_DLE_MDE)  \
+			? ((cerr << "warning: libdwarf reported mangled frame entries" << endl), 0) \
+			: (0)) \
+		: 0)))
+
 		struct Cie
 		{
 			friend struct FrameSection;
@@ -286,26 +295,50 @@ namespace dwarf
 			bool operator!=(const Cie& arg) const { return arg.m_cie != this->m_cie; }
 
 		private:
+			void clear() 
+			{
+				bytes_in_cie = 0;
+				version = 0;
+				augmenter = nullptr;
+				code_alignment_factor = 0;
+				data_alignment_factor = 0;
+				return_address_register_rule = 0;
+				initial_instructions = nullptr;
+				initial_instructions_length = 0;
+				address_size_in_dwarf = 0;
+				segment_size_in_dwarf = 0;
+			}
 			Cie(const FrameSection& owner, Dwarf_Cie cie)
 			 : owner(owner), m_cie(cie)
 			{
 				int cie_ret = dwarf_get_cie_info(m_cie, &bytes_in_cie, &version, &augmenter, 
 					&code_alignment_factor, &data_alignment_factor, &return_address_register_rule, 
 					&initial_instructions, &initial_instructions_length, &current_dwarf_error);
-				assert(cie_ret == DW_DLV_OK);
-				init_augmentation_bytes();
+				if (LIBDWARF_OK(cie_ret))
+				{
+					init_augmentation_bytes();
+				}
+				else clear();
 			}
 
 			Cie(const FrameSection& owner, Dwarf_Fde fde)
 			 : owner(owner)
 			{
 				int cie_ret = dwarf_get_cie_of_fde(fde, &m_cie, &current_dwarf_error);
-				assert(cie_ret == DW_DLV_OK);
-				cie_ret = dwarf_get_cie_info(m_cie, &bytes_in_cie, &version, &augmenter, 
-					&code_alignment_factor, &data_alignment_factor, &return_address_register_rule, 
-					&initial_instructions, &initial_instructions_length, &current_dwarf_error);
-				assert(cie_ret == DW_DLV_OK);
-				init_augmentation_bytes();
+				if (LIBDWARF_OK(cie_ret))
+				{
+					cie_ret = dwarf_get_cie_info(m_cie, &bytes_in_cie, &version, &augmenter, 
+						&code_alignment_factor, &data_alignment_factor, &return_address_register_rule, 
+						&initial_instructions, &initial_instructions_length, &current_dwarf_error);
+					if (LIBDWARF_OK(cie_ret))
+					{
+						init_augmentation_bytes();
+						return;
+					}
+				}
+				
+				// failure path
+				clear();
 			}
 		};
 
@@ -373,8 +406,10 @@ namespace dwarf
 				lib::Dwarf_Ptr instrbytes;
 				lib::Dwarf_Unsigned len;
 				int fde_ret = dwarf_get_fde_instr_bytes(m_fde, &instrbytes, &len, &core::current_dwarf_error);
-				assert(fde_ret == DW_DLV_OK);
-				return make_pair((unsigned char *) instrbytes, (unsigned char *) instrbytes + len);
+				if (LIBDWARF_OK(fde_ret))
+				{
+					return make_pair((unsigned char *) instrbytes, (unsigned char *) instrbytes + len);
+				} else return make_pair<unsigned char *, unsigned char *>(nullptr, nullptr);
 			}
 			
 			FrameSection::cie_iterator 
@@ -382,12 +417,14 @@ namespace dwarf
 			{
 				Dwarf_Cie cie;
 				int cie_ret = dwarf_get_cie_of_fde(m_fde, &cie, &core::current_dwarf_error);
-				assert(cie_ret == DW_DLV_OK);
-				// the iterator needs a Dwarf_Cie*, so we have to find this Dwarf_Cie
-				// in the array
-				auto found = std::find(owner.cie_data, owner.cie_data + owner.cie_element_count, cie);
-				assert(found != owner.cie_data + owner.cie_element_count);
-				return FrameSection::cie_iterator(found, owner.cie_transformer);
+				if (LIBDWARF_OK(cie_ret))
+				{
+					// the iterator needs a Dwarf_Cie*, so we have to find this Dwarf_Cie
+					// in the array
+					auto found = std::find(owner.cie_data, owner.cie_data + owner.cie_element_count, cie);
+					assert(found != owner.cie_data + owner.cie_element_count);
+					return FrameSection::cie_iterator(found, owner.cie_transformer);
+				} else return FrameSection::cie_iterator(owner.cie_data + owner.cie_element_count, owner.cie_transformer);
 			}
 			Dwarf_Off 
 			get_id() const
@@ -419,13 +456,27 @@ namespace dwarf
 			bool operator!=(const Fde& arg) const { return arg.m_fde != this->m_fde; }
 
 		private: // FrameSection is our friend, and does the constructing
+			void clear()
+			{
+				low_pc = 0;
+				func_length = 0;
+				fde_bytes = nullptr;
+				fde_byte_length = 0;
+				m_cie_offset = 0;
+				cie_index = 0;
+				fde_offset = 0;
+			}
+		
 			Fde(const FrameSection& owner, Dwarf_Fde fde)
 			 : owner(owner), m_fde(fde)
 			{
 				int fde_ret = dwarf_get_fde_range(fde, &low_pc, &func_length, &fde_bytes, 
 					&fde_byte_length, &m_cie_offset, &cie_index, &fde_offset, &core::current_dwarf_error);
-				assert(fde_ret == DW_DLV_OK);
-				init_augmentation_bytes();
+				if (LIBDWARF_OK(fde_ret))
+				{
+					init_augmentation_bytes();
+				}
+				else clear();
 			}
 		};
 		
@@ -461,16 +512,7 @@ namespace dwarf
 						&fde_data, &fde_element_count, &current_dwarf_error);
 			/* If we get an error message about mangled DWARF, treat it as 
 			   NO_ENTRY but print a warning. */
-			if (ret == DW_DLV_ERROR)
-			{
-				if (dwarf_errno(current_dwarf_error) == DW_DLE_MDE)
-				{
-					cerr << "warning: libdwarf reported mangled frame entries" << endl;
-				}
-				else assert(false);
-			}
-			
-			if (ret != DW_DLV_OK)
+			if (!(LIBDWARF_OK(ret)))
 			{
 				/* Set up empty arrays. */
 				fde_element_count = 0;
@@ -487,14 +529,19 @@ namespace dwarf
 				lib::Dwarf_Signed index;
 				lib::Dwarf_Cie cie;
 				int cie_ret = dwarf_get_cie_of_fde(i_fde->raw_handle(), &cie, &core::current_dwarf_error);
-				assert(cie_ret == DW_DLV_OK);
-				int index_ret = dwarf_get_cie_index(cie, &index, &core::current_dwarf_error);
-				assert(index_ret == DW_DLV_OK);
-				cie_offsets_by_index[index] = i_fde->get_cie_offset();
+				if (LIBDWARF_OK(cie_ret))
+				{
+					int index_ret = dwarf_get_cie_index(cie, &index, &core::current_dwarf_error);
+					assert(index_ret == DW_DLV_OK);
+					if (LIBDWARF_OK(index_ret))
+					{
+						cie_offsets_by_index[index] = i_fde->get_cie_offset();
+					}
+				}
 			}
 
-			// do we have any orphan CIEs?
-			assert(cie_offsets_by_index.size() == (unsigned) cie_element_count);
+			// do we have any orphan CIEs? we might do, if we had mangled entries, so comment out
+			// assert(cie_offsets_by_index.size() == (unsigned) cie_element_count);
 		}
 		inline FrameSection::fde_iterator FrameSection::find_fde_for_pc(Dwarf_Addr pc) const
 		{
@@ -502,8 +549,7 @@ namespace dwarf
 			Dwarf_Addr hipc;
 			Dwarf_Fde fde;
 			int ret = dwarf_get_fde_at_pc(fde_data, pc, &fde, &lopc, &hipc, &core::current_dwarf_error);
-			if (ret == DW_DLV_NO_ENTRY) return fde_end();
-			assert(ret == DW_DLV_OK);
+			if (!LIBDWARF_OK(ret)) return fde_end();
 			auto found = std::find(fde_data, fde_data + fde_element_count, fde);
 			assert(found != fde_data + fde_element_count);
 			// assert that this FDE's range is consistent with what we asked for
