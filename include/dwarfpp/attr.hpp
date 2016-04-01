@@ -20,10 +20,6 @@
 
 namespace dwarf
 {
-	namespace spec { 
-		class basic_die; class abstract_dieset; class type_die; 
-		std::ostream& operator<<(std::ostream& o, const dwarf::spec::basic_die& d);
-	}
 	namespace lib 
 	{ 
 		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& rl);
@@ -50,53 +46,34 @@ namespace dwarf
 		using namespace dwarf::lib;
 		class rangelist;
 		
-		template <typename Value> struct die_out_edge_iterator; // forward decl
-		template <typename Value> struct sibling_dep_edge_iterator;
-		class dieset; // forward decl
-		class die;
 		class loclist;
 		using core::root_die;
 		
 		class attribute_value {
-				friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
-				friend std::ostream& dwarf::spec::operator<<(std::ostream& o, const dwarf::spec::basic_die& d);                
-				friend class encap::die; // for the "convert to strong references" hack
-				friend class encap::dieset;
 				friend class core::basic_die; // for use of the NO_ATTR constructor in find_attr
 				friend class core::iterator_base; // the same in iterator_base::attr()
 		public: 
 			struct weak_ref { 
 				friend class attribute_value;
- 				//friend dieset::operator=(const dieset& arg);
-				friend class encap::dieset;
- 	        	friend struct die_out_edge_iterator<weak_ref>; // in encap_graph.hpp
-                friend struct sibling_dep_edge_iterator<weak_ref>; // in encap_sibling_graph.hpp
 
 				Dwarf_Off off; 
 				bool abs;
 				Dwarf_Off referencing_off; // off of DIE keeping the reference
-				spec::abstract_dieset *p_ds; // FIXME: make this private again after fixing encap_graph.hpp
 				root_die *p_root;            // FIXME: hmm
 				Dwarf_Half referencing_attr; // attr# of attribute holding the reference
-				weak_ref(spec::abstract_dieset& ds, Dwarf_Off off, bool abs, 
+				weak_ref(root_die& r, Dwarf_Off off, bool abs,
 					Dwarf_Off referencing_off, Dwarf_Half referencing_attr)
                     :	off(off), abs(abs), 
 						referencing_off(referencing_off), 
-                        p_ds(&ds), p_root(0), referencing_attr(referencing_attr) {}
-				weak_ref(root_die& r, Dwarf_Off off, bool abs,  // the same but root not ds
-					Dwarf_Off referencing_off, Dwarf_Half referencing_attr)
-                    :	off(off), abs(abs), 
-						referencing_off(referencing_off), 
-                        p_ds(0), p_root(&r), referencing_attr(referencing_attr) {}
+                        p_root(&r), referencing_attr(referencing_attr) {}
                 // weak_ref is default-constructible
-                weak_ref() : off(0UL), abs(false), referencing_off(0), p_ds(0), p_root(0), referencing_attr(0)
+                weak_ref() : off(0UL), abs(false), referencing_off(0), p_root(0), referencing_attr(0)
                 { std::cerr << "Warning: default-constructed a weak_ref!" << std::endl; }
-                weak_ref(bool arg) : off(0UL), abs(false), referencing_off(0), p_ds(0), p_root(0), referencing_attr(0)
+                weak_ref(bool arg) : off(0UL), abs(false), referencing_off(0), p_root(0), referencing_attr(0)
                 { /* Same as above but extra dummy argument, to suppress warning (see clone()). */}
                 virtual weak_ref& operator=(const weak_ref& r); // assignment
                 virtual weak_ref *clone() const { 
                 	weak_ref *n = new weak_ref(true); // FIXME: deleted how? containing attribute's destructor? yes, I think so
-                    n->p_ds = this->p_ds; // this is checked during assignment
 					n->p_root = this->p_root;
                     *n = *this;
                     return n;
@@ -107,26 +84,12 @@ namespace dwarf
                 	return off == arg.off && abs == arg.abs
                     && referencing_off == arg.referencing_off 
                     && referencing_attr == arg.referencing_attr
-                    && p_ds == arg.p_ds
 					&& p_root == arg.p_root; 
                 }
                 bool operator!=(const weak_ref& arg) const {
                 	return !(*this == arg);
                 }
 			};
-			struct ref : weak_ref {
-				ref(spec::abstract_dieset& ds, Dwarf_Off off, bool abs, 
-					Dwarf_Off referencing_off, Dwarf_Half referencing_attr);
-                encap::dieset& ds;					
-				virtual ~ref();
-				ref(const ref& r); // copy constructor
-                virtual ref& operator=(const weak_ref& r); 
-                ref *clone() { 
-                	ref *n = new ref(*this->p_ds, this->off, this->abs,
-                    	this->referencing_off, this->referencing_attr);
-                    return n;
-                }
-            };
 			struct address 
 			/* Why do we have this? It's because of overload resolution.
 			 * Dwarf_Addr is just a typedef for some integer type, and one
@@ -159,7 +122,6 @@ namespace dwarf
 			enum form { NO_ATTR, ADDR, FLAG, UNSIGNED, SIGNED, BLOCK, STRING, REF, LOCLIST, RANGELIST, UNRECOG }; // TODO: complete?
 			form get_form() const { return f; }
 		private:
-            spec::abstract_dieset *p_ds; // FIXME: really needed? refs have a p_ds in them too
 			Dwarf_Half orig_form;
 			form f; // discriminant			
 			union {
@@ -186,11 +148,9 @@ namespace dwarf
 
 		private:
 			attribute_value() : orig_form(0), f(NO_ATTR) { v_u = 0U; }
-			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned data, Dwarf_Half o_form) 
-				: p_ds(&ds), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
 			// the following constructor is a HACK to re-use formatting logic when printing Dwarf_Locs
 			attribute_value(Dwarf_Unsigned data, Dwarf_Half o_form) 
-				: p_ds(0), orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
+				:  orig_form(o_form), f(dwarf_form_to_form(o_form)), v_u(data) {} 
 			// the following is a temporary HACK to allow core:: to create attribute_values
 		public:
 			attribute_value(const dwarf::core::Attribute& attr, 
@@ -199,25 +159,13 @@ namespace dwarf
 				spec::abstract_def& = spec::DEFAULT_DWARF_SPEC*/);
 				// spec is no longer passed because it's deducible from r and d.get_offset()
 		public:
-			attribute_value(spec::abstract_dieset& ds, const dwarf::lib::attribute& a);
-			attribute_value(spec::abstract_dieset& ds, Dwarf_Bool b) : p_ds(&ds), orig_form(DW_FORM_flag), f(FLAG), v_flag(b) {}
-			attribute_value(spec::abstract_dieset& ds, address addr) : p_ds(&ds), orig_form(DW_FORM_addr), f(ADDR), v_addr(addr) {}		
-			attribute_value(spec::abstract_dieset& ds, Dwarf_Unsigned u) : p_ds(&ds), orig_form(DW_FORM_udata), f(UNSIGNED), v_u(u) {}				
-			attribute_value(spec::abstract_dieset& ds, Dwarf_Signed s) : p_ds(&ds), orig_form(DW_FORM_sdata), f(SIGNED), v_s(s) {}			
-			attribute_value(spec::abstract_dieset& ds, const char *s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}
-			attribute_value(spec::abstract_dieset& ds, const std::string& s) : p_ds(&ds), orig_form(DW_FORM_string), f(STRING), v_string(new std::string(s)) {}				
-			attribute_value(spec::abstract_dieset& ds, weak_ref& r) : p_ds(&ds), orig_form(DW_FORM_ref_addr), f(REF), v_ref(r.clone()) {}
-			attribute_value(spec::abstract_dieset& ds, std::shared_ptr<spec::basic_die> ref_target);
-			attribute_value(spec::abstract_dieset& ds, const encap::loclist& l);
-			attribute_value(spec::abstract_dieset& ds, const encap::rangelist& l);
-			
-			attribute_value(Dwarf_Bool b)         : p_ds(nullptr), orig_form(DW_FORM_flag),     f(FLAG),     v_flag(b) {}
-			attribute_value(address addr)         : p_ds(nullptr), orig_form(DW_FORM_addr),     f(ADDR),     v_addr(addr) {}		
-			attribute_value(Dwarf_Unsigned u)     : p_ds(nullptr), orig_form(DW_FORM_udata),    f(UNSIGNED), v_u(u) {}				
-			attribute_value(Dwarf_Signed s)       : p_ds(nullptr), orig_form(DW_FORM_sdata),    f(SIGNED),   v_s(s) {}			
-			attribute_value(const char *s)        : p_ds(nullptr), orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}
-			attribute_value(const std::string& s) : p_ds(nullptr), orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}				
-			attribute_value(const weak_ref& r)          : p_ds(nullptr), orig_form(DW_FORM_ref_addr), f(REF),      v_ref(r.clone()) {}
+			attribute_value(Dwarf_Bool b)         : orig_form(DW_FORM_flag),	 f(FLAG),	  v_flag(b) {}
+			attribute_value(address addr)         : orig_form(DW_FORM_addr),	 f(ADDR),	  v_addr(addr) {}		 
+			attribute_value(Dwarf_Unsigned u)     : orig_form(DW_FORM_udata),	 f(UNSIGNED), v_u(u) {} 			 
+			attribute_value(Dwarf_Signed s)       : orig_form(DW_FORM_sdata),	 f(SIGNED),   v_s(s) {} 		 
+			attribute_value(const char *s)        : orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}
+			attribute_value(const std::string& s) : orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}				 
+			attribute_value(const weak_ref& r)    : orig_form(DW_FORM_ref_addr), f(REF),      v_ref(r.clone()) {}
 			
 		public:
 			bool is_flag() const { return f == FLAG; }
@@ -251,14 +199,6 @@ namespace dwarf
 			bool is_refiter_is_type() const { return f == REF; /* FIXME */ }
 			core::iterator_df<core::type_die> get_refiter_is_type() const;// { assert(f == REF); return v_ref->off; }
 			bool is_refdie() const { return f == REF; /* FIXME */ }
-			std::shared_ptr<spec::basic_die> get_refdie() const; // defined in cpp file
-			//spec::basic_die& get_refdie() const; // defined in cpp file
-			bool is_refdie_is_type() const { return f == REF; /* FIXME */ }
-			std::shared_ptr<spec::type_die> get_refdie_is_type() const; 
-			//spec::type_die& get_refdie_is_type() { return dynamic_cast<spec::type_die&>(get_refdie()); }
-			/* ^^^ I think a plain reference is okay here because the "this" pointer
-			 * (i.e. whatever pointer we'll be accessing the attribute through)
-			 * will be keeping the containing DIE in existence. */
 
 			bool operator==(const attribute_value& v) const;
 			bool operator!=(const attribute_value &v) const { return !(*this == v); }

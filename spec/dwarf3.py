@@ -9,7 +9,7 @@
 # Note that these are specific to a DWARF standard -- alternative standards
 # can and do add to these!
 attr_types = [ \
-("sibling", "refdie" ), \
+("sibling", "refiter" ), \
 ("location", "loclist" ), \
 ("name", "string"), \
 ("ordering", "FIXME"), \
@@ -20,15 +20,15 @@ attr_types = [ \
 ("low_pc", "address" ), \
 ("high_pc", "address" ), \
 ("language", "unsigned" ), \
-("discr", "refdie" ), \
+("discr", "refiter" ), \
 ("discr_value", "signed" ), \
 ("visibility", "unsigned" ), \
-("import", "refdie" ), \
+("import", "refiter" ), \
 ("string_length", "loclist" ), \
-("common_reference", "refdie" ), \
+("common_reference", "refiter" ), \
 ("comp_dir", "string" ), \
-("containing_type", "refdie" ), \
-("default_value", "refdie" ), \
+("containing_type", "refiter" ), \
+("default_value", "refiter" ), \
 ("inline", "signed" ), \
 ("lower_bound", "unsigned" ), \
 ("producer", "string" ), \
@@ -37,11 +37,11 @@ attr_types = [ \
 ("start_scope", "FIXME" ), \
 ("bit_stride", "signed" ), \
 ("upper_bound", "unsigned" ), \
-("abstract_origin", "refdie" ), \
+("abstract_origin", "refiter" ), \
 ("accessibility", "unsigned" ), \
 ("address_class", "unsigned" ), \
 ("artificial", "flag" ), \
-("base_types", "refdie" ), \
+("base_types", "refiter" ), \
 ("calling_convention", "unsigned" ), \
 ("const_value", "signed"), \
 ("count", "unsigned" ), \
@@ -54,27 +54,27 @@ attr_types = [ \
 ("encoding", "unsigned" ), \
 ("external", "flag" ), \
 ("frame_base", "loclist" ), \
-("friend", "refdie" ), \
+("friend", "refiter" ), \
 ("identifier_case", "unsigned" ), \
 ("is_optional", "flag"), \
 ("macro_info", "offset" ), \
-("namelist_item", "refdie" ), \
-("priority", "refdie" ), \
+("namelist_item", "refiter" ), \
+("priority", "refiter" ), \
 ("segment", "loclist" ), \
-("specification", "refdie" ), \
+("specification", "refiter" ), \
 ("static_link", "loclist" ), \
-("type", "refdie_is_type" ), \
+("type", "refiter_is_type" ), \
 ("use_location", "loclist" ), \
 ("variable_parameter", "flag" ), \
 ("virtuality", "unsigned" ), \
 ("vtable_elem_location", "loclist" ), \
-("allocated", "refdie" ), \
-("associated", "refdie" ), \
+("allocated", "refiter" ), \
+("associated", "refiter" ), \
 ("data_location", "loclist" ), \
 ("byte_stride", "unsigned" ), \
 ("entry_pc", "address" ), \
 ("use_UTF8", "flag" ), \
-("extension", "refdie" ), \
+("extension", "refiter" ), \
 ("ranges", "rangelist" ), \
 ("trampoline", "FIXME" ), \
 ("call_column", "unsigned" ), \
@@ -83,14 +83,14 @@ attr_types = [ \
 ("description", "string" ), \
 ("binary_scale", "FIXME" ), \
 ("decimal_scale", "FIXME" ), \
-("small", "refdie" ), \
+("small", "refiter" ), \
 ("decimal_sign", "FIXME" ), \
 ("digit_count", "FIXME" ), \
 ("picture_string", "FIXME" ), \
 ("mutable", "flag" ), \
 ("threads_scaled", "flag" ), \
 ("explicit", "flag" ), \
-("object_pointer", "refdie" ), \
+("object_pointer", "refiter" ), \
 ("endianity", "unsigned" ), \
 ("elemental", "flag" ), \
 ("pure", "flag" ) \

@@ -29,7 +29,6 @@ int main(int argc, char **argv)
 	assert(in);
 	core::root_die root(fileno(in));
 	dwarf::lib::file df(fileno(in));
-	dwarf::lib::dieset ds(df);
 
 	//cout << root;
 
@@ -73,15 +72,10 @@ int main(int argc, char **argv)
 				Dwarf_Off off = i.offset_here();
 				//static_vars.insert(off);
 				
-				/* To get the address range, we use the adt code for now. This is not so
-				 * bad for performance because we only heap allocate for the DIEs we've
-				 * already identified as static variables. */
-				auto p_ds = &ds;
-				assert(p_ds);
-				auto found = (*p_ds)[off];
+				auto found = root.find(off);
 				assert(found);
 				auto with_static_location
-				 = dynamic_pointer_cast<spec::with_static_location_die>(found);
+				 = dynamic_pointer_cast<core::with_static_location_die>(found);
 				if (!with_static_location)
 				{
 					cerr << "Warning: expected a with_static_location_die, got " 
@@ -127,7 +121,7 @@ int main(int argc, char **argv)
 					 * CU offset (64 bits);
 					 * object size (32 bits).
 					 */
-					auto addr_size = (*ds.toplevel()->compile_unit_children_begin())->get_address_size();
+					auto addr_size = root.find(cu_offset)->as_a<compile_unit_die>()->get_address_size();
 					assert(addr_size == 4 || addr_size == 8);
 					assert(sizeof cu_offset == 8);
 					assert(sizeof size == 4);

@@ -85,6 +85,8 @@ namespace dwarf
 	}
 	namespace encap
 	{
+		loclist loclist::NO_LOCATION;
+
 		std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll)
 		{
 			s << "(loclist) {";

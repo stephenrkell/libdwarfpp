@@ -36,8 +36,6 @@ namespace dwarf
 	// forward declarations, for "friend" declarations
 	namespace encap
 	{
-		class die;
-		class dieset;
 		struct loclist;
 	}
 }
@@ -676,36 +674,7 @@ namespace dwarf
 			in_memory_root_die() {}
 			in_memory_root_die(int fd) : root_die(fd) {}
 		};
-			
-		/* Integrating with ADT: now we have two kinds of iterators.
-		 * Core iterators, defined here, are fast, and when dereferenced
-		 * yield references to reference-counted instances. 
-		 * ADT iterators are slow, and yield shared_ptrs to instances. 
-		 * Q. When is it okay to save these pointers? 
-		 * A. Only when they are sticky! This is true in both ADT and
-		 *	core cases. If we save a ptr/ref to a non-sticky DIE, 
-		 *	in the core case it might go dangly, and in the ADT case
-		 *	it might become disconnected (i.e. next time we get the 
-		 *	same DIE, we will get a different instance, and if we make
-		 *	changes, they needn't be reflected).
-		 * To integrate these, is it as simple as
-		 * - s/shared_ptr/intrusive_ptr/ in ADT;
-		 * - include a refcount in every basic_die (basic_die_core?);
-		 * - redefine abstract_dieset::iterator to be like core, but
-		 *   returning the intrusive_ptr (not raw ref) on dereference? 
-		 * Ideally I would separate out the namespaces so that
-		 * - lib contains only libdwarf definitions
-		 * - spec contains only spec-related things
-		 * - "core" to contain the stuff in here
-		 *   ... even though it is libdwarf-specific? HMM. 
-		 *   ... perhaps reflect commonality by core::root_die, lib::root_die etc.?
-		 *   ... here lib::root_die is : public core::root_die, but not polymorphic.
-		 * - "adt" to contain spec:: ADT stuff
-		 * - encap can stay as it is
-		 * - lib ADT stuff should be migrated to core? 
-		 * - encap ADT stuff should become an always-sticky variant?
-		 * ... This involves unifying dieset/file_toplevel_die with root_die.
-		 *  */
+
 		struct iterator_base : private virtual abstract_die
 		{
 			/* Everything that calls a libdwarf constructor-style function
@@ -1575,11 +1544,6 @@ namespace dwarf
 
 #define super_attr_mandatory(name, stored_t) attr_mandatory(name, stored_t)
 #define child_tag(arg)
-/* here we hack the to-be-included file s.t. it has s/refdie/refiter/ */
-#define stored_type_refdie stored_type_refiter
-#define stored_type_refdie_is_type stored_type_refiter_is_type
-#define get_refdie get_refiter
-#define get_refdie_is_type get_refiter_is_type
 
 struct type_die; 
 } namespace lib {
@@ -1795,14 +1759,14 @@ void walk_type(core::iterator_df<core::type_die> t,
 	};
 /* type_chain_die */
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
-		attr_optional(type, refdie_is_type)
+		attr_optional(type, refiter_is_type)
 		opt<Dwarf_Unsigned> calculate_byte_size(optional_root_arg) const;
 		iterator_df<type_die> get_concrete_type(optional_root_arg) const;
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, optional_root_arg) const;
 end_class(type_chain)
 /* type_describing_subprogram_die */
 begin_class(type_describing_subprogram, base_initializations(initialize_base(type)), declare_base(type))
-		attr_optional(type, refdie_is_type)
+		attr_optional(type, refiter_is_type)
 		virtual iterator_df<type_die> get_return_type(optional_root_arg) const = 0;
 		virtual bool is_variadic(optional_root_arg) const;
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal, optional_root_arg) const;
@@ -1944,11 +1908,6 @@ friend class factory;
 
 #include "dwarf3-adt.h"
 
-#undef get_refdie_is_type
-#undef get_refdie
-#undef stored_type_refdie_is_type
-#undef stored_type_refdie
-
 #undef extra_decls_subprogram
 #undef extra_decls_compile_unit
 #undef extra_decls_array_type
@@ -1990,8 +1949,8 @@ friend class factory;
 #undef stored_type_tag
 #undef stored_type_loclist
 #undef stored_type_address
-#undef stored_type_refdie
-#undef stored_type_refdie_is_type
+#undef stored_type_refiter
+#undef stored_type_refiter_is_type
 #undef stored_type_rangelist
 #undef attr_optional
 #undef attr_mandatory
@@ -2995,7 +2954,6 @@ friend class factory;
 			int fd;
 			Dwarf_Debug dbg; // our peer structure
 			Dwarf_Error last_error; // pointer to Dwarf_Error_s detailing our last error
-			//dieset file_ds; // the structure to hold encapsulated DIEs, if we use it
 
 			/*dwarf_elf_handle*/ Elf* elf;
 			bool free_elf; // whether to do elf_end in destructor
@@ -3010,7 +2968,6 @@ friend class factory;
 			bool have_cu_context; 
 
 			/* We have a default constructor so that 
-			 * - encap::file can inherit from us
 			 * - we can wrap the libdwarf producer interface too.
 			 * Note that dummy_file has gone away! */
 			// protected constructor
@@ -3034,7 +2991,6 @@ friend class factory;
 		public:
 			int get_fd() { return fd; }
 			Dwarf_Debug get_dbg() { return dbg; }
-			//dieset& get_ds() { return file_ds; }
 			file(int fd, Dwarf_Unsigned access = DW_DLC_READ,
 				Dwarf_Ptr errarg = 0,
 				Dwarf_Handler errhand = default_error_handler,
@@ -3097,7 +3053,6 @@ friend class factory;
 		class die {
 			friend class file;
 			friend class attribute_array;
-			friend class dwarf::encap::die;
 			friend class block;
 			friend class loclist;
 			friend class ranges;

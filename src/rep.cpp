@@ -1,5 +1,3 @@
-#include "spec_adt.hpp"
-
 /* FIXME: this logic (and the is_rep_compatible() API call) doesn't really belong
  * in libdwarfpp. Instead, once clients can thread factories to diesets, 
  * clients which need this sort of horizontal extension should be able to add it

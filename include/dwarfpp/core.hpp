@@ -270,7 +270,6 @@ namespace dwarf
 		// --- we are still leaking libdwarf design through our "abstract" interface
 		// ------ can we do anything about this? 
 		// --- what methods do handles provide? 
-		// ** Is it different from a dieset? no, I don't think so
 		// ** Can we abstract out a core base class?
 		struct root_die
 		{
@@ -394,7 +393,6 @@ namespace dwarf
 			/* Integrating with ADT: now we have two kinds of iterators.
 			 * Core iterators, defined here, are fast, and when dereferenced
 			 * yield references to reference-counted instances. 
-			 * ADT iterators are slow, and yield shared_ptrs to instances. 
 			 * Q. When is it okay to save these pointers? 
 			 * A. Only when they are sticky! This is true in both ADT and
 			 *    core cases. If we save a ptr/ref to a non-sticky DIE, 
@@ -402,11 +400,6 @@ namespace dwarf
 			 *    it might become disconnected (i.e. next time we get the 
 			 *    same DIE, we will get a different instance, and if we make
 			 *    changes, they needn't be reflected).
-			 * To integrate these, is it as simple as
-			 * - s/shared_ptr/intrusive_ptr/ in ADT;
-			 * - include a refcount in every basic_die (basic_die_core?);
-			 * - redefine abstract_dieset::iterator to be like core, but
-			 *   returning the intrusive_ptr (not raw ref) on dereference? 
 			 * Ideally I would separate out the namespaces so that
 			 * - lib contains only libdwarf definitions
 			 * - spec contains only spec-related things
@@ -414,11 +407,7 @@ namespace dwarf
 			 *   ... even though it is libdwarf-specific? HMM. 
 			 *   ... perhaps reflect commonality by core::root_die, lib::root_die etc.?
 			 *   ... here lib::root_die is : public core::root_die, but not polymorphic.
-			 * - "adt" to contain spec:: ADT stuff
 			 * - encap can stay as it is
-			 * - lib ADT stuff should be migrated to core? 
-			 * - encap ADT stuff should become an always-sticky variant?
-			 * ... This involves unifying dieset/file_toplevel_die with root_die.
 			 *  */
 			
 			/* How can we justify all this libdwarf-specificness?

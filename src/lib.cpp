@@ -6,9 +6,6 @@
  */
 
 #include "dwarfpp/lib.hpp"
-#include "dwarfpp/adt.hpp"
-#include "dwarfpp/encap.hpp" // re-use some formatting logic in encap, for convenience
-	// FIXME: flip the above around, so that the formatting logic is in here!
 #include "dwarfpp/expr.hpp" /* for absolute_loclist_to_additive_loclist */
 #include "dwarfpp/frame.hpp"
 
@@ -3582,7 +3579,6 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			 * call spans_addr on what we find.
 			 * We skip contained DIEs that do not contain objects located in this frame. 
 			 */
-			//abstract_dieset::bfs_policy bfs_state;
             frame_subobject_iterator start_iter(child);
             std::cerr << "Exploring stack-located children of " << summary() << std::endl;
             unsigned initial_depth = start_iter.depth();
