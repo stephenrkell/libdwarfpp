@@ -496,14 +496,7 @@ namespace dwarf
 			 * But hmm, copy_attrs and get_<>() work differently -- 
 			 * when we consume attrs we use either/or, not both. So I think we do 
 			 * need both mechanisms. 
-			 * 
-			 * NOTE: as a first stage, I have implemented the optional_root_arg 
-			 * trick, but not the in-CU "default root". Therefore, 
-			 * all use of the defaulted argument will result in the constructing root
-			 * being used. It's likely we'll want the other behaviour once
-			 * stacking diesets are around, but it's unimplemented for now.
-			 * */
-			 
+			 */
 		}
 		core::iterator_df<core::type_die> attribute_value::get_refiter_is_type() const // { assert(f == REF); return v_ref->off; }
 		{
@@ -703,7 +696,7 @@ namespace dwarf
 			if (found == this->end()) 
 			{
 				//std::cerr << "No match." << std::endl;
-				return 0;
+				return boost::optional<std::pair<Dwarf_Off, long int> >();
 			}
 			else return std::make_pair<dwarf::lib::Dwarf_Off, long int>(
 				(Dwarf_Off) offset, 

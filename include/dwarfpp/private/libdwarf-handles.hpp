@@ -115,11 +115,11 @@
 			Dwarf_Off enclosing_cu_offset_here() const;
 			bool has_attr_here(Dwarf_Half attr) const;
 			bool has_attribute_here(Dwarf_Half attr) const { return has_attr_here(attr); }
-			inline spec& spec_here(root_die& r) const;
+			inline spec& spec_here() const;
 			
 			// for convenience, this one is public -- basic_die's subclasses call it
 			// (whereas the rest of our abstract_die implementation is private)
-			inline encap::attribute_map copy_attrs(opt<root_die&> opt_r) const;
+			inline encap::attribute_map copy_attrs() const;
 
 			friend class iterator_base;
 		//private: 
@@ -134,7 +134,7 @@
 			{ return enclosing_cu_offset_here(); }
 			inline bool has_attr(Dwarf_Half attr) const { return has_attr_here(attr); }
 			// inline encap::attribute_map copy_attrs(root_die& r) const; // -- declared above
-			inline spec& get_spec(root_die& r) const { return spec_here(r); }
+			inline spec& get_spec(root_die& r) const { return spec_here(); }
 		};
 		
 		/* Note: there are two ways of getting attributes out of libdwarf:
@@ -582,7 +582,3 @@
 		// alias for LocdescList
 		typedef LocdescList LocList;
 		typedef RangesList RangeList;
-		
-		// inlines we couldn't define earlier
-		inline encap::attribute_map Die::copy_attrs(opt<root_die&> opt_r) const
-		{ return encap::attribute_map(AttributeList(*this), *this, *opt_r/*, s*/); }

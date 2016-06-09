@@ -11,7 +11,7 @@
 #include <srk31/endian.hpp>
 
 #include "lib.hpp"
-#include "expr.hpp" 
+#include "expr.hpp"
 
 using std::map;
 using std::pair;
