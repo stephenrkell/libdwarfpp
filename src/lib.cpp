@@ -3210,7 +3210,6 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				auto found_high_pc = attrs.find(DW_AT_high_pc);
 				auto found_ranges = attrs.find(DW_AT_ranges);
 				auto found_location = attrs.find(DW_AT_location);
-				auto found_mips_linkage_name = attrs.find(DW_AT_MIPS_linkage_name); // HACK: MIPS should...
 				auto found_linkage_name = attrs.find(DW_AT_linkage_name); // ... be in a non-default spec
 
 				if (found_ranges != attrs.end())
@@ -3364,19 +3363,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 
 				}
 				else if (sym_resolve &&
-					(found_mips_linkage_name != attrs.end()
-					|| found_linkage_name != attrs.end()))
+					found_linkage_name != attrs.end())
 				{
-					std::string linkage_name;
-
-					// prefer the DWARF 4 attribute to the MIPS/GNU/... extension
-					if (found_linkage_name != attrs.end()) linkage_name 
-					 = found_linkage_name->second.get_string();
-					else 
-					{
-						assert(found_mips_linkage_name != attrs.end());
-						linkage_name = found_mips_linkage_name->second.get_string();
-					}
+					std::string linkage_name = found_linkage_name->second.get_string();
 
 					sym_binding_t binding;
 					try
