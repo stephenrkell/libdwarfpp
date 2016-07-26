@@ -19,15 +19,16 @@ INC_PP = include/dwarfpp
 BUILT_SOURCES = $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)/dwarf-ext-GNU.h $(INC_PP)/dwarf3-adt.h $(INC_PP)/dwarf3-factory.h 
 CLEANFILES = $(BUILT_SOURCES)
 
+# launder the exit code of grep through "cat"
 include/dwarfpp/dwarf-onlystd.h: $(libdwarf_includes)/dwarf.h
 	cat "$<" | egrep -v 'DW_[A-Z]+_(GNU|SUN|HP|APPLE|INTEL|ARM|upc|PGI|ALTIUM|MIPS|CPQ|VMS|GNAT)' | \
-		egrep -v '/\* (SGI|GNU)( \*/|\. )' | egrep -v 'LANG_Mips|LANG_Upc' | egrep -v '_use_GNAT' | egrep -v 'ATCF entries start at|DW_LANG_UPC instead.' > "$@"
+		egrep -v '/\* (SGI|GNU)( \*/|\. )' | egrep -v 'LANG_Mips|LANG_Upc' | egrep -v '_use_GNAT' | egrep -v 'ATCF entries start at|DW_LANG_UPC instead.' | cat > "$@"
 
 include/dwarfpp/dwarf-onlystd-v2.h: include/dwarfpp/dwarf-onlystd.h
-	cat "$<" | grep -v 'DWARF[^2]' > "$@"
+	cat "$<" | grep -v 'DWARF[^2]' | cat > "$@"
 
 include/dwarfpp/dwarf-ext-GNU.h: $(libdwarf_includes)/dwarf.h
-	cat "$<" | egrep '(_|/\* |, )GNU' | egrep -vi conflict | egrep -vi '^[[:blank:]]*/\*' > "$@"
+	cat "$<" | egrep '(_|/\* |, )GNU' | egrep -vi conflict | egrep -vi '^[[:blank:]]*/\*' | cat > "$@"
 
 include/dwarfpp/dwarf3-adt.h: spec/gen-adt-cpp.py spec/dwarf3.py
 	python spec/gen-adt-cpp.py > "$@"
