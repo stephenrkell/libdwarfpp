@@ -10,6 +10,6 @@ datadir=@datadir@
 Name: libdwarfpp
 Description: C++ front-end to libdwarf, with extra goodies
 Version: 0.1
-Requires: libsrk31cxx libcxxfileno
+Requires: libsrk31c++ libc++fileno
 Cflags: -I${includedir}
 Libs: -L${libdir} -ldwarf -lelf -ldwarfpp
