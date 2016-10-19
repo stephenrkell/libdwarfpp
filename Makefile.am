@@ -6,7 +6,7 @@ pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libdwarfpp.pc
 
 dwarfpp_includedir = $(includedir)/dwarfpp
-dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.hpp include/dwarfpp/attr.hpp include/dwarfpp/dwarf-onlystd-v2.h include/dwarfpp/lib.hpp include/dwarfpp/core.hpp include/dwarfpp/opt.hpp include/dwarfpp/dwarf3-adt.h include/dwarfpp/regs.hpp include/dwarfpp/dwarf3-factory.h include/dwarfpp/dwarf-ext-GNU.h include/dwarfpp/expr.hpp include/dwarfpp/spec.hpp
+dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.hpp include/dwarfpp/attr.hpp include/dwarfpp/dwarf-onlystd-v2.h include/dwarfpp/lib.hpp include/dwarfpp/opt.hpp include/dwarfpp/dwarf3-adt.h include/dwarfpp/regs.hpp include/dwarfpp/dwarf3-factory.h include/dwarfpp/dwarf-ext-GNU.h include/dwarfpp/expr.hpp include/dwarfpp/spec.hpp
 
 dwarfpp_private_includedir = $(includedir)/dwarfpp/private
 dwarfpp_private_include_HEADERS = include/dwarfpp/private/libdwarf-handles.hpp include/dwarfpp/private/libdwarf.hpp
