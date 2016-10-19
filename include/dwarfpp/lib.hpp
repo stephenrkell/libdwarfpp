@@ -327,21 +327,21 @@ namespace dwarf
 			
 			// protected constructor constructing dummy instances only
 			inline basic_die(spec& s): refcount(0), d(nullptr, 0), s(s) {}
+
 			// protected constructor that is never actually used, but 
 			// required to avoid special-casing in macros -- see begin_class() macro
 			inline basic_die() : refcount(0), d(nullptr, nullptr), s(::dwarf::spec::DEFAULT_DWARF_SPEC) 
 			{ assert(false); }
 			friend struct dwarf3_factory_t;
 		public:
-			inline basic_die(spec& s, Die&& h)
-			 : refcount(0), d(std::move(h)), s(s) {}
+			inline basic_die(spec& s, Die&& h);
 			
 			friend std::ostream& operator<<(std::ostream& s, const basic_die& d);
 			friend void intrusive_ptr_add_ref(basic_die *p);
 			friend void intrusive_ptr_release(basic_die *p);
 			
-			virtual ~basic_die() {}
-			
+			inline virtual ~basic_die();
+
 			/* implement the abstract_die interface 
 			 * -- note that has_attr is defined above */
 			inline Dwarf_Off get_offset() const { assert(d.handle); return d.offset_here(); }
@@ -419,6 +419,7 @@ namespace dwarf
 			friend struct Arange;
 			friend struct ArangeList;
 			
+			friend struct basic_die;
 			friend struct type_die; // for equal_to
 			friend class factory; // for visible_named_grandchildren_is_complete
 			
@@ -429,11 +430,17 @@ namespace dwarf
 			 * destructed when a Dwarf_Debug is destructed. So our intrusive_ptrs
 			 * will be invalid if we destruct the latter first, and bad results follow. */
 			map<Dwarf_Off, ptr_type > sticky_dies; // compile_unit_die is always sticky
-			map<Dwarf_Off, Dwarf_Off> parent_of;
-			map<Dwarf_Off, Dwarf_Off> first_child_of;
-			map<Dwarf_Off, Dwarf_Off> next_sibling_of;
+			
+			/* live DIEs -- any basic DIE that is instantiated registers itself here,
+			 * and deregisters itself when it is destructed. */
+			unordered_map<Dwarf_Off, basic_die* > live_dies;
+			
+			unordered_map<Dwarf_Off, Dwarf_Off> parent_of;
+			unordered_map<Dwarf_Off, Dwarf_Off> first_child_of;
+			unordered_map<Dwarf_Off, Dwarf_Off> next_sibling_of;
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
 			map<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
+			map<Dwarf_Off, opt<uint32_t> > type_summary_code_cache;
 
 			multimap<string, Dwarf_Off> visible_named_grandchildren;
 			bool visible_named_grandchildren_is_complete;
@@ -451,7 +458,7 @@ namespace dwarf
 			virtual bool is_sticky(const abstract_die& d);
 			
 			void get_referential_structure(
-				map<Dwarf_Off, Dwarf_Off>& parent_of,
+				unordered_map<Dwarf_Off, Dwarf_Off>& parent_of,
 				map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off>& refers_to) const;
 
 		public: // HMM
@@ -613,6 +620,23 @@ namespace dwarf
 			void print_tree(iterator_base&& begin, std::ostream& s) const;
 		};	
 		std::ostream& operator<<(std::ostream& s, const root_die& d);
+		
+		inline basic_die::basic_die(spec& s, Die&& h)
+		 : refcount(0), d(std::move(h)), s(s) 
+		{
+			if (d.handle && get_offset() != 0) 
+			{
+				get_root().live_dies.insert(make_pair(get_offset(), this));
+			}
+		}
+
+		inline basic_die::~basic_die()
+		{
+			if (d.handle && get_offset() != 0)
+			{
+				get_root().live_dies.erase(get_offset());
+			}
+		}
 
 		// inlines we couldn't define earlier -- declared in private/libdwarf-handles.hpp
 		inline encap::attribute_map Die::copy_attrs() const
@@ -764,23 +788,21 @@ namespace dwarf
 			{
 				// get the offset of the handle we've been passed
 				Dwarf_Off off = d.get_offset(); 
-				// is it an existing sticky DIE?
-				auto found = r.sticky_dies.find(off);
-				if (found != r.sticky_dies.end())
+				// is it an existing live DIE?
+				auto found = r.live_dies.find(off);
+				if (found != r.live_dies.end())
 				{
-					// sticky and exists
+					// exists; may be sticky
 					cur_handle = Die(nullptr, nullptr);
 					state = WITH_PAYLOAD;
 					cur_payload = found->second;
 					assert(cur_payload);
 					//m_depth = found->second->get_depth(); assert(depth == m_depth);
 					//p_root = &found->second->get_root();
-					
-					assert(r.is_sticky(d) || dynamic_cast<in_memory_abstract_die *>(&d));
 				}
 				else if (r.is_sticky(d))
 				{
-					// should be sticky, but does not exist yet -- use the factory
+					// should be sticky, so should exist, but does not exist yet -- use the factory
 					cur_handle = Die(nullptr, nullptr);
 					state = WITH_PAYLOAD;
 					cur_payload = factory::for_spec(d.get_spec(r)).make_payload(std::move(dynamic_cast<Die&&>(d).handle), r);
@@ -789,7 +811,7 @@ namespace dwarf
 				}
 				else
 				{
-					// not sticky
+					// does not exist, and not sticky, so need not exist; stick with handle
 					cur_handle = std::move(dynamic_cast<Die&&>(d).handle);
 					state = HANDLE_ONLY;
 				}
@@ -1618,7 +1640,6 @@ struct summary_code_word_t
 	summary_code_word_t() : val(0) {}
 };
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
-		mutable opt< opt< uint32_t > > cached_summary_code;
 		attr_optional(byte_size, unsigned)
 		virtual opt<Dwarf_Unsigned> calculate_byte_size() const;
 		// virtual bool is_rep_compatible(iterator_df<type_die> arg) const;
@@ -2402,9 +2423,9 @@ friend class factory;
 		{
 			if (depth == 0) { assert(off == 0UL); assert(!referencer); return Iter(begin()); }
 			
-			// always check the sticky set first
-			auto found = sticky_dies.find(off);
-			if (found != sticky_dies.end())
+			// always check the live set first
+			auto found = live_dies.find(off);
+			if (found != live_dies.end())
 			{
 				// it's there, so use find_upwards to get the iterator
 				assert(found->second);
@@ -2446,7 +2467,7 @@ friend class factory;
 			   - to search all the way to the top
 			   - when we hit offset 0, `height' should be the depth of `off'
 			 */
-			for (map<Dwarf_Off, Dwarf_Off>::iterator i_found_parent = parent_of.find(cur);
+			for (auto i_found_parent = parent_of.find(cur);
 				cur != 0 && i_found_parent != parent_of.end();
 				i_found_parent = parent_of.find(cur))
 			{

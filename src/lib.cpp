@@ -393,10 +393,10 @@ namespace dwarf
 			auto found = first_child_of.find(start_offset);
 			if (found != first_child_of.end())
 			{
-				auto found_sticky = sticky_dies.find(found->second);
-				if (found_sticky != sticky_dies.end())
+				auto found_live = live_dies.find(found->second);
+				if (found_live != live_dies.end())
 				{
-					return iterator_base(static_cast<abstract_die&&>(*found_sticky->second), it.depth() + 1, *this);
+					return iterator_base(static_cast<abstract_die&&>(*found_live->second), it.depth() + 1, *this);
 				} // else fall through
 			}
 			
@@ -633,10 +633,10 @@ namespace dwarf
 			auto found = next_sibling_of.find(offset_here);
 			if (found != next_sibling_of.end())
 			{
-				auto found_sticky = sticky_dies.find(found->second);
-				if (found_sticky != sticky_dies.end())
+				auto found_live = live_dies.find(found->second);
+				if (found_live != live_dies.end())
 				{
-					return iterator_base(static_cast<abstract_die&&>(*found_sticky->second), it.depth(), *this);
+					return iterator_base(static_cast<abstract_die&&>(*found_live->second), it.depth(), *this);
 				} // else fall through
 			}
 			
@@ -920,7 +920,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		
 		void
 		root_die::get_referential_structure(
-			map<Dwarf_Off, Dwarf_Off>& parent_of,
+			unordered_map<Dwarf_Off, Dwarf_Off>& parent_of,
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off>& refers_to) const
 		{
 			/* We walk the whole tree depth-first. 
@@ -2122,12 +2122,23 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		
 		opt<uint32_t> type_die::summary_code() const
 		{
+			using lib::Dwarf_Unsigned;
+			using lib::Dwarf_Half;
+			using namespace dwarf::core;
+
+			opt<uint32_t> code_to_return;
+			summary_code_word_t output_word;
 			/* if we have it cached, return that */
-			if (cached_summary_code) return *cached_summary_code;
+			auto found_cached = get_root().type_summary_code_cache.find(get_offset());
+			if (found_cached != get_root().type_summary_code_cache.end())
+			{
+				return found_cached->second;
+			}
 		
 			/* FIXME: factor this into the various subclass cases. */
 			// we have to find ourselves. :-(
 			auto t = get_root().find(get_offset()).as_a<type_die>();
+			__typeof(t) concrete_t;
 			
 			auto name_for_type_die = [](core::iterator_df<core::type_die> t) -> opt<string> {
 				if (t.is_a<dwarf::core::subprogram_die>())
@@ -2175,21 +2186,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			 * - encode pointer encoding
 			 * - encode byte- and bit-offsets of every field
 			 */
-			using lib::Dwarf_Unsigned;
-			using lib::Dwarf_Half;
-			using namespace dwarf::core;
+			if (!t) { code_to_return = opt<uint32_t>(0); goto out; }
 
-			if (!t)
-			{
-				// we got void
-				return opt<uint32_t>(0);
-			}
-
-			auto concrete_t = t->get_concrete_type();
+			concrete_t = t->get_concrete_type();
 			if (!concrete_t)
 			{
 				// we got a typedef of void
-				return opt<uint32_t>(0);
+				code_to_return = opt<uint32_t>(0); goto out;
 			}
 
 			/* For declarations, if we can't find their definition, we return opt<>(). */
@@ -2197,225 +2200,231 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			{
 				iterator_df<> found = concrete_t->find_definition();
 				concrete_t = found.as_a<type_die>();
-				if (!concrete_t) return opt<uint32_t>();
+				if (!concrete_t) 
+				{
+					code_to_return = opt<uint32_t>();
+					goto out;
+				}
 			}
 
-			summary_code_word_t output_word;
 			assert(output_word.val);
-			Dwarf_Half tag = concrete_t.tag_here();
-			if (concrete_t.is_a<base_type_die>())
 			{
-				auto base_t = concrete_t.as_a<core::base_type_die>();
-				unsigned encoding = base_t->get_encoding();
-				assert(base_t->get_byte_size());
-				unsigned byte_size = *base_t->get_byte_size();
-				unsigned bit_size = base_t->get_bit_size() ? *base_t->get_bit_size() : byte_size * 8;
-				unsigned bit_offset = base_t->get_bit_offset() ? *base_t->get_bit_offset() : 0;
-				output_word << DW_TAG_base_type << encoding << byte_size << bit_size << bit_offset;
-			} 
-			else if (concrete_t.is_a<enumeration_type_die>())
-			{
-				// shift in the enumeration name
-				if (concrete_t.name_here())
+				Dwarf_Half tag = concrete_t.tag_here();
+				if (concrete_t.is_a<base_type_die>())
 				{
-					output_word << *name_for_type_die(concrete_t);
-				} else output_word << concrete_t.offset_here();
-
-				// shift in the names and values of each enumerator
-				auto enum_t = concrete_t.as_a<enumeration_type_die>();
-				auto enumerators = enum_t.children().subseq_of<enumerator_die>();
-				int last_enum_value = -1;
-				for (auto i_enum = enumerators.first; i_enum != enumerators.second; ++i_enum)
+					auto base_t = concrete_t.as_a<core::base_type_die>();
+					unsigned encoding = base_t->get_encoding();
+					assert(base_t->get_byte_size());
+					unsigned byte_size = *base_t->get_byte_size();
+					unsigned bit_size = base_t->get_bit_size() ? *base_t->get_bit_size() : byte_size * 8;
+					unsigned bit_offset = base_t->get_bit_offset() ? *base_t->get_bit_offset() : 0;
+					output_word << DW_TAG_base_type << encoding << byte_size << bit_size << bit_offset;
+				} 
+				else if (concrete_t.is_a<enumeration_type_die>())
 				{
-					output_word << *i_enum->get_name();
-					if (i_enum->get_const_value())
+					// shift in the enumeration name
+					if (concrete_t.name_here())
 					{
-						last_enum_value = *i_enum->get_const_value();
-						output_word << last_enum_value;
-					} else output_word << last_enum_value++;
-				}
+						output_word << *name_for_type_die(concrete_t);
+					} else output_word << concrete_t.offset_here();
 
-				// then shift in the base type's summary code
-				if (!enum_t->get_type())
-				{
-					// cerr << "Warning: saw enum with no type" << endl;
-					auto implicit_t = enum_t.enclosing_cu()->implicit_enum_base_type();
-					if (!implicit_t)
+					// shift in the names and values of each enumerator
+					auto enum_t = concrete_t.as_a<enumeration_type_die>();
+					auto enumerators = enum_t.children().subseq_of<enumerator_die>();
+					int last_enum_value = -1;
+					for (auto i_enum = enumerators.first; i_enum != enumerators.second; ++i_enum)
 					{
-						cerr << "Warning: saw enum with no type" << endl;
-					} else output_word << type_summary_code(implicit_t);
-				}
-				else
-				{
-					output_word << type_summary_code(enum_t->get_type());
-				}
-			} 
-			else if (concrete_t.is_a<subrange_type_die>())
-			{
-				auto subrange_t = concrete_t.as_a<subrange_type_die>();
+						output_word << *i_enum->get_name();
+						if (i_enum->get_const_value())
+						{
+							last_enum_value = *i_enum->get_const_value();
+							output_word << last_enum_value;
+						} else output_word << last_enum_value++;
+					}
 
-				// shift in the name, if any
-				if (concrete_t.name_here())
-				{
-					output_word << *name_for_type_die(concrete_t);
-				} else output_word << concrete_t.offset_here();
-
-				// then shift in the base type's summary code
-				if (!subrange_t->get_type())
-				{
-					cerr << "Warning: saw subrange with no type" << endl;
-				}
-				else
-				{
-					output_word << type_summary_code(subrange_t->get_type());
-				}
-
-				/* Then shift in the upper bound and lower bound, if present
-				 * NOTE: this means unnamed boundless subrange types have the 
-				 * same code as their underlying type. This is probably what we want. */
-				if (subrange_t->get_upper_bound())
-				{
-					output_word << *subrange_t->get_upper_bound();
-				}
-				if (subrange_t->get_lower_bound())
-				{
-					output_word << *subrange_t->get_lower_bound();
-				}
-			} 
-			else if (concrete_t.is_a<type_describing_subprogram_die>())
-			{
-				auto subp_t = concrete_t.as_a<type_describing_subprogram_die>();
-				
-				// shift in the argument and return types
-				auto return_type = subp_t->get_return_type();
-				output_word << type_summary_code(return_type);
-
-				// shift in something to distinguish void(void) from void
-				output_word << "()";
-
-				auto fps = concrete_t.children().subseq_of<formal_parameter_die>();
-				for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
-				{
-					output_word << type_summary_code(i_fp->find_type());
-				}
-
-				if (subp_t->is_variadic())
-				{
-					output_word << "...";
-				}
-			}
-			else if (concrete_t.is_a<address_holding_type_die>())
-			{
-				/* NOTE: actually, we *do* want to pay attention to what the pointer points to, 
-				 * i.e. its contract. BUT there's a problem: recursive data types! For now, we
-				 * use a giant HACK: if we're a pointer-to-member, use only the name. */
-				auto ptr_t = concrete_t.as_a<core::address_holding_type_die>();
-				unsigned ptr_size = *ptr_t->calculate_byte_size();
-				unsigned addr_class = ptr_t->get_address_class() ? *ptr_t->get_address_class() : 0;
-				if (addr_class != 0)
-				{
-					switch(addr_class) 
+					// then shift in the base type's summary code
+					if (!enum_t->get_type())
 					{
-						default:
-							assert(false); // nobody seems to use this feature so far
-						/* NOTE: There is also something called DWARF Pointer-Encoding (PEs).
-						   This is a DWARF representation issue, used in frame info, and is not 
-						   something we care about. */
+						// cerr << "Warning: saw enum with no type" << endl;
+						auto implicit_t = enum_t.enclosing_cu()->implicit_enum_base_type();
+						if (!implicit_t)
+						{
+							cerr << "Warning: saw enum with no type" << endl;
+						} else output_word << type_summary_code(implicit_t);
+					}
+					else
+					{
+						output_word << type_summary_code(enum_t->get_type());
+					}
+				} 
+				else if (concrete_t.is_a<subrange_type_die>())
+				{
+					auto subrange_t = concrete_t.as_a<subrange_type_die>();
+
+					// shift in the name, if any
+					if (concrete_t.name_here())
+					{
+						output_word << *name_for_type_die(concrete_t);
+					} else output_word << concrete_t.offset_here();
+
+					// then shift in the base type's summary code
+					if (!subrange_t->get_type())
+					{
+						cerr << "Warning: saw subrange with no type" << endl;
+					}
+					else
+					{
+						output_word << type_summary_code(subrange_t->get_type());
+					}
+
+					/* Then shift in the upper bound and lower bound, if present
+					 * NOTE: this means unnamed boundless subrange types have the 
+					 * same code as their underlying type. This is probably what we want. */
+					if (subrange_t->get_upper_bound())
+					{
+						output_word << *subrange_t->get_upper_bound();
+					}
+					if (subrange_t->get_lower_bound())
+					{
+						output_word << *subrange_t->get_lower_bound();
+					}
+				} 
+				else if (concrete_t.is_a<type_describing_subprogram_die>())
+				{
+					auto subp_t = concrete_t.as_a<type_describing_subprogram_die>();
+
+					// shift in the argument and return types
+					auto return_type = subp_t->get_return_type();
+					output_word << type_summary_code(return_type);
+
+					// shift in something to distinguish void(void) from void
+					output_word << "()";
+
+					auto fps = concrete_t.children().subseq_of<formal_parameter_die>();
+					for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
+					{
+						output_word << type_summary_code(i_fp->find_type());
+					}
+
+					if (subp_t->is_variadic())
+					{
+						output_word << "...";
 					}
 				}
-				auto target_t = ptr_t->get_type();
-				if (target_t.is_real_die_position()) target_t = target_t->get_concrete_type();
-				opt<uint32_t> target_code;
-				if (target_t.is_real_die_position() && target_t.is_a<with_data_members_die>())
+				else if (concrete_t.is_a<address_holding_type_die>())
 				{
-					summary_code_word_t tmp_output_word;
-					// add in the name only
-					if (target_t.name_here())
+					/* NOTE: actually, we *do* want to pay attention to what the pointer points to, 
+					 * i.e. its contract. BUT there's a problem: recursive data types! For now, we
+					 * use a giant HACK: if we're a pointer-to-member, use only the name. */
+					auto ptr_t = concrete_t.as_a<core::address_holding_type_die>();
+					unsigned ptr_size = *ptr_t->calculate_byte_size();
+					unsigned addr_class = ptr_t->get_address_class() ? *ptr_t->get_address_class() : 0;
+					if (addr_class != 0)
 					{
-						tmp_output_word << *name_for_type_die(target_t);
-					} else tmp_output_word << target_t.offset_here();
-
-					target_code = *tmp_output_word.val;
-				} else target_code = type_summary_code(target_t);
-				output_word << tag << ptr_size << addr_class << target_code;
-			}
-			else if (concrete_t.is_a<with_data_members_die>())
-			{
-				// add in the name
-				if (concrete_t.name_here())
-				{
-					output_word << *name_for_type_die(concrete_t);
-				} else output_word << concrete_t.offset_here();
-
-				// for each member 
-				auto members = concrete_t.children().subseq_of<core::with_dynamic_location_die>();
-				for (auto i_member = members.first; i_member != members.second; ++i_member)
-				{
-					// skip members that are mere declarations 
-					if (i_member->get_declaration() && *i_member->get_declaration()) continue;
-
-					// calculate its offset
-					opt<Dwarf_Unsigned> opt_offset = i_member->byte_offset_in_enclosing_type();
-					if (!opt_offset)
-					{
-						cerr << "Warning: saw member " << *i_member << " with no apparent offset." << endl;
-						continue;
+						switch(addr_class) 
+						{
+							default:
+								assert(false); // nobody seems to use this feature so far
+							/* NOTE: There is also something called DWARF Pointer-Encoding (PEs).
+							   This is a DWARF representation issue, used in frame info, and is not 
+							   something we care about. */
+						}
 					}
-					auto member_type = i_member->get_type();
-					assert(member_type);
-					assert(member_type.is_a<type_die>());
+					auto target_t = ptr_t->get_type();
+					if (target_t.is_real_die_position()) target_t = target_t->get_concrete_type();
+					opt<uint32_t> target_code;
+					if (target_t.is_real_die_position() && target_t.is_a<with_data_members_die>())
+					{
+						summary_code_word_t tmp_output_word;
+						// add in the name only
+						if (target_t.name_here())
+						{
+							tmp_output_word << *name_for_type_die(target_t);
+						} else tmp_output_word << target_t.offset_here();
 
-					output_word << (opt_offset ? *opt_offset : 0);
-					// FIXME: also its bit offset!
+						target_code = *tmp_output_word.val;
+					} else target_code = type_summary_code(target_t);
+					output_word << tag << ptr_size << addr_class << target_code;
+				}
+				else if (concrete_t.is_a<with_data_members_die>())
+				{
+					// add in the name
+					if (concrete_t.name_here())
+					{
+						output_word << *name_for_type_die(concrete_t);
+					} else output_word << concrete_t.offset_here();
 
-					output_word << type_summary_code(member_type);
+					// for each member 
+					auto members = concrete_t.children().subseq_of<core::with_dynamic_location_die>();
+					for (auto i_member = members.first; i_member != members.second; ++i_member)
+					{
+						// skip members that are mere declarations 
+						if (i_member->get_declaration() && *i_member->get_declaration()) continue;
+
+						// calculate its offset
+						opt<Dwarf_Unsigned> opt_offset = i_member->byte_offset_in_enclosing_type();
+						if (!opt_offset)
+						{
+							cerr << "Warning: saw member " << *i_member << " with no apparent offset." << endl;
+							continue;
+						}
+						auto member_type = i_member->get_type();
+						assert(member_type);
+						assert(member_type.is_a<type_die>());
+
+						output_word << (opt_offset ? *opt_offset : 0);
+						// FIXME: also its bit offset!
+
+						output_word << type_summary_code(member_type);
+					}
 				}
-			}
-			else if (concrete_t.is_a<array_type_die>())
-			{
-				// if we're a member of something, we should be bounded in all dimensions
-				auto opt_el_type = concrete_t.as_a<array_type_die>()->ultimate_element_type();
-				auto opt_el_count = concrete_t.as_a<array_type_die>()->ultimate_element_count();
-				output_word << (opt_el_type ? type_summary_code(opt_el_type) : opt<uint32_t>())
-					<< (opt_el_count ? *opt_el_count : 0);
-					// FIXME: also the factoring into dimensions needs to be taken into account
-			}
-			else if (concrete_t.is_a<string_type_die>())
-			{
-				// Fortran strings can be fixed-length or variable-length
-				auto opt_dynamic_length = concrete_t.as_a<string_type_die>()->get_string_length();
-				unsigned byte_len;
-				if (opt_dynamic_length)
+				else if (concrete_t.is_a<array_type_die>())
 				{
-					// treat it as length 0
-					byte_len = 0;
+					// if we're a member of something, we should be bounded in all dimensions
+					auto opt_el_type = concrete_t.as_a<array_type_die>()->ultimate_element_type();
+					auto opt_el_count = concrete_t.as_a<array_type_die>()->ultimate_element_count();
+					output_word << (opt_el_type ? type_summary_code(opt_el_type) : opt<uint32_t>())
+						<< (opt_el_count ? *opt_el_count : 0);
+						// FIXME: also the factoring into dimensions needs to be taken into account
 				}
-				else
+				else if (concrete_t.is_a<string_type_die>())
 				{
-					auto opt_byte_size = concrete_t.as_a<string_type_die>()->fixed_length_in_bytes();
-					assert(opt_byte_size);
-					byte_len = *opt_byte_size;
+					// Fortran strings can be fixed-length or variable-length
+					auto opt_dynamic_length = concrete_t.as_a<string_type_die>()->get_string_length();
+					unsigned byte_len;
+					if (opt_dynamic_length)
+					{
+						// treat it as length 0
+						byte_len = 0;
+					}
+					else
+					{
+						auto opt_byte_size = concrete_t.as_a<string_type_die>()->fixed_length_in_bytes();
+						assert(opt_byte_size);
+						byte_len = *opt_byte_size;
+					}
+					output_word << DW_TAG_string_type << byte_len;
 				}
-				output_word << DW_TAG_string_type << byte_len;
-			}
-			else if (concrete_t.is_a<unspecified_type_die>())
-			{
-				cerr << "Warning: saw unspecified type " << concrete_t;
-				output_word.val = opt<uint32_t>();
-			}
-			else 
-			{
-				cerr << "Warning: didn't understand type " << concrete_t;
+				else if (concrete_t.is_a<unspecified_type_die>())
+				{
+					cerr << "Warning: saw unspecified type " << concrete_t;
+					output_word.val = opt<uint32_t>();
+				}
+				else 
+				{
+					cerr << "Warning: didn't understand type " << concrete_t;
+				}
 			}
 
 			// pointer-to-incomplete, etc., will still give us incomplete answer
 			assert (!concrete_t || !(output_word.val) || *output_word.val != 0);
 
-			this->cached_summary_code = output_word.val; 
-			
-			return output_word.val;
-			// return std::numeric_limits<uint32_t>::max();
-			
+			code_to_return = output_word.val; 
+		out:
+			get_root().type_summary_code_cache.insert(
+				make_pair(get_offset(), code_to_return)
+			);
+			return code_to_return;
 		}
 		bool type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
