@@ -1827,6 +1827,21 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						int arg2 = m_stack.top(); m_stack.pop();
 						m_stack.push(arg1 + arg2);
 					} break;
+					case DW_OP_shl: {
+						int arg1 = m_stack.top(); m_stack.pop();
+						int arg2 = m_stack.top(); m_stack.pop();
+						m_stack.push(arg2 << arg1);
+					} break;
+					case DW_OP_shr: {
+						int arg1 = m_stack.top(); m_stack.pop();
+						int arg2 = m_stack.top(); m_stack.pop();
+						m_stack.push((int)((unsigned) arg2 >> arg1));
+					} break;
+					case DW_OP_shra: {
+						int arg1 = m_stack.top(); m_stack.pop();
+						int arg2 = m_stack.top(); m_stack.pop();
+						m_stack.push(arg2 >> arg1);
+					} break;
                     case DW_OP_fbreg: {
                     	if (!frame_base) goto logic_error;
                         m_stack.push(*frame_base + i->lr_number);
