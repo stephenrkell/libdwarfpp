@@ -426,14 +426,18 @@ namespace dwarf
 		protected: // was protected -- consider changing back
 			typedef intrusive_ptr<basic_die> ptr_type;
 			Debug dbg;
+			
+			/* live DIEs -- any basic DIE that is instantiated registers itself here,
+			 * and deregisters itself when it is destructed.
+			 * This must be destructed *after* the sticky set, i.e. declared before it,
+			 * because the basic_die destructor manipulates this hash table, 
+			 * so it must still be alive while sticky DIEs are being destroyed. */
+			unordered_map<Dwarf_Off, basic_die* > live_dies;
+			
 			/* NOTE: sticky_dies must come after dbg, because all Dwarf_Dies are 
 			 * destructed when a Dwarf_Debug is destructed. So our intrusive_ptrs
 			 * will be invalid if we destruct the latter first, and bad results follow. */
 			map<Dwarf_Off, ptr_type > sticky_dies; // compile_unit_die is always sticky
-			
-			/* live DIEs -- any basic DIE that is instantiated registers itself here,
-			 * and deregisters itself when it is destructed. */
-			unordered_map<Dwarf_Off, basic_die* > live_dies;
 			
 			unordered_map<Dwarf_Off, Dwarf_Off> parent_of;
 			unordered_map<Dwarf_Off, Dwarf_Off> first_child_of;
@@ -839,26 +843,44 @@ namespace dwarf
 		
 			// copy constructor
 			iterator_base(const iterator_base& arg)
-			 : cur_handle(nullptr, nullptr), 
-			   cur_payload(arg.is_real_die_position() ?
-			   	  arg.get_root().make_payload(arg) 
-				: nullptr),
-			   state(arg.is_real_die_position() ? WITH_PAYLOAD : HANDLE_ONLY), 
+				/* We used to always make payload on copying.
+				 * We no longer do that; instead, if we're a handle, just ask libdwarf
+				 * for a fresh handle. This still does an allocation (in libdwarf, not
+				 * in our code) and will cause our code to do *another* allocation if
+				 * we dereference the iterator -- UNLESS the DIE at that offset has
+				 * already been materialised via another iterator, in which case we'll
+				 * find it via live_dies. */
+			 : cur_handle(nullptr, nullptr),
 			   m_depth(arg.depth()), 
 			   p_root(arg.is_end_position() ? nullptr : &arg.get_root())
 			{
-				/* Now we're a copy, with payload. AND note that make_payload has modified arg 
-				 * so that it is with payload too. */
-				
-				/* Sticky set: if we were passed a handle, and have therefore turned 
-				 * it into a with_payload DIE, it should not have been sticky. That's
-				 * because we don't create handle DIEs in the sticky case. To make sure,
-				 * we assert this in make_payload. */
-
-#ifdef DWARFPP_LINEAR_ITERATORS
-				assert(!arg.is_real_die_position()); // linear mode: only copy non-real DIEs
-#endif
-				// FIXME: make sure root_die does the sticky set
+				if (arg.is_end_position())
+				{
+					// NOTE: must put us in the same state as the default constructor
+					this->cur_payload = nullptr;
+					this->state = HANDLE_ONLY;
+					assert(this->is_end_position());
+				}				
+				else if (arg.is_root_position())
+				{
+					this->cur_payload = nullptr;
+					this->state = HANDLE_ONLY; // the root DIE can get away with this (?)
+					assert(this->is_root_position());
+				}
+				else switch (arg.state)
+				{
+					case WITH_PAYLOAD:
+						/* Copy the payload pointer */
+						this->state = WITH_PAYLOAD;
+						this->cur_payload = arg.cur_payload;
+						break;
+					case HANDLE_ONLY:
+						this->state = HANDLE_ONLY;
+						this->cur_handle = Die::try_construct(*p_root, arg.offset_here());
+						this->cur_payload = nullptr;
+						break;
+					default: assert(false);
+				}
 			}
 			
 			// ... but we prefer to move them
@@ -890,35 +912,38 @@ namespace dwarf
 			 * offdie to get a fresh handle at the same offset (but CHECK that it really is fresh). */
 			iterator_base& operator=(const iterator_base& arg) // does the upgrade...
 			{ 
-				// we're a copy, so we can't have a handle
-				this->cur_handle = std::move(Die(nullptr, nullptr));
-				if (arg.is_real_die_position())
-				{
-#ifdef DWARFPP_LINEAR_ITERATORS
-					assert(false); // ... avoid copying if the client asked us to (zero-copy)
-#endif
-					this->cur_payload = arg.get_root().make_payload(arg);
-					this->state = WITH_PAYLOAD;
-					this->m_depth = arg.depth();
-					this->p_root = &arg.get_root();
-				}
-				else if (arg.is_end_position())
+				this->m_depth = arg.m_depth;
+				this->p_root = arg.p_root;
+				// as with the copy constructor, get the duplicate from libdwarf
+				if (arg.is_end_position())
 				{
 					// NOTE: must put us in the same state as the default constructor
 					this->cur_payload = nullptr;
+					this->cur_handle = std::move(Die(nullptr, nullptr));
 					this->state = HANDLE_ONLY;
-					this->m_depth = 0;
-					this->p_root = nullptr;
 					assert(this->is_end_position());
-				}
+				}				
 				else if (arg.is_root_position())
 				{
 					this->cur_payload = nullptr;
+					this->cur_handle = std::move(Die(nullptr, nullptr));
 					this->state = HANDLE_ONLY; // the root DIE can get away with this (?)
-					this->m_depth = 0;
-					this->p_root = &arg.get_root();
 					assert(this->is_root_position());
-				} else assert(false);
+				}
+				else switch (arg.state)
+				{
+					case WITH_PAYLOAD:
+						/* Copy the payload pointer */
+						this->state = WITH_PAYLOAD;
+						this->cur_payload = arg.cur_payload;
+						break;
+					case HANDLE_ONLY:
+						this->state = HANDLE_ONLY;
+						this->cur_handle = Die::try_construct(*p_root, arg.offset_here());
+						this->cur_payload = nullptr;
+						break;
+					default: assert(false);
+				}
 
 				return *this;
 			}
