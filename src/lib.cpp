@@ -2363,11 +2363,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				}
 				else if (concrete_t.is_a<with_data_members_die>())
 				{
-					// add in the name
+					// add in the name if we have it
 					if (concrete_t.name_here())
 					{
 						output_word << *name_for_type_die(concrete_t);
-					} else output_word << concrete_t.offset_here();
+					}
 
 					// for each member 
 					auto members = concrete_t.children().subseq_of<core::with_dynamic_location_die>();
