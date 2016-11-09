@@ -27,8 +27,7 @@ AC_PROG_INSTALL
 AC_CHECK_HEADERS([algorithm cassert cstdlib dwarf.h elf.h functional iostream iterator libdwarf.h libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector], [], [AC_MSG_FAILURE([required standard headers: algorithm cassert cstdlib dwarf.h elf.h functional iostream iterator libdwarf.h libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector])])
 
 AC_CHECK_HEADERS([elf.h libelf.h], [], [AC_MSG_FAILURE([required headers: elf.h libelf.h])])
-AC_CHECK_HEADERS([dwarf.h libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h])])
-
+#AC_CHECK_HEADERS([dwarf.h libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h])])
 AC_ARG_WITH([libdwarf-includes],
             [AS_HELP_STRING([--with-libdwarf-includes=DIR],
               [where to find libdwarf headers])],

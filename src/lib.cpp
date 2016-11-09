@@ -2225,6 +2225,19 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			assert(output_word.val);
 			{
 				Dwarf_Half tag = concrete_t.tag_here();
+				
+				opt<string> maybe_fq_str = concrete_t->get_decl_file() ? concrete_t.enclosing_cu()->source_file_fq_pathname(
+						*concrete_t->get_decl_file()) : opt<string>();
+				
+				std::ostringstream tmp;
+				
+				string fq_pathname_str = maybe_fq_str 
+					? *maybe_fq_str 
+					: concrete_t->get_decl_file() ? 
+						concrete_t.enclosing_cu()->source_file_name(*concrete_t->get_decl_file())
+						: /* okay, give up and use the offset after all */
+							(tmp << std::hex << concrete_t.offset_here(), tmp.str());
+				
 				if (concrete_t.is_a<base_type_die>())
 				{
 					auto base_t = concrete_t.as_a<core::base_type_die>();
@@ -2241,7 +2254,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					if (concrete_t.name_here())
 					{
 						output_word << *name_for_type_die(concrete_t);
-					} else output_word << concrete_t.offset_here();
+					} else output_word << std::hash<string>()(fq_pathname_str);
 
 					// shift in the names and values of each enumerator
 					auto enum_t = concrete_t.as_a<enumeration_type_die>();
@@ -2280,7 +2293,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					if (concrete_t.name_here())
 					{
 						output_word << *name_for_type_die(concrete_t);
-					} else output_word << concrete_t.offset_here();
+					} else output_word << std::hash<string>()(fq_pathname_str);
 
 					// then shift in the base type's summary code
 					if (!subrange_t->get_type())
@@ -2355,7 +2368,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						if (target_t.name_here())
 						{
 							tmp_output_word << *name_for_type_die(target_t);
-						} else tmp_output_word << target_t.offset_here();
+						} else tmp_output_word << std::hash<string>()(fq_pathname_str);
 
 						target_code = *tmp_output_word.val;
 					} else target_code = type_summary_code(target_t);

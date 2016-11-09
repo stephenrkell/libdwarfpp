@@ -18,6 +18,7 @@
 #include <queue>
 #include <cassert>
 #include <boost/optional.hpp>
+#include <boost/algorithm/string.hpp>
 #include <boost/icl/interval_map.hpp>
 #include <boost/smart_ptr/intrusive_ptr.hpp>
 #include <boost/iterator/iterator_facade.hpp>
@@ -26,6 +27,7 @@
 #include <srk31/concatenating_iterator.hpp>
 #include <srk31/rotate.hpp>
 #include <boost/iterator/transform_iterator.hpp>
+#include <libgen.h> /* FIXME: use a C++-y way to do dirname() */
 #include "spec.hpp"
 #include "opt.hpp"
 #include "attr.hpp" // includes forward decls for iterator_df!
@@ -1904,6 +1906,7 @@ end_class(with_data_members)
 /* (which is *separate* from decl_file and decl_line attributes). */ \
 public: \
 inline std::string source_file_name(unsigned o) const; \
+inline opt<std::string> source_file_fq_pathname(unsigned o) const; \
 inline unsigned source_file_count() const; \
 /* We define fields and getters for the per-CU info (NOT attributes) */ \
 /* available from libdwarf. These will be filled in by root_die::make_payload(). */ \
@@ -2227,6 +2230,30 @@ friend class factory;
 			 * However, our array filesbuf is indexed beginning zero! */
 			assert(o <= names.get_len()); // FIXME: how to report error? ("throw No_entry();"?)
 			return names[o - 1];
+		}
+		inline opt<std::string> compile_unit_die::source_file_fq_pathname(unsigned o) const
+		{
+			string filepath = source_file_name(o);
+			opt<string> maybe_dir = this->get_comp_dir();
+			if (filepath.length() > 0 && filepath.at(0) == '/') return opt<string>(filepath);
+			else if (!maybe_dir) return opt<string>();
+			else
+			{
+				// we want to do 
+				// return dir + "/" + path;
+				// BUT "path" can contain "../".
+				string ourdir = *maybe_dir;
+				string ourpath = filepath;
+				while (boost::starts_with(ourpath, "../"))
+				{
+					char *buf = strdup(ourdir.c_str());
+					ourdir = dirname(buf); /* modifies buf! */
+					free(buf);
+					ourpath = ourpath.substr(3);
+				}
+
+				return opt<string>(ourdir + "/" + ourpath);
+			}
 		}
 		
 		//StringList::handle_type compile_unit_die::source_file_names() const
