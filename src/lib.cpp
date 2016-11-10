@@ -2380,7 +2380,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					if (concrete_t.name_here())
 					{
 						output_word << *name_for_type_die(concrete_t);
-					}
+					} else output_word << std::hash<string>()(fq_pathname_str);
 
 					// for each member 
 					auto members = concrete_t.children().subseq_of<core::with_dynamic_location_die>();
