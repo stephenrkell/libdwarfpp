@@ -8,6 +8,7 @@
 #ifndef __DWARFPP_EXPR_HPP
 #define __DWARFPP_EXPR_HPP
 
+#include <vector>
 #include <boost/icl/interval_map.hpp>
 #include <strings.h> // for bzero
 #include "spec.hpp"
