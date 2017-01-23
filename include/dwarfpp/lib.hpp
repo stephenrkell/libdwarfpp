@@ -86,7 +86,7 @@ namespace dwarf
 		struct root_die;
 		struct iterator_base;
 		
-		struct dwarf3_factory_t;
+		struct dwarf_current_factory_t;
 
 		struct basic_die;
 		struct compile_unit_die;
@@ -149,15 +149,15 @@ namespace dwarf
 		std::ostream& operator<<(std::ostream& s, const AttributeList& attrs);
 		
 		/* Time for some factory subclasses. */
-		struct dwarf3_factory_t : public factory
+		struct dwarf_current_factory_t : public factory
 		{
 			basic_die *make_non_cu_payload(Die::handle_type&& it, root_die& r);
 			basic_die *dummy_for_tag(Dwarf_Half tag);
 		};
-		extern dwarf3_factory_t dwarf3_factory;
+		extern dwarf_current_factory_t dwarf_current_factory;
 		inline factory& factory::for_spec(dwarf::spec::abstract_def& def)
 		{
-			if (&def == &dwarf::spec::dwarf3) return dwarf3_factory;
+			if (&def == &dwarf::spec::dwarf_current) return dwarf_current_factory;
 			assert(false); // FIXME support more specs
 		}
 		template <typename DerefAs /* = basic_die*/> struct iterator_df; // see attr.hpp
@@ -334,7 +334,7 @@ namespace dwarf
 			// required to avoid special-casing in macros -- see begin_class() macro
 			inline basic_die() : refcount(0), d(nullptr, nullptr), s(::dwarf::spec::DEFAULT_DWARF_SPEC) 
 			{ assert(false); }
-			friend struct dwarf3_factory_t;
+			friend struct dwarf_current_factory_t;
 		public:
 			inline basic_die(spec& s, Die&& h);
 			
@@ -1501,7 +1501,7 @@ namespace dwarf
 /* #define declare_bases(first_base, ...) first_base , ##__VA_ARGS__ */
 #define begin_class(fragment, base_inits, ...) \
 	struct fragment ## _die : virtual __VA_ARGS__ { \
-	friend struct dwarf3_factory_t; \
+	friend struct dwarf_current_factory_t; \
 	protected: /* dummy constructor used only to construct dummy instances */\
 		fragment ## _die(spec& s) : basic_die(s, Die(nullptr, nullptr)) {} \
 	public: /* main constructor */ \
@@ -1880,6 +1880,7 @@ end_class(with_data_members)
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
 #define extra_decls_base_type \
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
+		opt<Dwarf_Unsigned> calculate_byte_size() const; \
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
 #define extra_decls_structure_type \
 		opt<Dwarf_Unsigned> calculate_byte_size() const; \
@@ -1933,7 +1934,7 @@ encap::rangelist normalize_rangelist(const encap::rangelist& rangelist) const; \
 friend class iterator_base; \
 friend class factory; 
 
-#include "dwarf3-adt.h"
+#include "dwarf-current-adt.h"
 
 #undef extra_decls_subprogram
 #undef extra_decls_compile_unit
@@ -2277,12 +2278,12 @@ friend class factory;
 				assert(p_cu);
 				switch(p_cu->version_stamp)
 				{
-					case 2: return ::dwarf::spec::dwarf3;
-					case 4: return ::dwarf::spec::dwarf3; // HACK: dwarf3 == uber-DWARF for now 
+					case 2: return ::dwarf::spec::dwarf_current; // HACK: we don't model old DWARFs for now
+					case 4: return ::dwarf::spec::dwarf_current;
 					default: 
 						cerr << "Warning: saw unexpected DWARF version stamp " 
 							<< p_cu->version_stamp << endl;
-						return ::dwarf::spec::dwarf3;
+						return ::dwarf::spec::dwarf_current;
 				}
 			}
 			else return get_handle().get_spec(*p_root);
@@ -2425,7 +2426,7 @@ friend class factory;
 		inline spec& Die::spec_here() const
 		{
 			// HACK: avoid creating any payload for now, for speed-testing
-			return ::dwarf::spec::dwarf3;
+			return ::dwarf::spec::dwarf_current;
 			
 			/* NOTE: subtlety concerning payload construction. To make the 
 			 * payload, we need the factory, meaning we need the spec. 
@@ -2455,7 +2456,7 @@ friend class factory;
 // 				assert(p_cu);
 // 				switch(p_cu->version_stamp)
 // 				{
-// 					case 2: return ::dwarf::spec::dwarf3;
+// 					case 2: return ::dwarf::spec::dwarf_current;
 // 					default: assert(false);
 // 				}
 // 			}

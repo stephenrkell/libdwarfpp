@@ -5,7 +5,7 @@ import sys
 sys.path.append('./spec')
 
 # FIXME: make the spec file an argument to this script
-from dwarf3 import *
+from dwarf_current import *
 
 def mandatory_fragment(mand):
     if mand: 

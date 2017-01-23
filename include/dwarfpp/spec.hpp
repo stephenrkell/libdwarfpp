@@ -500,7 +500,7 @@ namespace dwarf
 		}
 
 		extern abstract_def& DEFAULT_DWARF_SPEC;
-		extern abstract_def& dwarf3; // HACK
+		extern abstract_def& dwarf_current; // HACK
 		extern dwarf4_t& dwarf4;
 	}
 }

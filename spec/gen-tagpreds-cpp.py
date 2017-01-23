@@ -2,7 +2,7 @@ import sys
 
 sys.path.append('./spec')
 
-from dwarf3 import *
+from dwarf_current import *
 
 def main(argv):
     for base in set(sum([bases for (tag, (attr, children, bases)) in tags], [])):

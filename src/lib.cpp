@@ -743,14 +743,14 @@ namespace dwarf
 		 * get_spec().factory(), 
 		 * requiring all sub-namespace factories (lib::, encap::, core::)
 		 * are centralised in spec
-		 * (rather than trying to do core::factory<dwarf3_def::inst>.make_payload(handle), 
+		 * (rather than trying to do core::factory<dwarf_current_def::inst>.make_payload(handle), 
 		 * which wouldn't let us do get_spec().factory()...
 		 * BUT
-		 * core::factory_for(dwarf3_def::inst).make_payload(handle) WOULD work. So
+		 * core::factory_for(dwarf_current_def::inst).make_payload(handle) WOULD work. So
 		 * it's a toss-up. Go with the latter. */
 				
-		dwarf3_factory_t dwarf3_factory;
-		basic_die *dwarf3_factory_t::make_non_cu_payload(Die::handle_type&& h, root_die& r)
+		dwarf_current_factory_t dwarf_current_factory;
+		basic_die *dwarf_current_factory_t::make_non_cu_payload(Die::handle_type&& h, root_die& r)
 		{
 			basic_die *p;
 			Die d(std::move(h));
@@ -759,7 +759,7 @@ namespace dwarf
 			{
 #define factory_case(name, ...) \
 case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); break; // FIXME: not "basic_die"...
-#include "dwarf3-factory.h"
+#include "dwarf-current-factory.h"
 #undef factory_case
 				default: p = new basic_die(d.spec_here(), std::move(d.handle)); break;
 			}
@@ -773,7 +773,7 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); 
 			// so on... for now, just construct the thing.
 			Die d(std::move(h));
 			Dwarf_Off off = d.offset_here();
-			auto p = new compile_unit_die(dwarf::spec::dwarf3, std::move(d.handle));
+			auto p = new compile_unit_die(dwarf::spec::dwarf_current, std::move(d.handle));
 			/* fill in the CU fields -- this code would be shared by all 
 			 * factories, so we put it here (but HMM, if our factories were
 			 * a delegation chain, we could just put it in the root). */
@@ -797,7 +797,7 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); 
 		compile_unit_die *factory::make_new_cu(root_die& r, std::function<compile_unit_die*()> constructor)
 		{
 			auto p = constructor();
-			//new compile_unit_die(dwarf::spec::dwarf3, Die::handle_type(nullptr, nullptr));
+			//new compile_unit_die(dwarf::spec::dwarf_current, Die::handle_type(nullptr, nullptr));
 			// FIXME FIXME FIXME FIXME FIXME FIXME FIXME
 			p->cu_header_length = 1;
 			p->version_stamp = 2;
@@ -864,7 +864,7 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); 
 				/* get a single attr, seeing through abstract_origin / specification links */ \
 				/* -- this one should work already: virtual encap::attribute_value find_attr(Dwarf_Half a) const; */ \
 			};
-#include "dwarf3-factory.h"
+#include "dwarf-current-factory.h"
 #undef factory_case
 
 			if (tag == DW_TAG_compile_unit)
@@ -883,24 +883,24 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); 
 #define factory_case(name, ...) \
 case DW_TAG_ ## name: \
 			return new in_memory_ ## name ## _die(parent);
-#include "dwarf3-factory.h"
+#include "dwarf-current-factory.h"
 				default: return nullptr;
 			}
 #undef factory_case
 		}
 		
-		basic_die *dwarf3_factory_t::dummy_for_tag(Dwarf_Half tag)
+		basic_die *dwarf_current_factory_t::dummy_for_tag(Dwarf_Half tag)
 		{
-			static basic_die dummy_basic(dwarf::spec::dwarf3);
+			static basic_die dummy_basic(dwarf::spec::dwarf_current);
 #define factory_case(name, ...) \
-static name ## _die dummy_ ## name(dwarf::spec::dwarf3); 
-#include "dwarf3-factory.h"
+static name ## _die dummy_ ## name(dwarf::spec::dwarf_current); 
+#include "dwarf-current-factory.h"
 #undef factory_case
 			switch (tag)
 			{
 #define factory_case(name, ...) \
 case DW_TAG_ ## name: return &dummy_ ## name;
-#include "dwarf3-factory.h"
+#include "dwarf-current-factory.h"
 #undef factory_case
 				default: return &dummy_basic;
 			}
@@ -2555,6 +2555,17 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			if (!bit_offset_equal) return false;
 			
 			return true;
+		}
+		opt<Dwarf_Unsigned> base_type_die::calculate_byte_size() const
+		{
+			/* DWARF4 allows us to have bit_size but not byte_size. */
+			auto opt_byte_size = get_byte_size();
+			if (opt_byte_size) return opt_byte_size;
+			auto opt_bit_size = get_bit_size();
+			if (opt_bit_size) return opt<Dwarf_Unsigned>(
+				(*opt_bit_size % 8 == 0) ? *opt_bit_size / 8 : 1 + *opt_bit_size / 8
+			);
+			return opt<Dwarf_Unsigned>();
 		}
 /* from array_type_die */
 		iterator_df<type_die> array_type_die::get_concrete_type() const

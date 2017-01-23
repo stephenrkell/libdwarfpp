@@ -6,7 +6,11 @@ pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libdwarfpp.pc
 
 dwarfpp_includedir = $(includedir)/dwarfpp
-dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.hpp include/dwarfpp/attr.hpp include/dwarfpp/dwarf-onlystd-v2.h include/dwarfpp/lib.hpp include/dwarfpp/opt.hpp include/dwarfpp/dwarf3-adt.h include/dwarfpp/regs.hpp include/dwarfpp/dwarf3-factory.h include/dwarfpp/dwarf-ext-GNU.h include/dwarfpp/expr.hpp include/dwarfpp/spec.hpp
+dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.hpp \
+  include/dwarfpp/attr.hpp include/dwarfpp/dwarf-onlystd-v2.h include/dwarfpp/lib.hpp \
+  include/dwarfpp/opt.hpp include/dwarfpp/dwarf-current-adt.h include/dwarfpp/regs.hpp \
+  include/dwarfpp/dwarf-current-factory.h include/dwarfpp/dwarf-ext-GNU.h \
+  include/dwarfpp/expr.hpp include/dwarfpp/spec.hpp
 
 dwarfpp_private_includedir = $(includedir)/dwarfpp/private
 dwarfpp_private_include_HEADERS = include/dwarfpp/private/libdwarf-handles.hpp include/dwarfpp/private/libdwarf.hpp
@@ -16,7 +20,7 @@ src_libdwarfpp_la_SOURCES = src/expr.cpp src/lib.cpp src/attr.cpp src/frame.cpp 
 src_libdwarfpp_la_LIBADD = $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lsupc++
 
 INC_PP = include/dwarfpp
-BUILT_SOURCES = $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)/dwarf-ext-GNU.h $(INC_PP)/dwarf3-adt.h $(INC_PP)/dwarf3-factory.h 
+BUILT_SOURCES = $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)/dwarf-ext-GNU.h $(INC_PP)/dwarf-current-adt.h $(INC_PP)/dwarf-current-factory.h 
 CLEANFILES = $(BUILT_SOURCES)
 
 # launder the exit code of grep through "cat"
@@ -30,10 +34,10 @@ include/dwarfpp/dwarf-onlystd-v2.h: include/dwarfpp/dwarf-onlystd.h
 include/dwarfpp/dwarf-ext-GNU.h: $(libdwarf_includes)/dwarf.h
 	cat "$<" | egrep '(_|/\* |, )GNU' | egrep -vi conflict | egrep -vi '^[[:blank:]]*/\*' | cat > "$@"
 
-include/dwarfpp/dwarf3-adt.h: spec/gen-adt-cpp.py spec/dwarf3.py
+include/dwarfpp/dwarf-current-adt.h: spec/gen-adt-cpp.py spec/dwarf_current.py
 	python spec/gen-adt-cpp.py > "$@"
 
-include/dwarfpp/dwarf3-factory.h: spec/gen-factory-cpp.py spec/dwarf3.py
+include/dwarfpp/dwarf-current-factory.h: spec/gen-factory-cpp.py spec/dwarf_current.py
 	python spec/gen-factory-cpp.py > "$@"
 
 lib/libdwarfpp.so: $(lib_LTLIBRARIES)

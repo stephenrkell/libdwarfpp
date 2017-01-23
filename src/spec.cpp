@@ -697,7 +697,7 @@ pair_type name[] = { \
 		dwarf4_t dwarf4_t::inst;
 		dwarf4_t& dwarf4 = dwarf4_t::inst;
 		
-		abstract_def& dwarf3 = dwarf4_t::inst; /* HACK */
+		abstract_def& dwarf_current = dwarf4_t::inst; /* HACK */
 		
 		abstract_def& DEFAULT_DWARF_SPEC = dwarf4;
 		abstract_def& DEFAULT_SPEC = dwarf4;
@@ -723,7 +723,5 @@ pair_type name[] = { \
 		{
 			return a.print(o);
 		}
-		
-		//} // end namespace dwarf3
 	} // end namespace spec
 } // end namespace dwarf

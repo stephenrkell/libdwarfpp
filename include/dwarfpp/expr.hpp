@@ -67,15 +67,15 @@ namespace dwarf
 			Dwarf_Addr hipc;
 			Dwarf_Addr lopc;
 			/*vector<expr_instr>& m_expr;*/ 
-			loc_expr(spec::abstract_def& spec = spec::dwarf3) 
+			loc_expr(spec::abstract_def& spec = spec::dwarf_current) 
             : spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
-			loc_expr(const lib::Dwarf_Locdesc& desc, const spec::abstract_def& spec = spec::dwarf3) : 
+			loc_expr(const lib::Dwarf_Locdesc& desc, const spec::abstract_def& spec = spec::dwarf_current) : 
                 vector<expr_instr>(desc.ld_s, desc.ld_s + desc.ld_cents),
                 spec(spec), hipc(desc.ld_hipc), lopc(desc.ld_lopc)/*,
                 m_expr(*this)*/ {}
-			loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec = spec::dwarf3);
+			loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec = spec::dwarf_current);
             loc_expr(const vector<expr_instr>& expr,
-            	const spec::abstract_def& spec = spec::dwarf3) 
+            	const spec::abstract_def& spec = spec::dwarf_current)
             : vector<expr_instr>(expr),
               spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
             loc_expr(const loc_expr& arg)  // copy constructor
@@ -118,14 +118,14 @@ namespace dwarf
 			}
 			
 			template <class In> loc_expr(In first, In last, 
-            	const spec::abstract_def& spec = spec::dwarf3) 
+            	const spec::abstract_def& spec = spec::dwarf_current) 
             : vector<expr_instr>(first, last),
               spec(spec), /*m_expr(first, last), */hipc(0), lopc(0) {}
               
 			/* This template parses a location expression out of an array of unsigneds. */
 			template<size_t s> 
             loc_expr(Dwarf_Unsigned const (&arr)[s], Dwarf_Addr lopc, Dwarf_Addr hipc,
-            	const spec::abstract_def& spec = spec::dwarf3) 
+            	const spec::abstract_def& spec = spec::dwarf_current) 
             : spec(spec), hipc(hipc), lopc(lopc)
 			{
 				initialize_from_opcode_array(&arr[0], &arr[s], lopc, hipc, spec);
@@ -133,7 +133,7 @@ namespace dwarf
 			
 			template <class In>
 			loc_expr(In begin, In end, Dwarf_Addr lopc, Dwarf_Addr hipc,
-				const spec::abstract_def& spec = spec::dwarf3) 
+				const spec::abstract_def& spec = spec::dwarf_current) 
 			: spec(spec), hipc(hipc), lopc(lopc)
 			{
 				initialize_from_opcode_array(begin, end, lopc, hipc, spec);

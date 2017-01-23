@@ -2,7 +2,7 @@ import sys
 
 sys.path.append('./spec')
 
-from dwarf3 import *
+from dwarf_current import *
 
 def main(argv):
     for (tag, (attr_list, children, bases) ) in tags:

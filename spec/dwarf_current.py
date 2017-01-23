@@ -15,6 +15,7 @@ attr_types = [ \
 ("ordering", "FIXME"), \
 ("byte_size", "unsigned"), \
 ("bit_offset", "unsigned" ), \
+("data_bit_offset", "unsigned" ), \
 ("bit_size", "unsigned" ), \
 ("stmt_list", "FIXME" ), \
 ("low_pc", "address" ), \
@@ -187,7 +188,7 @@ tags = [ \
 ("imported_declaration", ( [], [], ["basic"]  ) ), \
 ("label", ( [], [], ["basic"]  ) ), \
 ("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_static_location"] ) ), \
-("member", ( [("data_member_location", False)], [], ["program_element", "with_dynamic_location"]  ) ), \
+("member", ( [("data_member_location", False), ("bit_size", False), ("bit_offset", False), ("data_bit_offset", False)], [], ["program_element", "with_dynamic_location"]  ) ), \
 ("pointer_type", ( [("pure", False), ("address_class", False)], [], ["address_holding_type"]  ) ), \
 ("reference_type", ( [("address_class", False)], [], ["address_holding_type"]  ) ), \
 ("rvalue_reference_type", ( [("address_class", False)], [], ["address_holding_type"]  ) ), \
@@ -209,7 +210,7 @@ tags = [ \
 ("subrange_type", ( [("upper_bound", False), ("lower_bound", False), ("count", False), ("type", False)], [], ["type"]  ) ), \
 ("with_stmt", ( [], [], ["basic"]  ) ), \
 ("access_declaration", ( [], [], ["basic"]  ) ), \
-("base_type", ( [ ("encoding", True), ("bit_size", False), ("bit_offset", False)], [], ["type"] ) ), \
+("base_type", ( [ ("encoding", True), ("bit_size", False), ("bit_offset", False), ("data_bit_offset", False)], [], ["type"] ) ), \
 ("catch_block", ( [], [], ["basic"]  ) ), \
 ("const_type", ( [], [], ["qualified_type"]  ) ), \
 ("constant", ( [], [] , ["program_element"] ) ), \

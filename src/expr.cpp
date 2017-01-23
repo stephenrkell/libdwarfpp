@@ -120,7 +120,7 @@ namespace dwarf
 			s << ")";
 			return s;
 		}
-		loc_expr::loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec /* = spec::dwarf3 */)
+		loc_expr::loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec /* = spec::dwarf_current */)
 			: spec(spec)
 		{
 			auto loc = core::Locdesc::try_construct(dbg, instrs, len);

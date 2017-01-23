@@ -133,7 +133,7 @@ type_chain_attrs = type_attrs + [ ("type", False) ]
 
 member_types = [ "class_type", "typedef", "structure_type", "enumeration_type", "union_type" ]
 
-dwarf3_tags = [ \
+dwarf_current_tags = [ \
 ("array_type", ( type_attrs + decl_attrs + [("type", False)], ["subrange_type"], ["is_type"] ) ), \
 ("class_type", ( type_attrs + decl_attrs + [], [ "member", "access_declaration" ] + member_types, ["is_type", "has_named_children"] ) ), \
 ("entry_point", ( [], [] , ["base"] ) ), \
@@ -200,7 +200,7 @@ def pluralise(s):
         return "".join([s, "s"])
 
 def output_forward_decls(out, prefix, hdr = "", tmpl_suffix = ""):
-    for tag in dwarf3_tags:
+    for tag in dwarf_current_tags:
         out.write("%s class %s_%s%s;\n" % (hdr, prefix, tag[0], ""))
         
 def output_class_decls(out, prefix, hdr, inheritance_tmpl, self_typedef_prefix, tmpl_suffix, \
@@ -209,7 +209,7 @@ def output_class_decls(out, prefix, hdr, inheritance_tmpl, self_typedef_prefix, 
         virtual_insert = " = 0"
     else:
         virtual_insert = ""
-    for tag in dwarf3_tags:
+    for tag in dwarf_current_tags:
         if (hdr == ""):
             abstract_base_insert = "public virtual abstract::Die_abstract_" + tag[0] + "<Rep>, " \
                 + "public " + prefix + "_base" #"%s" % tag[1][2]
@@ -260,7 +260,7 @@ def output_class_decls(out, prefix, hdr, inheritance_tmpl, self_typedef_prefix, 
         
 def output_tag_specialisations(out, prefix, hdr, tmpl_suffix, ns):
     out.write("} namespace abstract {\n")
-    for tag in dwarf3_tags:
+    for tag in dwarf_current_tags:
         if (hdr == ""):
             template_hdr = "template <> "
             ns_prefix = "%s::" % ns
@@ -272,7 +272,7 @@ def output_tag_specialisations(out, prefix, hdr, tmpl_suffix, ns):
     out.write("} namespace %s {\n" % ns)
 
 def output_method_defns(out, prefix):
-    for tag in dwarf3_tags:
+    for tag in dwarf_current_tags:
         #sys.stderr.write("tag is %s\n" % str(tag))
         for attr in tag[1][0]: 
             #sys.stderr.write("attr is %s\n" % str(attr))
@@ -330,14 +330,14 @@ def output_method_defns(out, prefix):
                 % child);
 
 def output_iterator_typedefs(out, prefix, rep):
-    for tag in dwarf3_tags:
+    for tag in dwarf_current_tags:
         out.write("typedef abstract::iters<%s, DW_TAG_%s>::base_iterator %s_base_iterator;\n" \
             % (rep, tag[0], pluralise(tag[0])))
         out.write("typedef abstract::iters<%s, DW_TAG_%s>::iterator %s_iterator;\n" \
             % (rep, tag[0], pluralise(tag[0])))
             
 def output_factory_cases(out, prefix, ns, constructor_call_args):
-    for tag in dwarf3_tags:
+    for tag in dwarf_current_tags:
         out.write("case DW_TAG_%s: return ALLOC_SHARED(%s::%s_%s, %s);" \
             % (tag[0], ns, prefix, tag[0], constructor_call_args))
 
