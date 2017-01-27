@@ -63,9 +63,20 @@ namespace dwarf
 		{
 			dwarf_finish(arg, &current_dwarf_error);
 		}
+
+		// out-of-line these constructors here while we're debugging them
+		/* Dummy constructor used only for dummy DIEs. */
+		basic_die::basic_die(spec& s) : refcount(0), d(nullptr, 0), s(s)
+		{}
+		/* Constructor used for in-memory DIEs How can we tell them apart? See is_dummy(). */
+		basic_die::basic_die(spec& s, root_die& r) : refcount(0), d(nullptr, 0), s(s)
+		{
+			/* This is now done in the constructors for each in-memory DIE class,
+			 * because we can't get the offset from this context. */
+			//r.live_dies.insert(make_pair(get_offset(), this));
+		}
 		
 		/* printing of basic_dies */
-		
 		void basic_die::print(std::ostream& s) const
 		{
 			s << "DIE, offset 0x" << std::hex << get_offset() << std::dec
@@ -486,6 +497,16 @@ namespace dwarf
 			return found.size() > 0 ? *found.begin() : iterator_base::END;
 		}
 		
+		std::vector<iterator_base>
+		root_die::find_all_visible_named_grandchildren(const string& name)
+		{
+			vector<string> name_vec(1, name);
+			std::vector<iterator_base > found;
+			resolve_all_visible_from_root(name_vec.begin(), name_vec.end(), 
+				found, 0);
+			return found;
+		}
+		
 		bool root_die::is_under(const iterator_base& i1, const iterator_base& i2)
 		{
 			// is i1 under i2?
@@ -723,6 +744,22 @@ namespace dwarf
 			}
 		}
 		
+		iterator_df<compile_unit_die>
+		root_die::get_or_create_synthetic_cu()
+		{
+			if (this->synthetic_cu)
+			{
+				return find(*this->synthetic_cu).as_a<compile_unit_die>();
+			}
+			
+			auto created = make_new(begin(), DW_TAG_compile_unit);
+			/* FIXME: set attributes */
+			
+			this->synthetic_cu = created.offset_here();
+			iterator_df<compile_unit_die> created_cu = created.as_a<compile_unit_die>();
+			return created_cu;
+		}
+		
 		iterator_base
 		root_die::make_new(const iterator_base& parent, Dwarf_Half tag)
 		{
@@ -732,6 +769,7 @@ namespace dwarf
 			root_die::ptr_type p = core::factory::for_spec(spec).make_new(parent, tag);
 			Dwarf_Off o = dynamic_cast<in_memory_abstract_die&>(*p).get_offset();
 			sticky_dies.insert(make_pair(o, p));
+			assert(live_dies.find(o) != live_dies.end());
 			parent_of.insert(make_pair(o, parent.offset_here()));
 			auto found = find(o);
 			assert(found);
@@ -824,7 +862,8 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); 
 				in_memory_ ## name ## _die(const iterator_base& parent) \
 				: \
 					/* initialize basic_die directly, since it's a virtual base */ \
-					basic_die(parent.depth() >= 1 ? parent.spec_here() : DEFAULT_DWARF_SPEC), \
+					basic_die(parent.depth() >= 1 ? parent.spec_here() : DEFAULT_DWARF_SPEC, \
+					    parent.root()), \
 					in_memory_abstract_die(parent.root(), \
 							  parent.is_root_position() ? \
 							  parent.root().fresh_cu_offset() \
@@ -832,7 +871,12 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); 
 						parent.is_root_position() ? 0 : parent.enclosing_cu_offset_here(), \
 						DW_TAG_ ## name), \
 					name ## _die(parent.depth() >= 1 ? parent.spec_here() : DEFAULT_DWARF_SPEC) \
-				{ if (parent.is_root_position()) m_cu_offset = m_offset; } \
+				{ \
+					if (parent.is_root_position()) m_cu_offset = m_offset; \
+					parent.root().live_dies.insert( \
+					    make_pair(this->in_memory_abstract_die::get_offset(), this) \
+					); \
+				 } \
 				root_die& get_root() const \
 				{ return *p_root; } \
 				/* We also (morally redundantly) override all the abstract_die methods 
@@ -2077,7 +2121,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					for (auto i_child = member_children.first;
 						i_child != member_children.second; ++i_child)
 					{
-						walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f, next_currently_walking);
+						walk_type(i_child->find_or_create_type_handling_bitfields(),
+							i_child.base().base(), pre_f, post_f, next_currently_walking);
 					}
 					// visit all inheritances
 					auto inheritance_children = t.as_a<with_data_members_die>().children().subseq_of<inheritance_die>();
@@ -2566,6 +2611,25 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				(*opt_bit_size % 8 == 0) ? *opt_bit_size / 8 : 1 + *opt_bit_size / 8
 			);
 			return opt<Dwarf_Unsigned>();
+		}
+		pair<Dwarf_Unsigned, Dwarf_Unsigned> base_type_die::bit_size_and_offset() const
+		{
+			opt<Dwarf_Unsigned> opt_bsz = get_bit_size();
+			opt<Dwarf_Unsigned> opt_boff = get_bit_offset();
+			opt<Dwarf_Unsigned> opt_data_boff = get_data_bit_offset();
+			
+			unsigned bit_size = opt_bsz ? *opt_bsz : 8 * *calculate_byte_size();
+			unsigned bit_offset = opt_data_boff ? *opt_data_boff : 
+				opt_boff ? *opt_boff : 0;
+			
+			return make_pair(bit_size, bit_offset);
+		}
+		bool base_type_die::is_bitfield_type() const
+		{
+			auto opt_byte_sz = this->calculate_byte_size();
+			pair<Dwarf_Unsigned, Dwarf_Unsigned> bit_size_and_offset = this->bit_size_and_offset();
+			return !(bit_size_and_offset.second == 0
+				&& bit_size_and_offset.first == 8 * *opt_byte_sz);
 		}
 /* from array_type_die */
 		iterator_df<type_die> array_type_die::get_concrete_type() const
@@ -3836,6 +3900,84 @@ case DW_TAG_ ## name: return &dummy_ ## name;
             }
             return opt<Dwarf_Off>();
         }
+/* from member_die, special helper for bitfields */
+		iterator_df<type_die> member_die::find_or_create_type_handling_bitfields() const
+		{
+			/* Just do find_type if we don't have the bitfield attributes. */
+			if (!get_bit_size() && !get_bit_offset() && !get_data_bit_offset()) return find_type();
+
+			cerr << "Handling bitfield member at 0x" << std::hex << get_offset() << std::dec
+				<< std::endl;
+			
+			opt<Dwarf_Unsigned> opt_bsz = get_bit_size();
+			opt<Dwarf_Unsigned> opt_boff = get_bit_offset();
+			opt<Dwarf_Unsigned> opt_data_boff = get_data_bit_offset();
+			iterator_df<type_die> t = find_type();
+			
+			if (!t.is_a<base_type_die>()) return t;
+			auto bt = t.as_a<base_type_die>();
+			
+			pair<Dwarf_Unsigned, Dwarf_Unsigned> bt_bit_size_and_offset = bt->bit_size_and_offset();
+			
+			if (!bt->get_name()) return t;
+			
+			Dwarf_Unsigned effective_bit_size = opt_bsz ? *opt_bsz : bt_bit_size_and_offset.first;
+			Dwarf_Unsigned effective_bit_offset = opt_data_boff ? *opt_data_boff : 
+				opt_boff ? *opt_boff : bt_bit_size_and_offset.second;
+			
+			/* Decide whether to create -- need to search existing base types.
+			 * HACK: use naming and visible_named_grandchildren:
+			 * Varied-width/size types should always have the same name as the full-width one.
+			 */
+			vector<iterator_base> all_found = get_root().find_all_visible_named_grandchildren(
+				*bt->get_name());
+			/* Does any of them really match? */
+			auto not_equal = [effective_bit_size, effective_bit_offset](const iterator_base &i) {
+				if (!i.is_a<base_type_die>()) return true;
+				auto other_bt = i.as_a<base_type_die>();
+				pair<Dwarf_Unsigned, Dwarf_Unsigned> bit_size_and_offset = other_bt->bit_size_and_offset();
+				
+				return !(effective_bit_size == bit_size_and_offset.first
+					&& effective_bit_offset == bit_size_and_offset.second);
+			};
+			
+			Dwarf_Unsigned effective_byte_size = 
+				((effective_bit_offset + effective_bit_size) % 8 == 0) ?
+				(effective_bit_offset + effective_bit_size) / 8 :
+				1 + (effective_bit_offset + effective_bit_size) / 8;
+			
+			auto new_end = std::remove_if(all_found.begin(), all_found.end(), not_equal);
+			switch (srk31::count(all_found.begin(), new_end))
+			{
+				case 0: {
+					// we need to create
+					// where to create -- new CU? yes, I guess so
+					auto cu = get_root().get_or_create_synthetic_cu();
+					auto created = get_root().make_new(cu, DW_TAG_base_type);
+					auto& attrs = dynamic_cast<core::in_memory_abstract_die&>(created.dereference())
+						.attrs();
+					encap::attribute_value v_name(*bt->get_name()); // must have a name
+					attrs.insert(make_pair(DW_AT_name, v_name));
+					encap::attribute_value v_bit_size(effective_bit_size);
+					attrs.insert(make_pair(DW_AT_bit_size, v_bit_size));
+					encap::attribute_value v_bit_offset(effective_bit_offset);
+					attrs.insert(make_pair(DW_AT_data_bit_offset, v_bit_offset));
+					encap::attribute_value v_encoding(bt->get_encoding());
+					attrs.insert(make_pair(DW_AT_encoding, v_encoding));
+					encap::attribute_value v_byte_size(effective_byte_size);
+					attrs.insert(make_pair(DW_AT_byte_size, v_byte_size));
+					// debugging
+					get_root().print_tree(std::move(cu), cerr);
+					return created;
+				}
+				default:
+					// just go with the first, so fall through
+				case 1:
+					// pick the first and return
+					return all_found.begin()->as_a<base_type_die>();
+			}
+			
+		}
 /* from with_dynamic_location_die, object-based cases */
 		encap::loclist member_die::get_dynamic_location() const
 		{

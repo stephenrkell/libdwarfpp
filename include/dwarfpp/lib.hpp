@@ -290,6 +290,7 @@ namespace dwarf
 			operator()(pair<Iter, Iter>&& in_seq);
 		};
 		
+		struct in_memory_abstract_die;
 		class basic_die : public virtual abstract_die
 		{
 			friend struct iterator_base;
@@ -322,13 +323,16 @@ namespace dwarf
 			// get a single attr, seeing through abstract_origin / specification links
 			virtual encap::attribute_value find_attr(Dwarf_Half a) const;
 			virtual root_die& get_root() const // NOT defaulted!
-			{ 
+			{
 				assert(d.handle);
 				return d.get_constructing_root();
 			}
+			inline bool is_dummy() const;
 			
-			// protected constructor constructing dummy instances only
-			inline basic_die(spec& s): refcount(0), d(nullptr, 0), s(s) {}
+			// protected constructor constructing dummy instances
+			basic_die(spec& s); 
+			// protested constructor constructing in-memory instances
+			basic_die(spec& s, root_die &r);
 
 			// protected constructor that is never actually used, but 
 			// required to avoid special-casing in macros -- see begin_class() macro
@@ -447,6 +451,7 @@ namespace dwarf
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
 			map<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
 			map<Dwarf_Off, opt<uint32_t> > type_summary_code_cache;
+			opt<Dwarf_Off> synthetic_cu;
 
 			multimap<string, Dwarf_Off> visible_named_grandchildren;
 			bool visible_named_grandchildren_is_complete;
@@ -460,6 +465,7 @@ namespace dwarf
 		protected:
 			virtual ptr_type make_payload(const iterator_base& it);
 		public:
+			virtual iterator_df<compile_unit_die> get_or_create_synthetic_cu();
 			virtual iterator_base make_new(const iterator_base& parent, Dwarf_Half tag);
 			virtual bool is_sticky(const abstract_die& d);
 			
@@ -572,6 +578,7 @@ namespace dwarf
 			iterator_base find_named_child(const iterator_base& start, const string& name);
 			/* This one is only for searches anchored at the root, so no need for "start". */
 			iterator_base find_visible_named_grandchild(const string& name);
+			std::vector<iterator_base> find_all_visible_named_grandchildren(const string& name);
 			
 			bool is_under(const iterator_base& i1, const iterator_base& i2);
 			
@@ -626,23 +633,6 @@ namespace dwarf
 			void print_tree(iterator_base&& begin, std::ostream& s) const;
 		};	
 		std::ostream& operator<<(std::ostream& s, const root_die& d);
-		
-		inline basic_die::basic_die(spec& s, Die&& h)
-		 : refcount(0), d(std::move(h)), s(s) 
-		{
-			if (d.handle && get_offset() != 0) 
-			{
-				get_root().live_dies.insert(make_pair(get_offset(), this));
-			}
-		}
-
-		inline basic_die::~basic_die()
-		{
-			if (d.handle && get_offset() != 0)
-			{
-				get_root().live_dies.erase(get_offset());
-			}
-		}
 
 		// inlines we couldn't define earlier -- declared in private/libdwarf-handles.hpp
 		inline encap::attribute_map Die::copy_attrs() const
@@ -676,6 +666,23 @@ namespace dwarf
 			 : p_root(&r), m_offset(offset), m_cu_offset(cu_offset), m_tag(tag)
 			{}
 		};
+		
+		// inline basic_die::basic_die(spec&) was here
+		
+		inline bool basic_die::is_dummy() const // dynamic_cast doesn't work til we're fully constructed
+		{
+			return !d.handle && !refcount && !dynamic_cast<const in_memory_abstract_die *>(this);
+		}		
+		inline basic_die::basic_die(spec& s, Die&& h)
+		 : refcount(0), d(std::move(h)), s(s) 
+		{
+			get_root().live_dies.insert(make_pair(get_offset(), this));
+		}
+
+		inline basic_die::~basic_die()
+		{
+			if (!is_dummy()) get_root().live_dies.erase(get_offset());
+		}
 		
 		struct in_memory_root_die : public root_die
 		{
@@ -1503,7 +1510,9 @@ namespace dwarf
 	struct fragment ## _die : virtual __VA_ARGS__ { \
 	friend struct dwarf_current_factory_t; \
 	protected: /* dummy constructor used only to construct dummy instances */\
-		fragment ## _die(spec& s) : basic_die(s, Die(nullptr, nullptr)) {} \
+		fragment ## _die(spec& s) : basic_die(s) {} \
+		/* constructor used only to construct in-memory instances */\
+		fragment ## _die(spec& s, root_die& r) : basic_die(s, r) {} \
 	public: /* main constructor */ \
 		constructor(fragment, base_inits /* NOTE: base_inits is expanded via ',' into varargs list */) \
 	protected: /* protected constructor that doesn't touch basic_die */ \
@@ -1881,6 +1890,8 @@ end_class(with_data_members)
 #define extra_decls_base_type \
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		opt<Dwarf_Unsigned> calculate_byte_size() const; \
+		pair<Dwarf_Unsigned, Dwarf_Unsigned> bit_size_and_offset() const; \
+		bool is_bitfield_type() const;
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
 #define extra_decls_structure_type \
 		opt<Dwarf_Unsigned> calculate_byte_size() const; \
@@ -1898,7 +1909,8 @@ end_class(with_data_members)
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */ \
 		core::iterator_df<core::type_die> get_return_type() const; 
 #define extra_decls_member \
-		has_object_based_location
+		has_object_based_location \
+		iterator_df<type_die> find_or_create_type_handling_bitfields() const;
 #define extra_decls_inheritance \
 		has_object_based_location
 
@@ -2083,7 +2095,8 @@ friend class factory;
 						if (name == *path_pos
 							&& (
 								!i_g.base().base().has_attr_here(DW_AT_visibility) 
-								|| i_g.base().base().attr(DW_AT_visibility) != DW_VIS_local
+								|| i_g.base().base().attr(DW_AT_visibility).get_unsigned()
+									 != DW_VIS_local
 							)
 						)
 						{

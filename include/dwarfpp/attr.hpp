@@ -160,10 +160,10 @@ namespace dwarf
 				spec::abstract_def& = spec::DEFAULT_DWARF_SPEC*/);
 				// spec is no longer passed because it's deducible from r and d.get_offset()
 		public:
-			attribute_value(Dwarf_Bool b)         : orig_form(DW_FORM_flag),	 f(FLAG),	  v_flag(b) {}
-			attribute_value(address addr)         : orig_form(DW_FORM_addr),	 f(ADDR),	  v_addr(addr) {}		 
-			attribute_value(Dwarf_Unsigned u)     : orig_form(DW_FORM_udata),	 f(UNSIGNED), v_u(u) {} 			 
-			attribute_value(Dwarf_Signed s)       : orig_form(DW_FORM_sdata),	 f(SIGNED),   v_s(s) {} 		 
+			explicit attribute_value(Dwarf_Bool b)         : orig_form(DW_FORM_flag),	 f(FLAG),	  v_flag(b) {}
+			explicit attribute_value(address addr)         : orig_form(DW_FORM_addr),	 f(ADDR),	  v_addr(addr) {}		 
+			explicit attribute_value(Dwarf_Unsigned u)     : orig_form(DW_FORM_udata),	 f(UNSIGNED), v_u(u) {} 			 
+			explicit attribute_value(Dwarf_Signed s)       : orig_form(DW_FORM_sdata),	 f(SIGNED),   v_s(s) {} 		 
 			attribute_value(const char *s)        : orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}
 			attribute_value(const std::string& s) : orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}				 
 			attribute_value(const weak_ref& r)    : orig_form(DW_FORM_ref_addr), f(REF),      v_ref(r.clone()) {}
