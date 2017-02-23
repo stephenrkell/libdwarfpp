@@ -435,7 +435,7 @@ namespace dwarf
 			if (address_size_in_dwarf > 0) return address_size_in_dwarf;
 			else 
 			{
-				assert(version == 1);
+				assert(version == 1 || version == 3);
 				// we have to guess it's an ELF file
 				auto e_machine = owner.get_elf_machine();
 				return (e_machine == EM_X86_64) ? 8 : (e_machine == EM_386) ? 4 : (assert(false), 4);
