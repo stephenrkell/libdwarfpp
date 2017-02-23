@@ -2,7 +2,6 @@
 #include <fileno.hpp>
 #include <dwarfpp/lib.hpp>
 #include <dwarfpp/attr.hpp>
-#include <dwarfpp/adt.hpp>
 #include <boost/icl/interval_map.hpp>
 
 using std::cout; 
@@ -75,7 +74,7 @@ int main(int argc, char **argv)
 				auto found = root.find(off);
 				assert(found);
 				auto with_static_location
-				 = dynamic_pointer_cast<core::with_static_location_die>(found);
+				 = found.as_a<core::with_static_location_die>();
 				if (!with_static_location)
 				{
 					cerr << "Warning: expected a with_static_location_die, got " 
@@ -85,7 +84,7 @@ int main(int argc, char **argv)
 				try
 				{
 					boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned> out
-					 = with_static_location->file_relative_intervals(nullptr, nullptr);
+					 = with_static_location->file_relative_intervals(root, nullptr, nullptr);
 					cerr << out << endl;
 					auto interval_count = boost::icl::interval_count(out);
 					if (interval_count != 1)
@@ -121,7 +120,7 @@ int main(int argc, char **argv)
 					 * CU offset (64 bits);
 					 * object size (32 bits).
 					 */
-					auto addr_size = root.find(cu_offset)->as_a<compile_unit_die>()->get_address_size();
+					auto addr_size = root.find(cu_offset).as_a<core::compile_unit_die>()->get_address_size();
 					assert(addr_size == 4 || addr_size == 8);
 					assert(sizeof cu_offset == 8);
 					assert(sizeof size == 4);

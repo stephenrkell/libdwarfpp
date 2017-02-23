@@ -23,6 +23,28 @@ INC_PP = include/dwarfpp
 BUILT_SOURCES = $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)/dwarf-ext-GNU.h $(INC_PP)/dwarf-current-adt.h $(INC_PP)/dwarf-current-factory.h 
 CLEANFILES = $(BUILT_SOURCES)
 
+examplesdir = examples
+examples_PROGRAMS = examples/core-query examples/dwarfppdump \
+  examples/print_spec examples/sranges examples/subseq
+
+EXAMPLE_LDFLAGS_INS = -L$(top_srcdir)/lib -Wl,-rpath,$(realpath $(top_srcdir))/lib
+EXAMPLE_LDADD_INS = -ldwarfpp -ldwarf -lelf -lz $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS)
+examples_core_query_SOURCES = examples/core-query.cpp
+examples_core_query_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
+examples_core_query_LDADD = $(EXAMPLE_LDADD_INS)
+examples_dwarfppdump_SOURCES = examples/dwarfppdump.cpp
+examples_dwarfppdump_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
+examples_dwarfppdump_LDADD = $(EXAMPLE_LDADD_INS)
+examples_print_spec_SOURCES = examples/print_spec.cpp
+examples_print_spec_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
+examples_print_spec_LDADD = $(EXAMPLE_LDADD_INS)
+examples_sranges_SOURCES = examples/sranges.cpp
+examples_sranges_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
+examples_sranges_LDADD = $(EXAMPLE_LDADD_INS)
+examples_subseq_SOURCES = examples/subseq.cpp
+examples_subseq_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
+examples_subseq_LDADD = $(EXAMPLE_LDADD_INS)
+
 # launder the exit code of grep through "cat"
 include/dwarfpp/dwarf-onlystd.h: $(libdwarf_includes)/dwarf.h
 	cat "$<" | egrep -v 'DW_[A-Z]+_(GNU|SUN|HP|APPLE|INTEL|ARM|upc|PGI|ALTIUM|MIPS|CPQ|VMS|GNAT)' | \
