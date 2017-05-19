@@ -1634,6 +1634,7 @@ struct summary_code_word_t
 {
 	opt<uint32_t> val;
 
+	void invalidate() { val = opt<uint32_t>(); }
 	void zero_check()
 	{
 		if (val && *val == 0)
@@ -1699,6 +1700,7 @@ struct type_set : public unordered_set<
 {
 	type_set() : unordered_set({}, 0, type_hash_fn, type_eq_fn) {}
 };
+typedef set< opt<Dwarf_Off> > dieloc_set;
 template <typename Value>
 struct type_map : public unordered_map< 
 	/* Key */   iterator_df<type_die>,
@@ -1720,7 +1722,7 @@ void walk_type(core::iterator_df<core::type_die> t,
 	const std::function<bool(core::iterator_df<core::type_die>, core::iterator_df<core::program_element_die>)>& pre_f,
 	const std::function<void(core::iterator_df<core::type_die>, core::iterator_df<core::program_element_die>)>& post_f
 	 = std::function<void(core::iterator_df<core::type_die>, core::iterator_df<core::program_element_die>)>(),
-	const type_set& currently_walking = type_set());
+	const dieloc_set& currently_walking = dieloc_set());
 /* with_type_describing_layout_die */
 	struct with_type_describing_layout_die : public virtual program_element_die
 	{
