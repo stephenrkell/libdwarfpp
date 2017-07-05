@@ -2,7 +2,7 @@
  * 
  * lib.cpp: basic C++ wrapping of libdwarf C API.
  *
- * Copyright (c) 2008--9, Stephen Kell.
+ * Copyright (c) 2008--17, Stephen Kell.
  */
 
 #include "dwarfpp/lib.hpp"
@@ -21,13 +21,12 @@ namespace dwarf
 		using std::pair;
 		using std::make_pair;
 		using std::string;
-		using boost::optional;
 		using std::unique_ptr;
 		using std::deque;
 		using std::map;
 		using std::endl;
 		using namespace dwarf::lib;
-		
+
 #ifndef NO_TLS
 		__thread Dwarf_Error current_dwarf_error;
 #else
@@ -66,10 +65,10 @@ namespace dwarf
 
 		// out-of-line these constructors here while we're debugging them
 		/* Dummy constructor used only for dummy DIEs. */
-		basic_die::basic_die(spec& s) : refcount(0), d(nullptr, 0), s(s)
+		basic_die::basic_die(spec& s) : refcount(0), d(nullptr, 0)
 		{}
-		/* Constructor used for in-memory DIEs How can we tell them apart? See is_dummy(). */
-		basic_die::basic_die(spec& s, root_die& r) : refcount(0), d(nullptr, 0), s(s)
+		/* Constructor used for in-memory. DIEs How can we tell them apart? See is_dummy(). */
+		basic_die::basic_die(spec& s, root_die& r) : refcount(0), d(nullptr, 0)
 		{
 			/* This is now done in the constructors for each in-memory DIE class,
 			 * because we can't get the offset from this context. */
@@ -80,14 +79,14 @@ namespace dwarf
 		void basic_die::print(std::ostream& s) const
 		{
 			s << "DIE, offset 0x" << std::hex << get_offset() << std::dec
-				<< ", tag " << this->s.tag_lookup(get_tag());
+				<< ", tag " << find_self().spec_here().tag_lookup(get_tag());
 			if (get_name()) s << ", name \"" << *get_name() << "\""; 
 			else s << ", no name";
 		}
 		void basic_die::print_with_attrs(std::ostream& s) const
 		{
 			s << "DIE, offset 0x" << std::hex << get_offset() << std::dec
-				<< ", tag " << this->s.tag_lookup(get_tag())
+				<< ", tag " << find_self().spec_here().tag_lookup(get_tag())
 				<< ", attributes: ";
 			srk31::indenting_ostream is(s);
 			is.inc_level();
@@ -150,7 +149,7 @@ namespace dwarf
 		 * not have to copy. */
 		void root_die::print_tree(iterator_base&& begin, std::ostream& s) const
 		{
-			unsigned start_depth = begin.m_depth;
+			unsigned start_depth = begin.depth();
 			Dwarf_Off start_offset = begin.offset_here();
 			for (iterator_df<> i = std::move(begin);
 				(i.is_root_position() || i.is_real_die_position()) 
@@ -181,16 +180,8 @@ namespace dwarf
 			for (int i = 0; i < attrs.get_len(); ++i)
 			{
 				s << dwarf::spec::DEFAULT_DWARF_SPEC.attr_lookup(attrs[i].attr_here());
-				try
-				{
-					encap::attribute_value v(attrs[i], attrs.d, attrs.d.get_constructing_root());
-					s << ": " << v;
-				} catch (Not_supported)
-				{
-					//s << "(unknown attribute 0x" << std::hex << attrs[i].attr_here() 
-					//	<< std::dec << ")";
-				}
-				s << endl;
+				encap::attribute_value v(attrs[i], attrs.d, attrs.d.get_constructing_root());
+				s << ": " << v << endl;
 			}
 			return s;
 		}
@@ -278,7 +269,7 @@ namespace dwarf
 				attr(DW_AT_specification).get_flag())
 			{
 				return iterator_base::END;
-			} else return get_root().find(get_offset()); // we have to find ourselves :-(
+			} else return find_self();
 		}
 		
 		root_die::root_die(int fd)
@@ -342,14 +333,14 @@ namespace dwarf
 				if (found == parent_of.end()) 
 				{
 					// find ourselves downwards, then try again
-					cerr << "Warning: searching for parent of " << it << " all the way from root." << endl;
+					debug(2) << "Warning: searching for parent of " << it << " all the way from root." << endl;
 					auto found_again = find_downwards(it.offset_here());
 					found = parent_of.find(it.offset_here());
 				}
 				assert(found != parent_of.end());
 				assert(found->first == it.offset_here());
 				assert(found->second < it.offset_here());
-				//cerr << "Parent cache says parent of 0x" << std::hex << found->first
+				//debug(2) << "Parent cache says parent of 0x" << std::hex << found->first
 				// << " is 0x" << std::hex << found->second << std::dec << endl;
 				
 				// this is using the "dieoff" constructor
@@ -367,7 +358,7 @@ namespace dwarf
 				//	assert(false);
 				//}
 				// just use pos()
-				return pos(found->second, it.depth() - 1, optional<Dwarf_Off>());
+				return pos(found->second, it.depth() - 1, opt<Dwarf_Off>());
 			}
 		}
 		
@@ -407,7 +398,9 @@ namespace dwarf
 				auto found_live = live_dies.find(found->second);
 				if (found_live != live_dies.end())
 				{
-					return iterator_base(static_cast<abstract_die&&>(*found_live->second), it.depth() + 1, *this);
+					return iterator_base(static_cast<abstract_die&&>(*found_live->second),
+						it.maybe_depth() ? it.depth() + 1 : opt<unsigned short>(),
+						*this);
 				} // else fall through
 			}
 			
@@ -437,7 +430,9 @@ namespace dwarf
 			// shared parent cache logic
 			if (maybe_handle)
 			{
-				iterator_base new_it(Die(std::move(maybe_handle)), it.get_depth() + 1, it.get_root());
+				iterator_base new_it(Die(std::move(maybe_handle)),
+					it.maybe_depth() ? it.depth() + 1 : opt<unsigned short>(),
+					it.get_root());
 				// install in parent cache, first_child_of
 				parent_of[new_it.offset_here()] = start_offset;
 				first_child_of[start_offset] = new_it.offset_here();
@@ -518,9 +513,6 @@ namespace dwarf
 		
 		bool root_die::advance_cu_context()
 		{
-			// boost::optional doesn't let us get a writable lvalue out of an
-			// uninitialized optional, so we have to dummy up. 
-
 			Dwarf_Unsigned seen_cu_header_length;
 			Dwarf_Half seen_version_stamp;
 			Dwarf_Unsigned seen_abbrev_offset;
@@ -541,20 +533,20 @@ namespace dwarf
 			if (retval == DW_DLV_NO_ENTRY)
 			{
 				// this means no variables (including last_seen_next_cu_header) were set
-				last_seen_cu_header_length = optional<decltype(*last_seen_cu_header_length)>(); assert(!last_seen_cu_header_length);
-				last_seen_version_stamp = optional<decltype(*last_seen_version_stamp)>(); assert(!last_seen_version_stamp);
-				last_seen_abbrev_offset = optional<decltype(*last_seen_abbrev_offset)>(); assert(!last_seen_abbrev_offset);
-				last_seen_address_size = optional<decltype(*last_seen_address_size)>(); assert(!last_seen_address_size);
-				last_seen_offset_size = optional<decltype(*last_seen_offset_size)>(); assert(!last_seen_offset_size);
-				last_seen_extension_size = optional<decltype(*last_seen_extension_size)>(); assert(!last_seen_extension_size);
-				last_seen_next_cu_header = optional<decltype(*last_seen_next_cu_header)>(); assert(!last_seen_next_cu_header);
+				last_seen_cu_header_length = opt<Dwarf_Unsigned>(); assert(!last_seen_cu_header_length);
+				last_seen_version_stamp = opt<Dwarf_Half>(); assert(!last_seen_version_stamp);
+				last_seen_abbrev_offset = opt<Dwarf_Unsigned>(); assert(!last_seen_abbrev_offset);
+				last_seen_address_size = opt<Dwarf_Half>(); assert(!last_seen_address_size);
+				last_seen_offset_size = opt<Dwarf_Half>(); assert(!last_seen_offset_size);
+				last_seen_extension_size = opt<Dwarf_Half>(); assert(!last_seen_extension_size);
+				last_seen_next_cu_header = opt<Dwarf_Unsigned>(); assert(!last_seen_next_cu_header);
 				current_cu_offset = 0UL;
 				return false;
 			}
 			else
 			{
 				assert(retval == DW_DLV_OK);
-				optional<Dwarf_Off> prev_next_cu_header = last_seen_next_cu_header;
+				opt<Dwarf_Off> prev_next_cu_header = last_seen_next_cu_header;
 				Dwarf_Off prev_current_cu_offset = current_cu_offset;
 			
 				last_seen_cu_header_length = seen_cu_header_length;
@@ -577,7 +569,7 @@ namespace dwarf
 				{
 					/* Assert sanity of first CU offset. */
 					assert(current_cu_offset > 0UL && current_cu_offset < 32);
-					first_cu_offset = optional<Dwarf_Off>(current_cu_offset);
+					first_cu_offset = opt<Dwarf_Off>(current_cu_offset);
 				} 
 				if (prev_next_cu_header) // sanity check
 				{
@@ -703,7 +695,7 @@ namespace dwarf
 			auto maybe_sibling = next_sibling(it); 
 			if (maybe_sibling != iterator_base::END) 
 			{
-				//cerr << "Think we found a later sibling of 0x" << std::hex << start_off
+				//debug(2) << "Think we found a later sibling of 0x" << std::hex << start_off
 				//	<< " at 0x" << std::hex << maybe_sibling.offset_here() << std::dec << endl;
 				it = std::move(maybe_sibling); assert(it.depth() == start_depth); return true; 
 			}
@@ -731,15 +723,13 @@ namespace dwarf
 				/* heap-allocate the right kind of basic_die, 
 				 * creating the intrusive ptr, hence bumping the refcount */
 				it.cur_payload = core::factory::for_spec(it.spec_here())
-					.make_payload(std::move(dynamic_cast<Die&>(it.get_handle()).handle), *this);
+					.make_payload(std::move(it.get_handle()), *this);
 				it.state = iterator_base::WITH_PAYLOAD;
 				
-#ifdef DWARFPP_WARN_ON_INEFFICIENT_USAGE
 				if (it.tag_here() != DW_TAG_compile_unit)
 				{
-					cerr << "Warning: made payload for non-CU at 0x" << std::hex << it.offset_here() << std::dec << endl;
+					debug(2) << "Warning: made payload for non-CU at 0x" << std::hex << it.offset_here() << std::dec << endl;
 				}
-#endif
 				return it.cur_payload;
 			}
 		}
@@ -788,10 +778,10 @@ namespace dwarf
 		 * it's a toss-up. Go with the latter. */
 				
 		dwarf_current_factory_t dwarf_current_factory;
-		basic_die *dwarf_current_factory_t::make_non_cu_payload(Die::handle_type&& h, root_die& r)
+		basic_die *dwarf_current_factory_t::make_non_cu_payload(abstract_die&& h, root_die& r)
 		{
 			basic_die *p;
-			Die d(std::move(h));
+			Die d(std::move(dynamic_cast<Die&&>(h)));
 			assert(d.tag_here() != DW_TAG_compile_unit);
 			switch (d.tag_here())
 			{
@@ -804,12 +794,12 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); 
 			return p;
 		}
 		
-		compile_unit_die *factory::make_cu_payload(Die::handle_type&& h, root_die& r)
+		compile_unit_die *factory::make_cu_payload(abstract_die&& h, root_die& r)
 		{
 			// Key point: we're not allowed to call Die::spec_here() for this handle. 
 			// We could write libdwarf-level code to grab the version stamp and 
 			// so on... for now, just construct the thing.
-			Die d(std::move(h));
+			Die d(std::move(dynamic_cast<Die&&>(h)));
 			Dwarf_Off off = d.offset_here();
 			auto p = new compile_unit_die(dwarf::spec::dwarf_current, std::move(d.handle));
 			/* fill in the CU fields -- this code would be shared by all 
@@ -916,21 +906,30 @@ case DW_TAG_ ## name: p = new name ## _die(d.spec_here(), std::move(d.handle)); 
 				return make_new_cu(r, [parent](){ return new in_memory_compile_unit_die(parent); });
 			}
 			
-			if (parent.depth() == 1) r.visible_named_grandchildren_is_complete = false;
-			
 			//Dwarf_Off parent_off = parent.offset_here();
 			//Dwarf_Off new_off = /*parent.is_root_position() ? r.fresh_cu_offset() : */ r.fresh_offset_under(r.enclosing_cu(parent));
 			//Dwarf_Off cu_off = /*(tag == DW_TAG_compile_unit) ? new_off : */ parent.enclosing_cu_offset_here();
 			
+			basic_die *ret = nullptr;
 			switch (tag)
 			{
 #define factory_case(name, ...) \
 case DW_TAG_ ## name: \
-			return new in_memory_ ## name ## _die(parent);
+			ret = new in_memory_ ## name ## _die(parent); break;
 #include "dwarf-current-factory.h"
 				default: return nullptr;
 			}
 #undef factory_case
+			return ret;
+			
+			if (parent.depth() == 1)
+			{
+				auto it = r.pos(ret->get_offset(), parent.depth() + 1);
+				if (it.global_name_here())
+				{
+					r.visible_named_grandchildren_cache.insert(make_pair(*it.global_name_here(), ret->get_offset()));
+				}
+			}
 		}
 		
 		basic_die *dwarf_current_factory_t::dummy_for_tag(Dwarf_Half tag)
@@ -1136,6 +1135,16 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			if (!is_real_die_position()) return opt<string>();
 			return get_handle().get_name();
 		}
+		opt<string>
+		iterator_base::global_name_here() const
+		{
+			auto maybe_name = name_here();
+			if (maybe_name &&
+					(!has_attr_here(DW_AT_visibility) 
+						|| attr(DW_AT_visibility).get_unsigned()
+							 != DW_VIS_local)) return maybe_name;
+			else return opt<string>();
+		}
 		bool Die::has_attr_here(Dwarf_Half attr) const
 		{
 			Dwarf_Bool returned;
@@ -1215,872 +1224,196 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			//fprintf(stderr, "DWARF error!\n"); /* this is the C version */
 			/* NOTE: when called by a libdwarf function,
 			 * errarg is always the Dwarf_Debug concerned with the error */
-        	std::cerr << "libdwarf error!" << std::endl;
+			core::debug() << "libdwarf error!" << std::endl;
 			throw Error(e, errarg); /* Whoever catches this should also dwarf_dealloc the Dwarf_Error_s. */
 		}
-
-		file::file(int fd, Dwarf_Unsigned access /*= DW_DLC_READ*/,
-			Dwarf_Ptr errarg /*= 0*/,
-			Dwarf_Handler errhand /*= default_error_handler*/,
-			Dwarf_Error *error /*= 0*/) : fd(fd)
-		{
-    		if (error == 0) error = &last_error;
-			if (errarg == 0) errarg = this;
-			int retval;
-			retval = dwarf_init(fd, access, errhand, errarg, &dbg, error);
-			have_cu_context = false;
-            switch (retval)
-            {
-            case DW_DLV_ERROR:
-            	/* From libdwarf docs:
-                 * "An Dwarf_Error returned from dwarf_init() or dwarf_elf_init() 
-                 * in case of a failure cannot be freed using dwarf_dealloc(). 
-                 * The only way to free the Dwarf_Error from either of those calls
-                 * is to use free(3) directly. Every Dwarf_Error must be freed by 
-                 * dwarf_dealloc() except those returned by dwarf_init() or 
-                 * dwarf_elf_init()." 
-                 * 
-                 * This means we shouldn't pass the Dwarf_Error through the 
-                 * exception that our error handler generates, because the
-                 * catching code will try to dwarf_dealloc() it when it should
-                 * instead free() it. HACK: for now, free() it here.
-                 * ANOTHER HACK: no, don't, because this is causing problems
-                 * in libprocessimage. */
-                /* free(error);*/
-            	default_error_handler(NULL, errarg); // throws
-                break;
-            case DW_DLV_NO_ENTRY:
-            	throw No_entry();
-            default:
-            	break; // fall through
-            }
-            free_elf = false;
-            elf = 0;
-            try
-            {
-            	this->p_aranges = new aranges(*this);
-            }
-            catch (No_entry)
-            {
-            	// the file must not have a .debug_aranges section
-                this->p_aranges = 0;
-            }
-		}
-
-		file::~file()
-		{
-			//Elf *elf; // maybe this Elf business is only for dwarf_elf_open?
-			//int retval;
-			//retval = dwarf_get_elf(dbg, &elf, &last_error);
-			if (dbg != 0) dwarf_finish(dbg, &last_error);
-			if (free_elf) elf_end(reinterpret_cast< ::Elf*>(elf));
-            if (p_aranges) delete p_aranges;
-		}
-
-    	int file::next_cu_header(
-	    	Dwarf_Unsigned *cu_header_length,
-	    	Dwarf_Half *version_stamp,
-	    	Dwarf_Unsigned *abbrev_offset,
-	    	Dwarf_Half *address_size,
-	    	Dwarf_Unsigned *next_cu_header,
-	    	Dwarf_Error *error /*=0*/)
-    	{
-	    	if (error == 0) error = &last_error;
-			int retval = dwarf_next_cu_header(dbg, cu_header_length, version_stamp,
-        			abbrev_offset, address_size, next_cu_header, error); // may allocate **error
-			have_cu_context = true;
-			return retval;
-    	}
-
-		int file::clear_cu_context(cu_callback_t cb, void *arg)
-		{
-			if (!have_cu_context) return DW_DLV_OK;
-		
-			int retval;
-			Dwarf_Unsigned cu_header_length;
-			Dwarf_Half version_stamp;
-			Dwarf_Unsigned abbrev_offset;
-			Dwarf_Half address_size;
-			Dwarf_Unsigned next_cu_header;
-			//std::cerr << "Resetting CU state..." << std::endl;
-			while(DW_DLV_OK == (retval = advance_cu_context(
-				&cu_header_length, &version_stamp, 
-				&abbrev_offset, &address_size, 
-				&next_cu_header,
-				cb, arg)));
-
-			have_cu_context = false;
-			//std::cerr << "next_cu_header returned " << retval << std::endl;
-			if (retval == DW_DLV_NO_ENTRY)
-			{
-				/* This is okay -- means we iterated to the end of the CUs
-				 * and are now back in the beginning state, which is what we want. */
-				return DW_DLV_OK;
-			}
-			else return retval;
-		}
-		
-		int file::advance_cu_context(Dwarf_Unsigned *cu_header_length,
-				Dwarf_Half *version_stamp,
-				Dwarf_Unsigned *abbrev_offset,
-				Dwarf_Half *address_size, 
-				Dwarf_Unsigned *next_cu_header,
-				cu_callback_t cb, void *arg)
-		{
-			/* All the output parameters are optional. 
-			 * BUT we *always* call the callback with the full set! 
-			 * So we need to dummy the pointers. */
-			Dwarf_Unsigned dummy_cu_header_length,
-			 *real_cu_header_length = cu_header_length ? cu_header_length : &dummy_cu_header_length;
-			
-			Dwarf_Half dummy_version_stamp,
-			 *real_version_stamp = version_stamp ? version_stamp : &dummy_version_stamp;
-			
-			Dwarf_Unsigned dummy_abbrev_offset,
-			 *real_abbrev_offset = abbrev_offset ? abbrev_offset : &dummy_abbrev_offset;
-			
-			Dwarf_Half dummy_address_size,
-			 *real_address_size = address_size ? address_size : &dummy_address_size;
-			
-			Dwarf_Unsigned dummy_next_cu_header,
-			 *real_next_cu_header = next_cu_header ? next_cu_header : &dummy_next_cu_header;
-			
-			int retval = this->next_cu_header(
-				real_cu_header_length, real_version_stamp, 
-				real_abbrev_offset, real_address_size, 
-				real_next_cu_header);
-			if (retval == DW_DLV_OK)
-			{
-				have_cu_context = true;
-				//std::cerr << "next_cu_header returned DW_DLV_OK" << std::endl;
-				die d(*this); // get the CU die
-				Dwarf_Off off; 
-				int retval = d.offset(&off); // this should not fail
-				assert(retval == DW_DLV_OK);
-				if (cb) cb(arg, off, 
-					*real_cu_header_length, *real_version_stamp,
-					*real_abbrev_offset, *real_address_size, *real_next_cu_header);
-			}
-			else if (retval == DW_DLV_NO_ENTRY) have_cu_context = false;
-			
-			if (cu_header_length) *cu_header_length = *real_cu_header_length;
-			if (version_stamp) *version_stamp = *real_version_stamp;
-			if (abbrev_offset) *abbrev_offset = *real_abbrev_offset;
-			if (address_size) *address_size = *real_address_size;
-			if (next_cu_header) *next_cu_header = *real_next_cu_header;
-			
-			return retval;
-		}
-
-
-		int file::get_elf(Elf **out_elf, Dwarf_Error *error /*= 0*/)        	
-        { 
-        	if (elf != 0) { *out_elf = elf; return DW_DLV_OK; }
-        	if (error == 0) error = &last_error;
-            int retval = dwarf_get_elf(dbg, 
-            	reinterpret_cast<dwarf::lib::dwarf_elf_handle*>(&elf), 
-                error);
-            *out_elf = elf;
-            return retval;
-        }
-
-		int file::siblingof(
-			die& d,
-			die *return_sib,
-			Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = &last_error;
-			return dwarf_siblingof(dbg,
-				d.my_die,
-				&(return_sib->my_die),
-				error); // may allocate **error, allocates **return_sib? 
-		}
-
-		int file::first_die(
-			die *return_die,
-			Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = &last_error;
-			ensure_cu_context();
-			return dwarf_siblingof(dbg,
-				NULL,
-				&(return_die->my_die),
-				error); // may allocate **error, allocates **return_sib? 
-		} // special case of siblingof
-
-		int file::offdie(
-			Dwarf_Off offset,
-			die *return_die,
-			Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = &last_error;
-			return dwarf_offdie(dbg,
-				offset,
-				&(return_die->my_die),
-				error); // may allocate **error, allocates **return_die?
-		}
-
-	// 	int file::get_globals(
-	// 		global_array *& globarr, // the client passes 
-	// 		Dwarf_Error *error /*= 0*/)
-	// 	{
-	// 		if (error == 0) error = &last_error;
-	// 		Dwarf_Signed cnt;
-	// 		Dwarf_Global *globals;
-	// 		int retval = dwarf_get_globals(
-	// 			dbg, &globals, &cnt, error
-	// 		);
-	// 		assert(retval == DW_DLV_OK);
-	// 		globarr = new global_array(dbg, globals, cnt);
-	// 		return retval;
-	// 	} // allocates globarr, else allocates **error
-
-		int file::get_cu_die_offset_given_cu_header_offset(
-			Dwarf_Off in_cu_header_offset,
-			Dwarf_Off * out_cu_die_offset,
-			Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = &last_error;
-			return DW_DLV_ERROR; // TODO: implement this
-		}
-		
-		//file die::dummy_file; // static, should be const (FIXME)
-
-		die::die(file& f, Dwarf_Die d, Dwarf_Error *perror) : f(f), p_last_error(perror)
-		{
-			this->my_die = d;
-		}
-		die::~die()
-		{
-			dwarf_dealloc(f.dbg, my_die, DW_DLA_DIE);
-		}
-
-		int die::first_child(
-			die *return_kid,
-			Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			/* If we have a null my_die, it means we are a file_toplevel_die
-			 * and are being asked for the first CU. */
-			if (!my_die)
-			{
-				f.clear_cu_context();
-				int retval = f.advance_cu_context();
-				if (retval == DW_DLV_NO_ENTRY) throw No_entry();
-				// now at first CU
-				retval = f.first_die(return_kid, error);
-				assert(retval != DW_DLV_NO_ENTRY); // CU header found implies CU DIE found
-				return retval;
-			}
-			else return dwarf_child(my_die, &(return_kid->my_die), error);
-		} // may allocate **error, allocates *(return_kid->my_die) on return
-
-		int die::tag(
-			Dwarf_Half *tagval,
-			Dwarf_Error *error /*= 0*/) const
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_tag(my_die, tagval, error);
-		} // may allocate **error
-
-		int die::offset(
-			Dwarf_Off * return_offset,
-			Dwarf_Error *error /*= 0*/) const
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_dieoffset(my_die, return_offset, error);
-		} // may allocate **error
-
-		int die::CU_offset(
-			Dwarf_Off *return_offset,
-			Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_die_CU_offset(my_die, return_offset, error);
-		} // may allocate **error
-
-		int die::name(
-			std::string *return_name,
-			Dwarf_Error *error /*= 0*/) const
-		{
-			if (error == 0) error = p_last_error;
-			char *returned_name_chars;
-			int retval = dwarf_diename(my_die, &returned_name_chars, error);
-			if (retval == DW_DLV_OK)
-			{
-				*return_name = returned_name_chars; // HACK: copying string is not okay,
-				 // but we are undertaking to provide a RAII inerface here
-				 // -- arguably we should provide a class dwarf::lib::diename
-				dwarf_dealloc(f.dbg, returned_name_chars, DW_DLA_STRING);
-			}
-			//std::cerr << "Retval from dwarf_diename is " << retval << std::endl;
-			return retval;
-		} // may allocate **name, else may allocate **error
-
-	// 	int die::attrlist(
-	// 		attribute_array *& attrbuf, // on return, attrbuf points to an attribute_array
-	// 		Dwarf_Error *error /*= 0*/)
-	// 	{
-	// 		if (error == 0) error = p_last_error;
-	// 		Dwarf_Signed cnt;
-	// 		Dwarf_Attribute *attrs;
-	// 		int retval = dwarf_attrlist(
-	// 			my_die, &attrs, &cnt, error
-	// 		);
-	// 		assert(retval == DW_DLV_OK);
-	// 		attrbuf = new attribute_array(f.get_dbg(), attrs, cnt);
-	// 		return retval;
-	// 	} // allocates attrbuf; else may allocate **error
-	// 	/* TODO: delete this, now we have an attribute_array instead */
-
-		int die::hasattr(Dwarf_Half attr, Dwarf_Bool *return_bool, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			if (return_bool) *return_bool = 0; /* to avoid risk of undefinedness 
-			 * from dodgy code like the attr_optional macro in adt.h
-			 * which does not test the return value. */
-			return dwarf_hasattr(my_die, attr, return_bool, error);		
-		} // may allocate **error
-
-	// 	int die::attr(Dwarf_Half attr, attribute *return_attr, Dwarf_Error *error /*= 0*/)
-	// 	{
-	// 		if (error == 0) error = p_last_error;
-	// 		Dwarf_Attribute tmp_attr;
-	// 		int retval = dwarf_attr(my_die, attr, &tmp_attr, error);
-	// 		assert(retval == DW_DLV_OK);
-	// 		return_attr = new attribute(tmp_attr);
-	// 		return retval;
-	// 	} // allocates *return_attr
-	// TODO: document this: we only support getting *all* attributes, not individual ones
-
-		int die::lowpc(Dwarf_Addr * return_lowpc, Dwarf_Error * error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_lowpc(my_die, return_lowpc, error);		
-		} // may allocate **error
-
-		int die::highpc(Dwarf_Addr * return_highpc, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_highpc(my_die, return_highpc, error);
-		} // may allocate **error
-
-		int die::bytesize(Dwarf_Unsigned *return_size, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_bytesize(my_die, return_size, error);
-		} // may allocate **error
-
-		int die::bitsize(Dwarf_Unsigned *return_size, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_bitsize(my_die, return_size, error);
-		} // may allocate **error
-
-		int die::bitoffset(Dwarf_Unsigned *return_size, Dwarf_Error *error /*= 0*/)	
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_bitoffset(my_die, return_size, error);
-		} // may allocate **error
-
-		int die::srclang(Dwarf_Unsigned *return_lang, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_srclang(my_die, return_lang, error);		
-		}
-
-		int die::arrayorder(Dwarf_Unsigned *return_order, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = p_last_error;
-			return dwarf_arrayorder(my_die, return_order, error);
-		}
-
-		/*
-		 * methods defined on global
-		 */
-		int global::get_name(char **return_name, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = a.p_last_error;
-			return dwarf_globname(a.p_globals[i], return_name, error);		
-		}	// TODO: string destructor
-
-		int global::get_die_offset(Dwarf_Off *return_offset, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = a.p_last_error;
-			return dwarf_global_die_offset(a.p_globals[i], return_offset, error);
-		}	
-		int global::get_cu_offset(Dwarf_Off *return_offset, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = a.p_last_error;	
-			return dwarf_global_cu_offset(a.p_globals[i], return_offset, error);
-		}
-		int global::cu_die_offset_given_cu_header_offset(Dwarf_Off in_cu_header_offset,
-			Dwarf_Off *out_cu_die_offset, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = a.p_last_error;	
-			return dwarf_get_cu_die_offset_given_cu_header_offset(a.f.get_dbg(),
-				in_cu_header_offset, out_cu_die_offset, error);
-		}
-		int global::name_offsets(char **return_name, Dwarf_Off *die_offset, 
-			Dwarf_Off *cu_offset, Dwarf_Error *error /*= 0*/)
-		{
-			if (error == 0) error = a.p_last_error;
-			return dwarf_global_name_offsets(a.p_globals[i], return_name,
-				die_offset, cu_offset, error);
-		}
-
-		attribute::attribute(Dwarf_Half attr, attribute_array& a, Dwarf_Error *error /*= 0*/)
-         : p_a(&a)
-        {
-			if (error == 0) error = p_a->p_last_error;
-            
-			Dwarf_Bool ret = false; 
-            if (!(p_a->d.hasattr(attr, &ret), ret)) throw No_entry(); 
-            
-            for (int i = 0; i < a.cnt; i++)
-            {
-                Dwarf_Half out;
-                if ((dwarf_whatattr(p_a->p_attrs[i], &out, error), out) == attr)
-                {
-                	this->i = i;
-					this->p_raw_attr = p_a->p_attrs[i];
-                    return;
-                }
-            }
-            assert(false); // shouldn't happen, because we checked
-        }
-
-		/*
-		 * methods defined on attribute
-		 */
-		int attribute::hasform(Dwarf_Half form, Dwarf_Bool *return_hasform,
-			Dwarf_Error *error /*=0*/) const
-		{
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_hasform(p_a->p_attrs[i], form, return_hasform, error);
-		}
-		int attribute::whatform(Dwarf_Half *return_form, Dwarf_Error *error /*=0*/) const
-		{
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_whatform(p_a->p_attrs[i], return_form, error);
-		}
-		int attribute::whatform_direct(Dwarf_Half *return_form,	Dwarf_Error *error /*=0*/) const
-		{
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_whatform_direct(p_a->p_attrs[i], return_form, error);
-		}
-		int attribute::whatattr(Dwarf_Half *return_attr, Dwarf_Error *error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_whatattr(p_a->p_attrs[i], return_attr, error);
-		}
-		int attribute::formref(Dwarf_Off *return_offset, Dwarf_Error *error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_formref(p_a->p_attrs[i], return_offset, error);
-		}
-		int attribute::formref_global(Dwarf_Off *return_offset, Dwarf_Error *error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_global_formref(p_a->p_attrs[i], return_offset, error);
-		}
-		int attribute::formaddr(Dwarf_Addr * return_addr, Dwarf_Error *error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_formaddr(p_a->p_attrs[i], return_addr, error);
-		}
-		int attribute::formflag(Dwarf_Bool * return_bool, Dwarf_Error *error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_formflag(p_a->p_attrs[i], return_bool, error);
-		}
-		int attribute::formudata(Dwarf_Unsigned * return_uvalue, Dwarf_Error * error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_formudata(p_a->p_attrs[i], return_uvalue, error);
-		}
-		int attribute::formsdata(Dwarf_Signed * return_svalue, Dwarf_Error *error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error;
-			return dwarf_formsdata(p_a->p_attrs[i], return_svalue, error);
-		}
-		int attribute::formblock(Dwarf_Block ** return_block, Dwarf_Error * error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
-			return dwarf_formblock(p_a->p_attrs[i], return_block, error);
-		}
-		int attribute::formstring(char ** return_string, Dwarf_Error *error /*=0*/) const
-		{		
-			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
-			return dwarf_formstring(p_a->p_attrs[i], return_string, error);
-		}
-		int attribute::loclist_n(Dwarf_Locdesc ***llbuf, Dwarf_Signed *listlen, Dwarf_Error *error /*=0*/) const
-		{
-			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
-			return dwarf_loclist_n(p_a->p_attrs[i], llbuf, listlen, error);
-		}
-		int attribute::loclist(Dwarf_Locdesc **llbuf, Dwarf_Signed *listlen, Dwarf_Error *error /*=0*/) const
-		{
-			if (error == 0) error = p_a->p_last_error; // TODO: fix this to be RAII
-			return dwarf_loclist(p_a->p_attrs[i], llbuf, listlen, error);
-		}
-		
-		/* methods defined on aranges */
-		int aranges::get_info(int i, Dwarf_Addr *start, Dwarf_Unsigned *length, Dwarf_Off *cu_die_offset,
-				Dwarf_Error *error/* = 0*/)
-		{
-			if (error == 0) error = p_last_error; // TODO: fix
-			if (i >= cnt) throw No_entry();
-			return dwarf_get_arange_info(p_aranges[i], start, length, cu_die_offset, error);
-		}
-		int aranges::get_info_for_addr(Dwarf_Addr addr, Dwarf_Addr *start, Dwarf_Unsigned *length, 
-			Dwarf_Off *cu_die_offset, Dwarf_Error *error/* = 0*/)
-		{
-			if (error == 0) error = p_last_error; // TODO: fix
-			cerr << "Getting info for addr 0x" << std::hex << addr << std::dec
-				<< " from aranges block at " << p_aranges << endl;
-			for (int j = 0; j < cnt && j < 10; ++j)
-			{
-				Dwarf_Addr tmp_start;
-				Dwarf_Unsigned tmp_length;
-				Dwarf_Off tmp_cu_die_offset;
-				int ret2 = dwarf_get_arange_info(p_aranges[j], 
-					&tmp_start, &tmp_length, &tmp_cu_die_offset, error);
-				assert(ret2 == DW_DLV_OK);
-				cerr << "Arange number " << j << " has "
-					<< "start address 0x" << std::hex << tmp_start << std::dec
-					<< ", length " << tmp_length
-					<< ", CU offset 0x" << std::hex << tmp_cu_die_offset << std::dec << endl;
-			}
-			if (cnt > 10) cerr << "More aranges follow." << endl;
-			Dwarf_Arange returned;
-			assert(p_aranges);
-			assert(cnt > 0);
-			int ret = dwarf_get_arange(p_aranges, cnt, addr, &returned, error);
-			if (ret == DW_DLV_OK)
-			{
-				cerr << "get_arange succeeded" << endl;
-				int ret2 = dwarf_get_arange_info(returned, start, length, cu_die_offset, error);
-				return ret2;
-			} else if (ret == -1) cerr << "get_arange found no entry convering address 0x" 
-				<< std::hex << addr << std::dec << endl;
-			else cerr << "get_arange failed with error " << ret << endl;
-			return ret;
-			
-		}
-
-		
-		
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Locdesc& ld)
-		{
-			s << dwarf::encap::loc_expr(ld);
-			return s;
-		}	
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Loc& l)
-		{
-        	// HACK: we can't infer the DWARF standard from the Dwarf_Loc we've been passed,
-            // so use the default.
-			s << "0x" << std::hex << l.lr_offset << std::dec
-				<< ": " << dwarf::spec::DEFAULT_DWARF_SPEC.op_lookup(l.lr_atom);
-			std::ostringstream buf;
-			std::string to_append;
-           
-			switch (dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_count(l.lr_atom))
-			{
-				case 2:
-					buf << ", " << dwarf::encap::attribute_value(
-						l.lr_number2, 
-						dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_form_list(l.lr_atom)[1]
-					);
-					to_append += buf.str();
-				case 1:
-					buf.clear();
-					buf << "(" << dwarf::encap::attribute_value(
-						l.lr_number, 
-						dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_form_list(l.lr_atom)[0]
-					);
-					to_append.insert(0, buf.str());
-					to_append += ")";
-				case 0:
-					s << to_append;
-					break;
-				default: s << "(unexpected number of operands) ";
-			}
-			s << ";";
-			return s;			
-		}
-		std::ostream& operator<<(std::ostream& s, const loclist& ll)
-		{
-			s << "(loclist) {";
-			for (int i = 0; i < ll.len(); i++)
-			{
-				if (i > 0) s << ", ";
-				s << ll[i];
-			}
-			s << "}";
-			return s;
-		}
-	
-		bool operator<(const dwarf::lib::Dwarf_Loc& arg1, const dwarf::lib::Dwarf_Loc& arg2)
-		{
-			return arg1.lr_atom <  arg2.lr_atom
-			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number <  arg2.lr_number)
-			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number ==  arg2.lr_number && arg1.lr_number2 <  arg2.lr_number2)
-			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number ==  arg2.lr_number && arg1.lr_number2 == arg2.lr_number2 && 
-				arg1.lr_offset < arg2.lr_offset); 
-		}
-		
-		void evaluator::eval()
-		{
-			//std::vector<Dwarf_Loc>::iterator i = expr.begin();
-            if (i != expr.end() && i != expr.begin())
-            {
-            	/* This happens when we stopped at a DW_OP_piece argument. 
-                 * Advance the opcode iterator and clear the stack. */
-                ++i;
-                while (!m_stack.empty()) m_stack.pop();
-			}
-            boost::optional<std::string> error_detail;
-			while (i != expr.end())
-			{
-				// FIXME: be more descriminate -- do we want to propagate valueness? probably not
-				tos_is_value = false;
-				switch(i->lr_atom)
-				{
-					case DW_OP_const1u:
-					case DW_OP_const2u:
-					case DW_OP_const4u:
-					case DW_OP_const8u:
-					case DW_OP_constu:
-						m_stack.push(i->lr_number);
-						break;
- 					case DW_OP_const1s:
-					case DW_OP_const2s:
-					case DW_OP_const4s:
-					case DW_OP_const8s:
-					case DW_OP_consts:
-						m_stack.push((Dwarf_Signed) i->lr_number);
-						break;
-                   case DW_OP_plus_uconst: {
-                    	int tos = m_stack.top();
-                        m_stack.pop();
-                        m_stack.push(tos + i->lr_number);
-                    } break;
-					case DW_OP_plus: {
-						int arg1 = m_stack.top(); m_stack.pop();
-						int arg2 = m_stack.top(); m_stack.pop();
-						m_stack.push(arg1 + arg2);
-					} break;
-					case DW_OP_shl: {
-						int arg1 = m_stack.top(); m_stack.pop();
-						int arg2 = m_stack.top(); m_stack.pop();
-						m_stack.push(arg2 << arg1);
-					} break;
-					case DW_OP_shr: {
-						int arg1 = m_stack.top(); m_stack.pop();
-						int arg2 = m_stack.top(); m_stack.pop();
-						m_stack.push((int)((unsigned) arg2 >> arg1));
-					} break;
-					case DW_OP_shra: {
-						int arg1 = m_stack.top(); m_stack.pop();
-						int arg2 = m_stack.top(); m_stack.pop();
-						m_stack.push(arg2 >> arg1);
-					} break;
-                    case DW_OP_fbreg: {
-                    	if (!frame_base) goto logic_error;
-                        m_stack.push(*frame_base + i->lr_number);
-                    } break;
-                    case DW_OP_call_frame_cfa: {
-                    	if (!frame_base) goto logic_error;
-                        m_stack.push(*frame_base);
-                    } break;
-                    case DW_OP_piece: {
-                    	/* Here we do something special: leave the opcode iterator
-                         * pointing at the piece argument, and return. This allow us
-                         * to probe the piece size (by getting *i) and to resume by
-                         * calling eval() again. */
-                         ++i;
-                    }    return;
-                    case DW_OP_breg0:
-                    case DW_OP_breg1:
-                    case DW_OP_breg2:
-                    case DW_OP_breg3:
-                    case DW_OP_breg4:
-                    case DW_OP_breg5:
-                    case DW_OP_breg6:
-                    case DW_OP_breg7:
-                    case DW_OP_breg8:
-                    case DW_OP_breg9:
-                    case DW_OP_breg10:
-                    case DW_OP_breg11:
-                    case DW_OP_breg12:
-                    case DW_OP_breg13:
-                    case DW_OP_breg14:
-                    case DW_OP_breg15:
-                    case DW_OP_breg16:
-                    case DW_OP_breg17:
-                    case DW_OP_breg18:
-                    case DW_OP_breg19:
-                    case DW_OP_breg20:
-                    case DW_OP_breg21:
-                    case DW_OP_breg22:
-                    case DW_OP_breg23:
-                    case DW_OP_breg24:
-                    case DW_OP_breg25:
-                    case DW_OP_breg26:
-                    case DW_OP_breg27:
-                    case DW_OP_breg28:
-                    case DW_OP_breg29:
-                    case DW_OP_breg30:
-                    case DW_OP_breg31:
-                    {
-						/* the breg family get the contents of a register and add an offset */ 
-                    	if (!p_regs) goto no_regs;
-                    	int regnum = i->lr_atom - DW_OP_breg0;
-                        m_stack.push(p_regs->get(regnum) + i->lr_number);
-                    } break;
-                    case DW_OP_addr:
-                    {
-                    	m_stack.push(i->lr_number);
-                    } break;
-					case DW_OP_reg0:
-					case DW_OP_reg1:
-					case DW_OP_reg2:
-					case DW_OP_reg3:
-					case DW_OP_reg4:
-					case DW_OP_reg5:
-					case DW_OP_reg6:
-					case DW_OP_reg7:
-					case DW_OP_reg8:
-					case DW_OP_reg9:
-					case DW_OP_reg10:
-					case DW_OP_reg11:
-					case DW_OP_reg12:
-					case DW_OP_reg13:
-					case DW_OP_reg14:
-					case DW_OP_reg15:
-					case DW_OP_reg16:
-					case DW_OP_reg17:
-					case DW_OP_reg18:
-					case DW_OP_reg19:
-					case DW_OP_reg20:
-					case DW_OP_reg21:
-					case DW_OP_reg22:
-					case DW_OP_reg23:
-					case DW_OP_reg24:
-					case DW_OP_reg25:
-					case DW_OP_reg26:
-					case DW_OP_reg27:
-					case DW_OP_reg28:
-					case DW_OP_reg29:
-					case DW_OP_reg30:
-					case DW_OP_reg31:
-					{
-						/* the reg family just get the contents of the register */
-						if (!p_regs) goto no_regs;
-						int regnum = i->lr_atom - DW_OP_reg0;
-						m_stack.push(p_regs->get(regnum));
-					} break;
-					case DW_OP_lit0:
-					case DW_OP_lit1:
-					case DW_OP_lit2:
-					case DW_OP_lit3:
-					case DW_OP_lit4:
-					case DW_OP_lit5:
-					case DW_OP_lit6:
-					case DW_OP_lit7:
-					case DW_OP_lit8:
-					case DW_OP_lit9:
-					case DW_OP_lit10:
-					case DW_OP_lit11:
-					case DW_OP_lit12:
-					case DW_OP_lit13:
-					case DW_OP_lit14:
-					case DW_OP_lit15:
-					case DW_OP_lit16:
-					case DW_OP_lit17:
-					case DW_OP_lit18:
-					case DW_OP_lit19:
-					case DW_OP_lit20:
-					case DW_OP_lit21:
-					case DW_OP_lit22:
-					case DW_OP_lit23:
-					case DW_OP_lit24:
-					case DW_OP_lit25:
-					case DW_OP_lit26:
-					case DW_OP_lit27:
-					case DW_OP_lit28:
-					case DW_OP_lit29:
-					case DW_OP_lit30:
-					case DW_OP_lit31:
-						m_stack.push(i->lr_atom - DW_OP_lit0);
-						break;
-					case DW_OP_stack_value:
-						/* This means that the object has no address, but that the 
-						 * DWARF evaluator has just computed its *value*. We record
-						 * this. */
-						tos_is_value = true;
-						break;
-					case DW_OP_deref_size:
-					case DW_OP_deref:
-						/* FIXME: we can do this one if we have p_mem analogous to p_regs. */
-						throw No_entry();
-					default:
-						std::cerr << "Error: unrecognised opcode: " << spec.op_lookup(i->lr_atom) << std::endl;
-						throw Not_supported("unrecognised opcode");
-					no_regs:
-						std::cerr << "Warning: asked to evaluate register-dependent expression with no registers." << std::endl;
-						throw No_entry();
-					logic_error:
-						std::cerr << "Logic error in DWARF expression evaluator";
-						if (error_detail) std::cerr << ": " << *error_detail;
-						std::cerr << std::endl;
-						assert(false);
-						throw Not_supported(error_detail ? *error_detail : "unknown");
-				}
-			i++;
-			}
-		}
-		Dwarf_Unsigned eval(const encap::loclist& loclist,
-			Dwarf_Addr vaddr,
-			Dwarf_Signed frame_base,
-			boost::optional<regs&> regs,
-			const ::dwarf::spec::abstract_def& spec,
-			const std::stack<Dwarf_Unsigned>& initial_stack)
-		{
-			assert(false); return 0UL;
-		}
-		
-		bool operator==(const /*dwarf::encap::expr_instr*/Dwarf_Loc& e1, 
-			const /*dwarf::encap::expr_instr*/Dwarf_Loc& e2)
-		{
-			return e1.lr_atom == e2.lr_atom
-				&& e1.lr_number == e2.lr_number
-				&& e1.lr_number2 == e2.lr_number2
-				&& e1.lr_offset == e2.lr_offset;
-		}
-		bool operator!=(const /*dwarf::encap::expr_instr*/Dwarf_Loc& e1,
-			const /*dwarf::encap::expr_instr*/Dwarf_Loc& e2)
-		{
-			return !(e1 == e2);
-		}
-		bool operator==(const /*dwarf::encap::expr_instr*/Dwarf_Ranges& e1, 
-			const /*dwarf::encap::expr_instr*/Dwarf_Ranges& e2)
-		{
-			return e1.dwr_addr1 == e2.dwr_addr1
-				&& e1.dwr_addr2 == e2.dwr_addr2
-				&& e1.dwr_type == e2.dwr_type;
-		}
-		bool operator!=(const /*dwarf::encap::expr_instr*/Dwarf_Ranges& e1,
-			const /*dwarf::encap::expr_instr*/Dwarf_Ranges& e2)
-		{
-			return !(e1 == e2);
-		}
-
 	} // end namespace lib
 	
 	namespace core
 	{
+		void type_iterator_df::increment(bool skip_dependencies /* = false */)
+		{
+			assert(base() == m_stack.back().first);
+			/* We are doing the usual incremental depth-first traversal, which means
+			 * 1. try to move deeper
+			 * 2. else do
+			 *        try to move to next sibling
+			 *    while (move to parent);
+			 *
+			 * But we are doing it over type relations, not DIE parent/child relations.
+			 * To avoid re-finding our place in data-member and formal-parameter DIE sequences,
+			 * we want our stack to record the sequence, somehow, not the position.
+			 * I think we can do that just by constructing a subseq_of of the
+			 * appropriate type.
+			 */
+			auto go_deeper = [&]() -> pair<iterator_base, iterator_base> {
+				auto NO_DEEPER = make_pair(iterator_base::END, iterator_base::END);
+				if (!base() && !!*this) { /* void case */ return NO_DEEPER; }
+				else if (base().is_a<type_chain_die>()) // unary case -- includes typedefs, arrays, pointer/reference, ...
+				{
+					// recursively walk the chain's target
+					return make_pair(base().as_a<type_chain_die>()->find_type(), base());
+				}
+				else if (base().is_a<with_data_members_die>()) 
+				{
+					// descend to first member child or first inheritance child
+					auto data_member_children = base().as_a<with_data_members_die>().children().subseq_of<data_member_die>();
+					if (data_member_children.first != data_member_children.second)
+					{
+						return make_pair(
+							data_member_children.first->find_or_create_type_handling_bitfields(),
+							/* the reason is the member */
+							data_member_children.first
+						);
+					} else return NO_DEEPER;
+				}
+				else if (base().is_a<subrange_type_die>())
+				{
+					// visit the base type
+					auto explicit_t = base().as_a<subrange_type_die>()->find_type();
+					// HACK: assume this is the same as for enums
+					return make_pair(
+						explicit_t ? explicit_t : base().enclosing_cu()->implicit_subrange_base_type(),
+						base()
+					);
+				}
+				else if (base().is_a<enumeration_type_die>())
+				{
+					// visit the base type -- HACK: assume subrange base is same as enum's
+					auto explicit_t = base().as_a<enumeration_type_die>()->find_type();
+					return make_pair(
+						explicit_t ? explicit_t : base().enclosing_cu()->implicit_enum_base_type(),
+						base()
+					);
+				}
+				else if (base().is_a<type_describing_subprogram_die>())
+				{
+					/* TRICKY: our "children" consist of firstly a return type,
+					 * and later a bunch of formal parameter types. If we've
+					 * just visited the return type and want to move to the next
+					 * sibling, how do we do that? Neither the type itself nor
+					 * the "reason" of the subprogram is sufficient, because
+					 * the same type might appear in multiple places in the signature.
+					 * AH, it's okay. We can give the return type's "reason" as
+					 * the subprogram, and the argument types' "reason" as the FP
+					 * DIEs. */
+					auto sub_t = base().as_a<type_describing_subprogram_die>();
+					return make_pair(sub_t->find_type() /* even if void */,
+						sub_t);
+				}
+				else
+				{
+					// what are our nullary cases?
+					assert(base().is_a<base_type_die>() || base().is_a<unspecified_type_die>());
+					return NO_DEEPER;
+				}
+			};
+			auto backtrack = [&]() -> bool {
+				assert(!m_stack.empty());
+				pair<iterator_base, iterator_base> pos_and_reason = m_stack.back(); m_stack.pop_back();
+				this->base_reference() = std::move(pos_and_reason.first);
+				// return whether we should keep trying sideways
+				return !m_stack.empty();
+			};
+			auto go_sideways = [&]() -> pair<iterator_base, iterator_base> {
+				auto& reason = m_stack.back().second;
+				auto NO_MORE = make_pair(iterator_base::END, iterator_base::END);
+				assert(m_stack.back().first);
+				/* NOTE: we are testing "reason", and it need not be a type.
+				 * It just needs to be a thing with a type,
+				 * so includes members, inheritances, FPs, ... */
+				if (reason.is_a<data_member_die>())
+				{
+					/* Get the next data member -- just using the iterator_base should be enough. */
+					basic_die::children_iterator<data_member_die> cur(m_stack.back().second, END);
+					assert(cur);
+					++cur;
+					if (cur) return make_pair(cur->get_type(), cur);
+					return NO_MORE;
+				}
+				else if (reason.is_a<type_describing_subprogram_die>())
+				{
+					/* For a subprogram type, the return type's "reason" is
+					 * the subprogram, and the argument types' "reason" is the FP
+					 * DIE. */
+					auto fp_seq = reason.as_a<type_describing_subprogram_die>()->children().subseq_of<formal_parameter_die>();
+					auto next = fp_seq.first;
+					if (next != fp_seq.second) return make_pair(next->get_type(), next);
+					else return NO_MORE;
+				}
+				else if (reason.is_a<formal_parameter_die>())
+				{
+					basic_die::children_iterator<formal_parameter_die> cur(m_stack.back().first, END);
+					++cur;
+					if (cur) return make_pair(cur->get_type(), cur);
+					else return NO_MORE;
+				}
+				else if (reason.is_a<type_chain_die>())
+				{
+					return NO_MORE;
+				}
+				else
+				{
+					// what are our nullary cases?
+					assert(!reason
+						|| reason.is_a<base_type_die>() || reason.is_a<unspecified_type_die>()
+						|| reason.is_a<subrange_type_die>() || reason.is_a<enumeration_type_die>()
+						|| reason.is_a<string_type_die>());
+					return NO_MORE;
+				}
+			};
+			
+			//std::cerr << "Trying to move deeper..." << std::endl;
+			pair<iterator_base, iterator_base> deeper_target = go_deeper();
+			if (!skip_dependencies && (deeper_target.first || deeper_target.second))
+			{
+				/* "descend"... but with a catch, because we need to avoid cycles.
+				 * Don't descend to something we're already visiting! */
+				//std::cerr << "Found deeper (" << deeper_target.first.summary() << "); are we walking it already?..." << std::endl;
+				auto matches_target = [&deeper_target](const pair< iterator_base, iterator_base >& p) {
+					return p.first == deeper_target.first;
+				};
+				if (std::find_if(m_stack.begin(), m_stack.end(), matches_target) == m_stack.end())
+				{
+					//std::cerr << "No, so go deeper..." << std::endl;
+					this->m_stack.push_back(deeper_target);
+					this->base_reference() = std::move(deeper_target.first);
+					return;
+				}
+				// else we are already walking the deeper thing, so do as if we can't descend
+				//std::cerr << "Yes, so pretending we can't move deeper..." << std::endl;
+			}
+			
+			do
+			{
+				//std::cerr << "Trying to move sideways..." << std::endl;
+				auto sideways_target = go_sideways();
+				if (sideways_target.first || sideways_target.second)
+				{
+					//std::cerr << "Found sideways, so moving there..." << std::endl;
+					/* replace the top element */
+					this->m_stack.pop_back();
+					this->m_stack.push_back(sideways_target);
+					this->base_reference() = sideways_target.first;
+					return;
+				}
+				//std::cerr << "Nowhere sideways to move... backtracking" << std::endl;
+			} while (!m_stack.empty() ? backtrack() : false);
+			
+			/* We've run out. */
+			assert(m_stack.empty());
+			*this = iterator_base::END;
+			assert(!reason());
+		}
+		void type_iterator_df::increment_skipping_dependencies()
+		{
+			return this->increment(true);
+		}
+		void type_iterator_df::decrement()
+		{
+			assert(false); // FIXME
+		}
+
 /* from type_die */
 		size_t type_hash_fn(iterator_df<type_die> t) 
 		{
@@ -2103,7 +1436,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			if (pre_f) continue_recursing = pre_f(t, reason); // i.e. we do walk "void"
 			else continue_recursing = true;
 			
-			dieloc_set next_currently_walking = currently_walking; 
+			dieloc_set next_currently_walking = currently_walking;
 			next_currently_walking.insert(key);
 			
 			if (continue_recursing)
@@ -2116,20 +1449,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				}
 				else if (t.is_a<with_data_members_die>()) 
 				{
-					// recursively walk all members
-					auto member_children = t.as_a<with_data_members_die>().children().subseq_of<member_die>();
+					// recursively walk all members and inheritances
+					auto member_children = t.as_a<with_data_members_die>().children().subseq_of<data_member_die>();
 					for (auto i_child = member_children.first;
 						i_child != member_children.second; ++i_child)
 					{
 						walk_type(i_child->find_or_create_type_handling_bitfields(),
-							i_child.base().base(), pre_f, post_f, next_currently_walking);
-					}
-					// visit all inheritances
-					auto inheritance_children = t.as_a<with_data_members_die>().children().subseq_of<inheritance_die>();
-					for (auto i_child = inheritance_children.first;
-						i_child != inheritance_children.second; ++i_child)
-					{
-						walk_type(i_child->find_type(), i_child.base().base(), pre_f, post_f, next_currently_walking);
+							i_child, pre_f, post_f, next_currently_walking);
 					}
 				}
 				else if (t.is_a<subrange_type_die>())
@@ -2137,7 +1463,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					// visit the base type
 					auto explicit_t = t.as_a<subrange_type_die>()->find_type();
 					// HACK: assume this is the same as for enums
-					walk_type(explicit_t ? explicit_t : t.enclosing_cu()->implicit_enum_base_type(), t, pre_f, post_f, next_currently_walking);
+					walk_type(explicit_t ? explicit_t : t.enclosing_cu()->implicit_subrange_base_type(), t, pre_f, post_f, next_currently_walking);
 				}
 				else if (t.is_a<enumeration_type_die>())
 				{
@@ -2152,7 +1478,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					auto fps = sub_t.children().subseq_of<formal_parameter_die>();
 					for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
 					{
-						walk_type(i_fp->find_type(), i_fp.base().base(), pre_f, post_f, next_currently_walking);
+						walk_type(i_fp->find_type(), i_fp, pre_f, post_f, next_currently_walking);
 					}
 				}
 				else
@@ -2171,18 +1497,16 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		}
 		iterator_df<type_die> type_die::get_concrete_type() const
 		{
-			// by default, our concrete self is our self -- we have to find ourselves. :-(
-			return get_root().find(get_offset());
+			return find_self();
 		}
 		iterator_df<type_die> type_die::get_unqualified_type() const
 		{
-			// by default, our unqualified self is our self -- we have to find ourselves. :-(
-			return get_root().find(get_offset());
+			return find_self();
 		}
 		
 		opt<uint32_t> type_die::summary_code() const
 		{
-			cerr << "Computing summary code for " << *this << std::endl;
+			debug(2) << "Computing summary code for " << *this << std::endl;
 			/* Here we compute a 4-byte hash-esque summary of a data type's 
 			 * definition. The intentions here are that 
 			 *
@@ -2216,9 +1540,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			 * - encode byte- and bit-offsets of every field
 			 */
 			/* if we have it cached, return that */
+			if (this->cached_summary_code) return this->cached_summary_code;
 			auto found_cached = get_root().type_summary_code_cache.find(get_offset());
 			if (found_cached != get_root().type_summary_code_cache.end())
 			{
+				this->cached_summary_code = found_cached->second;
 				return found_cached->second;
 			}
 			/* helper function that understands the null (void) case */
@@ -2236,9 +1562,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			};
 			opt<uint32_t> code_to_return;
 			summary_code_word_t output_word;
-			// we have to find ourselves. :-(
-			auto outer_t = get_root().find(get_offset()).as_a<type_die>();
-			__typeof(outer_t) concrete_outer_t;
+			auto outer_t = find_self().as_a<type_die>();
+			decltype(outer_t) concrete_outer_t;
 			if (!outer_t) { code_to_return = opt<uint32_t>(0); goto out; }
 			concrete_outer_t = outer_t->get_concrete_type();
 			
@@ -2249,12 +1574,18 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			 * in the relevant sequence, "<<" in the  */
 			walk_type(outer_t, outer_t, /* pre_f */ [&output_word, name_for_type_die](
 				iterator_df<type_die> t, iterator_df<program_element_die> reason) {
-				cerr << "Pre-walking ";
-				t.print(std::cerr, 0); cerr << std::endl;
+				debug(2) << "Pre-walking ";
+				t.print(debug(2), 0); debug(2) << std::endl;
 				// don't want concrete_t to be defined for most of this function...
 				{
 					auto concrete_t = t ? t->get_concrete_type() : t;
 					// non-concrete? ignore but keep going -- walk_type will go down the chain
+					// ACTUALLY: when we hit another type, 
+					// FIXME: don't continue the walk -- use summary_code() on it, to benefit from caching
+					// + ditto on other cases.
+					// AH, but "stopping the walk" needs to distinguish skipping a subtree from stopping completely;
+					// incrementalise "walk_type" as another kind of iterator? model on iterator_bf.
+					// what about getting both pre- and post-order in one? we seem to get that here; use currently_walking?
 					if (t != concrete_t) return true;
 				}
 				// void? our code is 0; keep going
@@ -2264,9 +1595,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				{
 					iterator_df<> found = t->find_definition();
 					t = found.as_a<type_die>();
-					if (!t) 
+					if (!t)
 					{
-						cerr << "Detected that we have a declaration with no definition; returning no code" << std::endl;
+						debug(2) << "Detected that we have a declaration with no definition; returning no code" << std::endl;
 						// NOTE that we will still get a post-visit, just no recursion
 						// so we explicitly clear the output word (HACK)
 						output_word.invalidate();
@@ -2277,9 +1608,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				 * */
 				if (reason && (reason.is_a<member_die>() || reason.is_a<inheritance_die>()))
 				{
-					cerr << "This type is walked for reason of a member: ";
-					reason.print(std::cerr, 0);
-					cerr << std::endl;
+					debug(2) << "This type is walked for reason of a member: ";
+					reason.print(debug(2), 0);
+					debug(2) << std::endl;
 					// skip members that are mere declarations 
 					if (reason->get_declaration() && *reason->get_declaration()) return false;
 
@@ -2288,7 +1619,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						->byte_offset_in_enclosing_type();
 					if (!opt_offset)
 					{
-						cerr << "Warning: saw member " << *reason << " with no apparent offset." << endl;
+						debug(2) << "Warning: saw member " << *reason << " with no apparent offset." << endl;
 						return false;
 					}
 					auto member_type = reason.as_a<with_dynamic_location_die>()->get_type();
@@ -2345,7 +1676,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					}
 
 					// walk_type will shift in the base type's summary code
-				} 
+				}
 				else if (t.is_a<subrange_type_die>())
 				{
 					auto subrange_t = t.as_a<subrange_type_die>();
@@ -2421,19 +1752,19 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				}
 				else if (t.is_a<unspecified_type_die>())
 				{
-					cerr << "Warning: saw unspecified type " << t;
+					debug(2) << "Warning: saw unspecified type " << t;
 					output_word.val = opt<uint32_t>();
 				}
 				else 
 				{
-					cerr << "Warning: didn't understand type " << t;
+					debug(2) << "Warning: didn't understand type " << t;
 				}
 				return true;
 			},
 			/* post_f */ [&output_word](
 				iterator_df<type_die> t, iterator_df<program_element_die> reason) -> void {
-				cerr << "Post-walking ";
-				t.print(std::cerr, 0); cerr << std::endl;
+				debug(2) << "Post-walking ";
+				t.print(debug(2), 0); debug(2) << std::endl;
 				if (t && t != t->get_concrete_type()) return;
 				if (t.is_a<type_describing_subprogram_die>())
 				{
@@ -2464,23 +1795,24 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				assert (!t || !(output_word.val) || *output_word.val != 0);
 			}
 			); /* end call to walk_type */
-			cerr << "Finished walk" << std::endl;
+			debug(2) << "Finished walk" << std::endl;
 			code_to_return = output_word.val; 
 			out:
 				get_root().type_summary_code_cache.insert(
 					make_pair(get_offset(), code_to_return)
 				);
-			cerr << "Got summary code: ";
-			if (code_to_return) cerr << std::hex << *code_to_return << std::dec;
-			else cerr << "(no code)";
-			cerr << endl;
+			debug(2) << "Got summary code: ";
+			if (code_to_return) debug(2) << std::hex << *code_to_return << std::dec;
+			else debug(2) << "(no code)";
+			debug(2) << endl;
+			this->cached_summary_code = code_to_return;
 			return code_to_return;
 		}
 		bool type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
 			if (!t) return false;
 			
-			cerr << "Testing type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			debug(2) << "Testing type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			return t.tag_here() == get_tag(); // will be refined in subclasses
@@ -2491,7 +1823,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		{
 			set<pair< iterator_df<type_die>, iterator_df<type_die> > > flipped_set;
 			auto& r = get_root();
-			auto self = r.find(get_offset());
+			auto self = find_self();
 			
 			// iterator equality always implies type equality
 			if (self == t) return true;
@@ -2524,9 +1856,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				flipped_set.insert(make_pair(i_pair->second, i_pair->first));
 			}
 			
-			t_may_equal_self =  // we have to find ourselves :-(
-				   // ... using our constructing root! :-((((((
-				t->may_equal(self, flipped_set);
+			t_may_equal_self = t->may_equal(self, flipped_set);
 			if (!t_may_equal_self) { ret = false; goto out; }
 			ret = true;
 			// if we're unequal then we should not be the same DIE (equality is reflexive)
@@ -2611,14 +1941,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 /* from array_type_die */
 		iterator_df<type_die> array_type_die::get_concrete_type() const
 		{
-			// for arrays, our concrete self is our self -- we have to find ourselves. :-(
-			return get_root().find(get_offset());
+			return find_self();
 		}
 		bool array_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
 			if (!t) return false;
 			
-			cerr << "Testing array_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			debug(2) << "Testing array_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2657,7 +1986,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		{
 			if (!t) return false;
 			
-			cerr << "Testing string_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			debug(2) << "Testing string_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2695,7 +2024,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		bool subrange_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
 			if (!t) return false;
-			cerr << "Testing subrange_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			debug(2) << "Testing subrange_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2728,7 +2057,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		bool enumeration_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
 			if (!t) return false;
-			cerr << "Testing enumeration_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			debug(2) << "Testing enumeration_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2788,20 +2117,20 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				auto to_return = next_type->calculate_byte_size();
 				if (!to_return)
 				{
-					cerr << "Type chain concrete type " << *get_concrete_type()
+					debug(2) << "Type chain concrete type " << *get_concrete_type()
 						<< " returned no byte size" << endl;
 				}
 				return to_return;
 			}
 			else
 			{
-				cerr << "Type with no concrete type: " << *this << endl;
+				debug(2) << "Type with no concrete type: " << *this << endl;
 				return opt<Dwarf_Unsigned>();
 			}
 		}
 		bool type_chain_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
-			cerr << "Testing type_chain_die::may_equal() (default case)" << endl;
+			debug(2) << "Testing type_chain_die::may_equal() (default case)" << endl;
 			
 			return get_tag() == t.tag_here() && 
 				(
@@ -2822,17 +2151,15 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			if (!opt_next_type) return iterator_base::END; // a.k.a. None
 			if (!get_spec(r).tag_is_type(opt_next_type.tag_here()))
 			{
-				cerr << "Warning: following type chain found non-type " << opt_next_type << endl;
-				// find ourselves :-(
-				return r.find(get_offset());
+				debug(2) << "Warning: following type chain found non-type " << opt_next_type << endl;
+				return find_self();
 			} 
 			else return opt_next_type->get_concrete_type();
 		}
 /* from spec::address_holding_type_die */  
 		iterator_df<type_die> address_holding_type_die::get_concrete_type() const 
 		{
-			// we have to find ourselves :-(
-			return get_root().find(get_offset());
+			return find_self();
 		}
 		opt<Dwarf_Unsigned> address_holding_type_die::calculate_byte_size() const 
 		{
@@ -2873,8 +2200,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			vector< opt<Dwarf_Unsigned> > all_counts;
 
 			root_die& r = get_root();
-			// we have to find ourselves. :-(
-			auto self = r.find(get_offset());
+			auto self = find_self();
 			assert(self != iterator_base::END);
 
 			auto enclosing_cu = r.cu_pos(get_enclosing_cu_offset());
@@ -2972,7 +2298,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		bool with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
 			if (!t) return false;
-			cerr << "Testing with_data_members_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			debug(2) << "Testing with_data_members_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -2996,7 +2322,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				if (i_theirs == their_member_children.second) return false;
 				
 				auto this_test_pair = make_pair(
-					get_root().find(get_offset()).as_a<type_die>(),
+					find_self().as_a<type_die>(),
 					t
 				);
 				auto recursive_test_set = assuming_equal; recursive_test_set.insert(this_test_pair);
@@ -3034,10 +2360,10 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			root_die& r = get_root();
 			if (!get_declaration() || !*get_declaration()) 
 			{
-				/* we are a definition already, but we have to find ourselves :-( */
-				return r.find(get_offset());
+				/* we are a definition already */
+				return find_self();
 			}
-			cerr << "Looking for definition of declaration " << summary() << endl;
+			debug(2) << "Looking for definition of declaration " << summary() << endl;
 			
 			// if we don't have a name, we have no way to proceed
 			auto opt_name = get_name(/*r*/);
@@ -3048,7 +2374,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 
 				/* Otherwise, we search forwards from our position, for siblings
 				 * that have the same name but no "declaration" attribute. */
-				auto iter = r.find(get_offset());
+				auto iter = find_self();
 
 				/* Are we a CU-toplevel DIE? We only handle this case at the moment. 
 				   PROBLEM:
@@ -3077,13 +2403,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						&& (opt_decl_flag = i_sib->get_declaration(), 
 							!opt_decl_flag || !*opt_decl_flag))
 					{
-						cerr << "Found definition " << i_sib->summary() << endl;
+						debug(2) << "Found definition " << i_sib->summary() << endl;
 						return i_sib;
 					}
 				}
 			}
 		return_no_result:
-			cerr << "Failed to find definition of declaration " << summary() << endl;
+			debug(2) << "Failed to find definition of declaration " << summary() << endl;
 			return iterator_base::END;
 		}
 
@@ -3152,9 +2478,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				return opt<Dwarf_Unsigned>();
 			}
 			
-			// we have to find ourselves :-(
 			root_die& r = get_root();
-			auto it = r.find(get_offset());
+			auto it = find_self();
 			auto parent = r.parent(it);
 			auto enclosing_type_die = parent.as_a<core::type_die>();
 			if (!enclosing_type_die) return opt<Dwarf_Unsigned>();
@@ -3172,19 +2497,19 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				// HACK: support class types (and others) here
 				auto parent_first_member
 				 = enclosing_type_die.children().subseq_of<core::with_dynamic_location_die>().first;
-				assert(parent_first_member.base().base() != iterator_base::END);
+				assert(parent_first_member != iterator_base::END);
 				while (
-					!(parent_first_member.base().base().is_a<member_die>() || parent_first_member.base().base().is_a<inheritance_die>())
+					!(parent_first_member.is_a<member_die>() || parent_first_member.is_a<inheritance_die>())
 					|| (parent_first_member->get_declaration() && *parent_first_member->get_declaration())
 				)
 				{
 					++parent_first_member;
 					// at the latest, we should hit ourselves
-					assert(parent_first_member.base().base() != iterator_base::END);
+					assert(parent_first_member != iterator_base::END);
 				}
 				
 				// if we are the first member of a struct, or any member of a union, we're okay
-				if (it.offset_here() == parent_first_member.base().base().offset_here()
+				if (it.offset_here() == parent_first_member.offset_here()
 				 || enclosing_type_die.tag_here() == DW_TAG_union_type)
 				{
 					return opt<Dwarf_Unsigned>(0U);
@@ -3194,9 +2519,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				if (assume_packed_if_no_location)
 				{
 					auto previous_member = parent_first_member;
-					assert(previous_member.base().base());
+					assert(previous_member);
 					// if there is one member or more before us...
-					if (previous_member.base().base() != it)
+					if (previous_member != it)
 					{
 						do
 						{
@@ -3205,15 +2530,15 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 							do
 							{
 								++next_member;
-							} while (next_member.base().base() != it
-								&& (!(next_member.base().base().is_a<member_die>() || next_member.base().base().is_a<inheritance_die>())
+							} while (next_member != it
+								&& (!(next_member.is_a<member_die>() || next_member.is_a<inheritance_die>())
 								|| (next_member->get_declaration() && *next_member->get_declaration())));
 							// break if we hit ourselves
-							if (next_member.base().base() == it) break;
+							if (next_member == it) break;
 							previous_member = std::move(next_member);
 						} while (true); 
 
-						if (previous_member.base().base()) 
+						if (previous_member) 
 						{
 							auto prev_memb_t = previous_member->get_type();
 							if (prev_memb_t)
@@ -3237,13 +2562,13 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				}
 				
 				// if we got here, we really can't figure it out
-				std::cerr << "Warning: encountered DWARF member lacking a location: "
+				debug() << "Warning: encountered DWARF member lacking a location: "
 					<< it << std::endl;
 				return opt<Dwarf_Unsigned>();
 			}
 			else if (data_member_location->size() != 1)
 			{
-				std::cerr << "Bad location: " << *data_member_location << std::endl;
+				debug() << "Bad location: " << *data_member_location << std::endl;
 				goto location_not_understood;
 			}
 			else
@@ -3255,19 +2580,19 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				 * FIXME: when we add support for memory operations, the error we
 				 * get will be different, and we need to update the catch case. */
 				try {
-					return dwarf::lib::evaluator(
+					return expr::evaluator(
 						data_member_location->at(0), 
 						it.enclosing_cu().spec_here(), 
 						std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, 0UL))).tos();
 				} 
-				catch (dwarf::lib::Not_supported)
+				catch (expr::Not_supported)
 				{
 					goto location_not_understood;
 				}
 			}
 		location_not_understood:
 				// error
-				std::cerr << "Warning: encountered DWARF member with location I didn't understand: "
+				debug() << "Warning: encountered DWARF member with location I didn't understand: "
 					<< it << std::endl;
 				return opt<Dwarf_Unsigned>();
 		}
@@ -3366,7 +2691,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					 * Since we're a with_static_location_die, we *probably* don't
 					 * have vaddr-dependent location. FIXME: check this is okay. */
 
-					optional<Dwarf_Unsigned> opt_byte_size;
+					opt<Dwarf_Unsigned> opt_byte_size;
 					auto found_byte_size = attrs.find(DW_AT_byte_size);
 					if (found_byte_size != attrs.end())
 					{
@@ -3393,7 +2718,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					Dwarf_Unsigned byte_size = *opt_byte_size;
 					if (byte_size == 0)
 					{
-						cerr << "Zero-length object: " << summary() << endl;
+						debug(2) << "Zero-length object: " << summary() << endl;
 						goto out;
 					}
 					
@@ -3407,9 +2732,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					{
 						if (loclist.size() > 0)
 						{
-							cerr << "Vaddr-dependent static location " << *this << endl;
+							debug(2) << "Vaddr-dependent static location " << *this << endl;
 						}
-						else cerr << "Static var with no location: " << *this << endl;
+						else debug(2) << "Static var with no location: " << *this << endl;
 						//if (loclist.size() > 0)
 						//{
 						//	expr_pieces = loclist.begin()->pieces();
@@ -3424,7 +2749,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						{
 							/* Evaluate this piece. */
 							Dwarf_Unsigned piece_size = i->second;
-							Dwarf_Unsigned piece_start = dwarf::lib::evaluator(i->first,
+							Dwarf_Unsigned piece_start = expr::evaluator(i->first,
 								this->get_spec(r)).tos();
 
 							/* If we have only one piece, it means there might be no DW_OP_piece,
@@ -3443,10 +2768,10 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 						}
 						assert(current_offset_within_object == byte_size);
 					}
-					catch (Not_supported)
+					catch (expr::Not_supported)
 					{
 						// some opcode we don't recognise
-						cerr << "Unrecognised opcode in " << *this << endl;
+						debug() << "Unrecognised opcode in " << *this << endl;
 						goto out;
 					}
 
@@ -3468,14 +2793,14 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					}
 					catch (lib::No_entry)
 					{
-						std::cerr << "Warning: couldn't resolve linkage name " << linkage_name
+						debug() << "Warning: couldn't resolve linkage name " << linkage_name
 							<< " for DIE " << *this << std::endl;
 					}
 				}
 
 			}
 		out:
-			//cerr << "Intervals of " << this->summary() << ": " << retval << endl;
+			//debug() << "Intervals of " << this->summary() << ": " << retval << endl;
 			return retval;
 		}
 
@@ -3617,71 +2942,69 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		};
 /* from spec::subprogram_die */
 		opt< pair<Dwarf_Off, iterator_df<with_dynamic_location_die> > >
-        subprogram_die::spans_addr_in_frame_locals_or_args( 
-            	    Dwarf_Addr absolute_addr, 
+		subprogram_die::spans_addr_in_frame_locals_or_args( 
+					Dwarf_Addr absolute_addr, 
 					root_die& r, 
-                    Dwarf_Off dieset_relative_ip, 
-                    Dwarf_Signed *out_frame_base,
-                    dwarf::lib::regs *p_regs/* = 0*/) const
-        {
+					Dwarf_Off dieset_relative_ip, 
+					Dwarf_Signed *out_frame_base,
+					expr::regs *p_regs/* = 0*/) const
+		{
 			typedef opt< pair<Dwarf_Off, iterator_df<with_dynamic_location_die> > >
 				return_type;
 			
-        	/* auto nonconst_this = const_cast<subprogram_die *>(this); */
-        	assert(this->get_frame_base());
-
-			/* We have to find ourselves. :-( */
-			auto i = r.find(get_offset()); 
+			/* auto nonconst_this = const_cast<subprogram_die *>(this); */
+			assert(this->get_frame_base());
+			auto i = find_self();
 			assert(i != iterator_base::END);
 			
 			// Calculate the vaddr which selects a loclist element
 			auto frame_base_loclist = *get_frame_base();
 			iterator_df<compile_unit_die> enclosing_cu
 			 = r.cu_pos(i.enclosing_cu_offset_here());
-			cerr << "Enclosing CU is " << enclosing_cu->summary() << endl;
+			debug(2) << "Enclosing CU is " << enclosing_cu->summary() << endl;
 			Dwarf_Addr low_pc = enclosing_cu->get_low_pc()->addr;
 			assert(low_pc <= dieset_relative_ip);
 			Dwarf_Addr vaddr = dieset_relative_ip - low_pc;
 			/* Now calculate our frame base address. */
-            auto frame_base_addr = dwarf::lib::evaluator(
-                frame_base_loclist,
-                vaddr,
-                get_spec(r),
-                p_regs).tos();
-            if (out_frame_base) *out_frame_base = frame_base_addr;
-            
+			auto frame_base_addr = expr::evaluator(
+				frame_base_loclist,
+				vaddr,
+				get_spec(r),
+				p_regs).tos();
+			if (out_frame_base) *out_frame_base = frame_base_addr;
+			
 			auto child = r.first_child(i);
-            if (child == iterator_base::END) return return_type();
+			if (child == iterator_base::END) return return_type();
 			/* Now we walk children
 			 * (not just immediate children, because more might hide under lexical_blocks), 
 			 * looking for with_dynamic_location_dies, and 
 			 * call spans_addr on what we find.
 			 * We skip contained DIEs that do not contain objects located in this frame. 
 			 */
-            frame_subobject_iterator start_iter(child);
-            std::cerr << "Exploring stack-located children of " << summary() << std::endl;
-            unsigned initial_depth = start_iter.depth();
-            for (auto i_bfs = start_iter;
-            		i_bfs.depth() >= initial_depth;
-                    ++i_bfs)
-            {
-            	std::cerr << "Considering whether DIE has stack location: " 
+			frame_subobject_iterator start_iter(child);
+			debug(2) << "Exploring stack-located children of " << summary() << std::endl;
+			unsigned initial_depth = start_iter.depth();
+			for (auto i_bfs = start_iter;
+					i_bfs.depth() >= initial_depth;
+					++i_bfs)
+			{
+				debug(2) << "Considering whether DIE has stack location: " 
 					<< i_bfs->summary() << std::endl;
-            	auto with_stack_loc = dynamic_cast<with_dynamic_location_die*>(&i_bfs.dereference());
-                if (!with_stack_loc) continue;
-                
-                opt<Dwarf_Off> result = with_stack_loc->spans_addr(absolute_addr,
-                	frame_base_addr,
+				auto with_stack_loc = dynamic_cast<with_dynamic_location_die*>(&i_bfs.dereference());
+				if (!with_stack_loc) continue;
+				
+				opt<Dwarf_Off> result = with_stack_loc->spans_addr(absolute_addr,
+					frame_base_addr,
 					r, 
-                    dieset_relative_ip,
-                    p_regs);
-                if (result) return make_pair(
+					dieset_relative_ip,
+					p_regs);
+				if (result) return make_pair(
 					*result, 
 					iterator_df<with_dynamic_location_die>(i_bfs)
 				);
-            }
-            return return_type();
-        }
+			}
+			return return_type();
+		}
 		iterator_df<type_die> subprogram_die::get_return_type() const
 		{
 			return get_type(); 
@@ -3689,9 +3012,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 /* from type_describing_subprogram_die */
 		bool type_describing_subprogram_die::is_variadic() const
 		{
-			/* We have to find ourselves. :-( */
-			root_die& r = get_root();
-			auto i = r.find(get_offset());
+			auto i = find_self();
 			assert(i != iterator_base::END);
 			auto children = i.children_here();
 			auto unspec = children.subseq_of<unspecified_parameters_die>();
@@ -3700,7 +3021,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		bool type_describing_subprogram_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
 			if (!t) return false;
-			cerr << "Testing type_describing_subprogram_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+			debug(2) << "Testing type_describing_subprogram_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
@@ -3767,9 +3088,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			 * If we're a variable or fp, it's our enclosing subprogram.
 			 * This might be null if we're actually a static variable. */
 
-			/* We have to find ourselves. :-( */ 
-			root_die& r = get_root();
-			auto i = r.find(get_offset());
+			auto i = find_self();
 			assert(i != iterator_base::END);
 
 			// HACK: this should arguably be in overrides for formal_parameter and variable
@@ -3793,38 +3112,38 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 /* from spec::with_dynamic_location_die */
 		opt<Dwarf_Off> 
 		with_dynamic_location_die::spans_stack_addr(
-                    Dwarf_Addr absolute_addr,
-                    Dwarf_Signed frame_base_addr,
+					Dwarf_Addr absolute_addr,
+					Dwarf_Signed frame_base_addr,
 					root_die& r, 
-                    Dwarf_Off dieset_relative_ip,
-                    dwarf::lib::regs *p_regs) const
-        {
-        	auto attrs = copy_attrs();
+					Dwarf_Off dieset_relative_ip,
+					expr::regs *p_regs) const
+		{
+			auto attrs = copy_attrs();
 			if (attrs.find(DW_AT_location) == attrs.end())
 			{
-				cerr << "Warning: " << this->summary() << " has no DW_AT_location; "
+				debug(2) << "Warning: " << this->summary() << " has no DW_AT_location; "
 					<< "assuming it does not cover any stack locations." << endl;
 				return opt<Dwarf_Off>();
 			}
-            auto base_addr = calculate_addr_on_stack(
+			auto base_addr = calculate_addr_on_stack(
 				frame_base_addr,
 				r, 
 				dieset_relative_ip,
 				p_regs);
-			std::cerr << "Calculated that an instance of DIE" << summary()
+			debug(2) << "Calculated that an instance of DIE" << summary()
 				<< " has base addr 0x" << std::hex << base_addr << std::dec;
-            assert(attrs.find(DW_AT_type) != attrs.end());
-            auto size = *(attrs.find(DW_AT_type)->second.get_refiter_is_type()->calculate_byte_size());
-			std::cerr << " and size " << size
+			assert(attrs.find(DW_AT_type) != attrs.end());
+			auto size = *(attrs.find(DW_AT_type)->second.get_refiter_is_type()->calculate_byte_size());
+			debug(2) << " and size " << size
 				<< ", to be tested against absolute addr 0x"
 				<< std::hex << absolute_addr << std::dec << std::endl;
-            if (absolute_addr >= base_addr
-            &&  absolute_addr < base_addr + size)
-            {
+			if (absolute_addr >= base_addr
+			&&  absolute_addr < base_addr + size)
+			{
  				return absolute_addr - base_addr;
-            }
-            return opt<Dwarf_Off>();
-        }
+			}
+			return opt<Dwarf_Off>();
+		}
 /* from with_dynamic_location_die, stack-based cases */
 		encap::loclist formal_parameter_die::get_dynamic_location() const
 		{
@@ -3843,9 +3162,8 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			// see note in expr.hpp
 			if (!this->get_location()) return encap::loclist::NO_LOCATION; //(/*encap::loc_expr::NO_LOCATION*/);
 			
-			// We have to find ourselves. :-( 
 			root_die& r = get_root();
-			auto i = r.find(get_offset());
+			auto i = find_self();
 			assert(i != iterator_base::END);
 			
 			// we need an enclosing subprogram or lexical_block
@@ -3859,31 +3177,65 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		}
 /* from spec::with_dynamic_location_die */
 		opt<Dwarf_Off> with_dynamic_location_die::spans_addr_in_object(
-                    Dwarf_Addr absolute_addr,
-                    Dwarf_Signed object_base_addr,
+					Dwarf_Addr absolute_addr,
+					Dwarf_Signed object_base_addr,
 					root_die& r, 
-                    Dwarf_Off dieset_relative_ip,
-                    dwarf::lib::regs *p_regs) const
-        {
-        	auto attrs = copy_attrs();
-            auto base_addr = calculate_addr_in_object(
+					Dwarf_Off dieset_relative_ip,
+					expr::regs *p_regs) const
+		{
+			auto attrs = copy_attrs();
+			auto base_addr = calculate_addr_in_object(
 				object_base_addr, r, dieset_relative_ip, p_regs);
-            assert(attrs.find(DW_AT_type) != attrs.end());
-            auto size = *(attrs.find(DW_AT_type)->second.get_refiter_is_type()->calculate_byte_size());
-            if (absolute_addr >= base_addr
-            &&  absolute_addr < base_addr + size)
-            {
- 				return absolute_addr - base_addr;
-            }
-            return opt<Dwarf_Off>();
-        }
-/* from member_die, special helper for bitfields */
+			assert(attrs.find(DW_AT_type) != attrs.end());
+			auto size = *(attrs.find(DW_AT_type)->second.get_refiter_is_type()->calculate_byte_size());
+			if (absolute_addr >= base_addr
+			&&  absolute_addr < base_addr + size)
+			{
+				return absolute_addr - base_addr;
+			}
+			return opt<Dwarf_Off>();
+		}
+		
+		/* We want to iterate over visible named grandchildren, in a way that
+		 * exploits the cache in resolve_all_visible_from_root. How to do this?
+		 *
+		 * I think we have to write a new kind of iterator -- visible_named_grandchildren_iterator.
+		 * Oh, but that's not quite enough, and doesn't exploit the cache.
+		 * How would it work? 
+		 * We walk the visible named grandchildren and look for one that matches,
+		 * preferentially using the cache.
+		 * But the cache is by name.
+		 * We could maintain a cache by offset too.
+		 * But walking over visible named grandchildren is too easy... we just
+		 * do a filter_iterator over grandchildren, since
+		 * walking in offset order should be fast anyway.
+		 * Okay -- if it's that easy, add it!
+		 * 
+		 * But also add another kind of iterator: 
+		 * a *name-specific* visible-named-grandchildren iterator.
+		 * If the cache is complete, we just iterate over the cache.
+		 * If it's not complete, we do the naive thing, but ensure that
+		 * when we hit the end, we mark the cache as complete. Can we do this?
+		 * GAH. Polymorphism on return: is there any easy way to do this?
+		 * Can we return a shared ptr to a sequence of some vtable'd type?
+		 * NO because the return type of the vtable methods still needs to be fixed.
+		 * Iterators need to be passed around by value.
+		 * We could easily make our own vtable'd "late-bound iterator" abstract class,
+		 * and use that. Hmpf.
+		 * */
+		
+		
+/* from data_member_die, special helper for bitfields */
+		iterator_df<type_die> data_member_die::find_or_create_type_handling_bitfields() const
+		{
+			return find_type();
+		}
 		iterator_df<type_die> member_die::find_or_create_type_handling_bitfields() const
 		{
 			/* Just do find_type if we don't have the bitfield attributes. */
 			if (!get_bit_size() && !get_bit_offset() && !get_data_bit_offset()) return find_type();
 
-			cerr << "Handling bitfield member at 0x" << std::hex << get_offset() << std::dec
+			debug(2) << "Handling bitfield member at 0x" << std::hex << get_offset() << std::dec
 				<< std::endl;
 			
 			opt<Dwarf_Unsigned> opt_bsz = get_bit_size();
@@ -3908,6 +3260,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			 */
 			vector<iterator_base> all_found = get_root().find_all_visible_named_grandchildren(
 				*bt->get_name());
+				
+			/* We want to iterate over visible named grandchildren, in a way that
+			 * exploits the cache in resolve_all_visible_from_root. How to do this?
+			 * I think we have to write a new kind of iterator. */
+			
 			/* Does any of them really match? */
 			auto not_equal = [effective_bit_size, effective_bit_offset](const iterator_base &i) {
 				if (!i.is_a<base_type_die>()) return true;
@@ -3944,7 +3301,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					encap::attribute_value v_byte_size(effective_byte_size);
 					attrs.insert(make_pair(DW_AT_byte_size, v_byte_size));
 					// debugging
-					get_root().print_tree(std::move(cu), cerr);
+					get_root().print_tree(std::move(cu), debug(2));
 					return created;
 				}
 				default:
@@ -3955,16 +3312,11 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			}
 			
 		}
-/* from with_dynamic_location_die, object-based cases */
-		encap::loclist member_die::get_dynamic_location() const
+/* from data_member_die */
+		encap::loclist data_member_die::get_dynamic_location() const
 		{
 			/* These guys have loclists that add to what's on the
 			   top-of-stack, which is what we want. */
-			opt<encap::loclist> opt_location = get_data_member_location();
-			return opt_location ? *opt_location : encap::loclist();
-		}
-		encap::loclist inheritance_die::get_dynamic_location() const
-		{
 			opt<encap::loclist> opt_location = get_data_member_location();
 			return opt_location ? *opt_location : encap::loclist();
 		}
@@ -3974,12 +3326,12 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				Dwarf_Addr frame_base_addr,
 				root_die& r, 
 				Dwarf_Off dieset_relative_ip,
-				dwarf::lib::regs *p_regs/* = 0*/) const
+				expr::regs *p_regs/* = 0*/) const
 		{
-        	auto attrs = copy_attrs();
-            assert(attrs.find(DW_AT_location) != attrs.end());
+			auto attrs = copy_attrs();
+			assert(attrs.find(DW_AT_location) != attrs.end());
 			
-			/* We have to find ourselves. :-( Well, almost -- enclosing CU. */
+			/* We have to find ourselves. Well, almost -- enclosing CU. */
 			auto found = r.cu_pos(get_enclosing_cu_offset());
 			iterator_df<compile_unit_die> i_cu = found;
 			assert(i_cu != iterator_base::END);
@@ -3988,7 +3340,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 			
 			if (dieset_relative_ip < dieset_relative_cu_base_ip)
 			{
-				cerr << "Warning: bad relative IP (0x" << std::hex << dieset_relative_ip << std::dec
+				debug(2) << "Warning: bad relative IP (0x" << std::hex << dieset_relative_ip << std::dec
 					<< ") for stack location of DIE in compile unit "
 					<< i_cu 
 					<< ": " << *this << endl;
@@ -4009,9 +3361,9 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				r.get_frame_section(),
 				fb_loclist
 			);
-			cerr << "After rewriting, loclist is " << rewritten_loclist << endl;
+			debug(2) << "After rewriting, loclist is " << rewritten_loclist << endl;
 			
-			return (Dwarf_Addr) dwarf::lib::evaluator(
+			return (Dwarf_Addr) expr::evaluator(
 				rewritten_loclist,
 				dieset_relative_ip // needs to be CU-relative
 				 - dieset_relative_cu_base_ip,
@@ -4024,12 +3376,12 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				Dwarf_Addr object_base_addr,
 				root_die& r, 
 				Dwarf_Off dieset_relative_ip,
-				dwarf::lib::regs *p_regs /*= 0*/) const
+				expr::regs *p_regs /*= 0*/) const
 		{
-        	auto attrs = copy_attrs();
+			auto attrs = copy_attrs();
 			iterator_df<compile_unit_die> i_cu = r.cu_pos(get_enclosing_cu_offset());
-            assert(attrs.find(DW_AT_data_member_location) != attrs.end());
-			return (Dwarf_Addr) dwarf::lib::evaluator(
+			assert(attrs.find(DW_AT_data_member_location) != attrs.end());
+			return (Dwarf_Addr) expr::evaluator(
 				attrs.find(DW_AT_data_member_location)->second.get_loclist(),
 				dieset_relative_ip == 0 ? 0 : // if we specify it, needs to be CU-relative
 				 - (i_cu->get_low_pc() ? 
@@ -4120,8 +3472,7 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 		iterator_df<type_die> compile_unit_die::implicit_enum_base_type() const
 		{
 			if (cached_implicit_enum_base_type) return cached_implicit_enum_base_type; // FIXME: cache "not found" result too
-		
-			root_die& r = get_root();
+			/* Language-specific knowledge. */
 			switch(get_language())
 			{
 				case DW_LANG_C:
@@ -4142,8 +3493,60 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 					assert(false && "enum but no int or signed int");
 				}
 				default:
-					return iterator_base::END;
+					break;
 			}
+			// FIXME: anything left to do here?
+			return iterator_base::END;
+		}
+		iterator_df<type_die> compile_unit_die::implicit_subrange_base_type() const
+		{
+			if (cached_implicit_subrange_base_type) return cached_implicit_subrange_base_type; // FIXME: cache "not found" result too
+
+			/* Subranges might have no type, at least in that I've seen gcc generate them.
+			 * This does not necessarily mean they are the empty subrange!
+			 * Could be a gcc bug, but we need to do something.
+			 * Since these subranges are under array types, and because array
+			 * ranges are unsigned, we relax a bit and look for unsigneds too.
+			 * BUT problem: it need not have the C name for unsigned int.
+			 * We used to look for "sizetype" but turns out that's a gcc bug.
+			 * https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80263
+			 * Instead, look first for an unnamed unsigned integer type,
+			 * then for "sizetype" as a bug workaround,
+			 * then whatever we do for enums.
+			 */
+			switch(get_language())
+			{
+				case DW_LANG_C:
+				case DW_LANG_C89:
+				case DW_LANG_C_plus_plus:
+				case DW_LANG_C99: {
+					const char *attempts[] = { "unsigned int", "unsigned" };
+					size_t total_attempts = sizeof attempts / sizeof attempts[0];
+					for (unsigned i_attempt = 0; i_attempt < total_attempts; ++i_attempt)
+					{
+						auto found = named_child(attempts[i_attempt]);
+						if (found != iterator_base::END && found.is_a<type_die>())
+						{
+							cached_implicit_subrange_base_type = found.as_a<type_die>();
+							return found;
+						}
+					}
+				}
+				default:
+					break;
+			}
+			auto child_bts = children().subseq_of<base_type_die>();
+			for (auto i_bt = std::move(child_bts.first); i_bt != child_bts.second; ++i_bt)
+			{
+				if (i_bt->get_encoding() == DW_ATE_unsigned
+					 && (!i_bt.name_here()
+						|| /* gcc bug workaround */ *i_bt.name_here() == "sizetype"))
+				{
+					cached_implicit_subrange_base_type = i_bt.as_a<type_die>();
+					return cached_implicit_subrange_base_type;
+				}
+			}
+			return this->implicit_enum_base_type();
 		}
 	}
 } // end namespace dwarf

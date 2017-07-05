@@ -28,14 +28,12 @@ using std::pair;
 using std::make_pair;
 using std::set;
 using std::string;
-using std::cerr;
 using std::endl;
 using dwarf::core::FrameSection;
 using dwarf::core::Fde;
 using dwarf::core::Cie;
 using dwarf::spec::opt;
 using boost::icl::interval;
-using boost::optional;
 using srk31::host_is_little_endian;
 using srk31::host_is_big_endian;
 
@@ -48,6 +46,28 @@ static void init()
 
 namespace dwarf
 {
+	/* libdwarf-dependent stuff: FIXME: abstract this better */
+	namespace core
+	{
+		::Elf *FrameSection::get_elf() const
+		{
+			lib::Elf_opaque_in_libdwarf *e;
+			int elf_ret = dwarf_get_elf(dbg.raw_handle(), &e, &core::current_dwarf_error);
+			assert(elf_ret == DW_DLV_OK);
+			return reinterpret_cast< ::Elf *>(e);
+		}
+	
+		int FrameSection::get_elf_machine() const
+		{
+			GElf_Ehdr ehdr;
+			GElf_Ehdr *ret = gelf_getehdr(get_elf(), &ehdr);
+			assert(ret != 0);
+			return ehdr.e_machine;
+		}
+		
+		const int FAKE_CFA_REGISTER = DW_FRAME_CFA_COL3;
+	}
+	/* libdwarf-tainted stuff continues.... */
 	namespace encap
 	{
 		std::ostream& operator<<(std::ostream& s, const frame_instr& arg) 
@@ -65,137 +85,16 @@ namespace dwarf
 			s << ", instroff " << arg.fp_instr_offset << ">";
 			return s;
 		}
-		std::ostream& operator<<(std::ostream& s, const frame_instrlist& arg)
-		{
-			s << "[";
-			for (auto i_instr = arg.begin(); i_instr != arg.end(); ++i_instr)
-			{
-				if (i_instr != arg.begin()) s << ", ";
-				s << *i_instr;
-			}
-			s << "]";
-			return s;
-		}
-		Dwarf_Unsigned read_uleb128(unsigned char const **cur, unsigned char const *limit)
-		{
-			Dwarf_Unsigned working = 0;
-			unsigned char const *start = *cur;
-			do 
-			{
-				assert(*cur < limit);
-				
-				int n7bits = *cur - start;
-				// add in the low-order 7 bits
-				working |= ((**cur) & ~0x80) << (7 * n7bits);
-				
-			} while (*(*cur)++ & 0x80);
-			
-			return working;
-		}
-		Dwarf_Signed read_sleb128(unsigned char const **cur, unsigned char const *limit)
-		{
-			Dwarf_Signed working = 0;
-			unsigned char const *start = *cur;
-			unsigned char byte_read = 0;
-			do 
-			{
-				assert(*cur < limit);
-				
-				int n7bits = *cur - start;
-				// add in the low-order 7 bits
-				byte_read = **cur;
-				working |= (byte_read & ~0x80) << (7 * n7bits);
-				
-			} while (*(*cur)++ & 0x80);
-			
-			// sign-extend the result
-			unsigned nbits_read = 7 * (*cur - start);
-			if (nbits_read < 8 * sizeof (Dwarf_Signed) 
-				&& byte_read >= 0x80)
-			{
-				working |= -(1 << nbits_read);
-			}
-			
-			return working;
-		}
-		uint64_t read_8byte_le(unsigned char const **cur, unsigned char const *limit)
-		{
-			const unsigned char *pos = *cur;
-			*cur += 8;
-			assert(*cur <= limit);
-			return (Dwarf_Unsigned) *pos
-				| (Dwarf_Unsigned) *(pos + 1) << 8
-				| (Dwarf_Unsigned) *(pos + 2) << 16
-				| (Dwarf_Unsigned) *(pos + 3) << 24
-				| (Dwarf_Unsigned) *(pos + 4) << 32
-				| (Dwarf_Unsigned) *(pos + 5) << 40
-				| (Dwarf_Unsigned) *(pos + 6) << 48
-				| (Dwarf_Unsigned) *(pos + 7) << 56;
-		}
-		uint32_t read_4byte_le(unsigned char const **cur, unsigned char const *limit)
-		{
-			const unsigned char *pos = *cur;
-			*cur += 4;
-			assert(*cur <= limit);
-			return (uint32_t) *pos
-				| (uint32_t) *(pos + 1) << 8
-				| (uint32_t) *(pos + 2) << 16
-				| (uint32_t) *(pos + 3) << 24;
-		}
-		uint16_t read_2byte_le(unsigned char const **cur, unsigned char const *limit)
-		{
-			const unsigned char *pos = *cur;
-			*cur += 2;
-			assert(*cur <= limit);
-			return (uint32_t) *pos
-				| (uint32_t)  *(pos + 1) << 8;
-		}		
-		uint64_t read_8byte_be(unsigned char const **cur, unsigned char const *limit)
-		{
-			const unsigned char *pos = *cur;
-			*cur += 8;
-			assert(*cur <= limit);
-			return  (Dwarf_Unsigned) *pos       << 56
-				  | (Dwarf_Unsigned) *(pos + 1) << 48
-				  | (Dwarf_Unsigned) *(pos + 2) << 40
-				  | (Dwarf_Unsigned) *(pos + 3) << 32
-				  | (Dwarf_Unsigned) *(pos + 4) << 24
-				  | (Dwarf_Unsigned) *(pos + 5) << 16
-				  | (Dwarf_Unsigned) *(pos + 6) << 8
-				  | (Dwarf_Unsigned) *(pos + 7);
-		}
-		uint32_t read_4byte_be(unsigned char const **cur, unsigned char const *limit)
-		{
-			const unsigned char *pos = *cur;
-			*cur += 4;
-			assert(*cur <= limit);
-			return  (Dwarf_Unsigned) *pos       << 24
-				  | (Dwarf_Unsigned) *(pos + 1) << 16
-				  | (Dwarf_Unsigned) *(pos + 2) << 8
-				  | (Dwarf_Unsigned) *(pos + 3);
-		}
-		uint16_t read_2byte_be(unsigned char const **cur, unsigned char const *limit)
-		{
-			const unsigned char *pos = *cur;
-			*cur += 2;
-			assert(*cur <= limit);
-			return (Dwarf_Unsigned) *pos       << 8
-				 | (Dwarf_Unsigned) *(pos + 1);
-		}
-		
-		Dwarf_Addr read_addr(int addrlen, unsigned char const **cur, unsigned char const *limit, bool use_host_byte_order)
-		{
-			assert(addrlen == 4 || addrlen == 8);
-			bool read_be = srk31::host_is_little_endian() ^ use_host_byte_order;
-			return static_cast<Dwarf_Addr>(
-			       (read_be  && addrlen == 4) ? read_4byte_be(cur, limit)
-			     : (read_be  && addrlen == 8) ? read_8byte_be(cur, limit)
-			     : (!read_be && addrlen == 4) ? read_4byte_le(cur, limit)
-			     : (!read_be && addrlen == 8) ? read_8byte_le(cur, limit)
-			     : (assert(false), 0)
-			);
-		}
-		
+		/* forward-decls. */
+		Dwarf_Unsigned read_uleb128(unsigned char const **cur, unsigned char const *limit);
+		Dwarf_Signed read_sleb128(unsigned char const **cur, unsigned char const *limit);
+		uint64_t read_8byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint32_t read_4byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint16_t read_2byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint64_t read_8byte_be(unsigned char const **cur, unsigned char const *limit);
+		uint32_t read_4byte_be(unsigned char const **cur, unsigned char const *limit);
+		uint16_t read_2byte_be(unsigned char const **cur, unsigned char const *limit);
+		Dwarf_Addr read_addr(int addrlen, unsigned char const **cur, unsigned char const *limit, bool use_host_byte_order);
 		frame_instrlist::frame_instrlist(const core::Cie& cie, int addrlen, const pair<unsigned char*, unsigned char*>& seq, bool use_host_byte_order /* = true */)
 		{
 			// unsigned char *instrs_start = seq.first;
@@ -345,6 +244,137 @@ namespace dwarf
 #undef opcode_from_byte
 			} // end while
 		}
+		/* end of libdwarf-specific stuff I think */
+		
+		std::ostream& operator<<(std::ostream& s, const frame_instrlist& arg)
+		{
+			s << "[";
+			for (auto i_instr = arg.begin(); i_instr != arg.end(); ++i_instr)
+			{
+				if (i_instr != arg.begin()) s << ", ";
+				s << *i_instr;
+			}
+			s << "]";
+			return s;
+		}
+		Dwarf_Unsigned read_uleb128(unsigned char const **cur, unsigned char const *limit)
+		{
+			Dwarf_Unsigned working = 0;
+			unsigned char const *start = *cur;
+			do 
+			{
+				assert(*cur < limit);
+				
+				int n7bits = *cur - start;
+				// add in the low-order 7 bits
+				working |= ((**cur) & ~0x80) << (7 * n7bits);
+				
+			} while (*(*cur)++ & 0x80);
+			
+			return working;
+		}
+		Dwarf_Signed read_sleb128(unsigned char const **cur, unsigned char const *limit)
+		{
+			Dwarf_Signed working = 0;
+			unsigned char const *start = *cur;
+			unsigned char byte_read = 0;
+			do 
+			{
+				assert(*cur < limit);
+				
+				int n7bits = *cur - start;
+				// add in the low-order 7 bits
+				byte_read = **cur;
+				working |= (byte_read & ~0x80) << (7 * n7bits);
+				
+			} while (*(*cur)++ & 0x80);
+			
+			// sign-extend the result
+			unsigned nbits_read = 7 * (*cur - start);
+			if (nbits_read < 8 * sizeof (Dwarf_Signed) 
+				&& byte_read >= 0x80)
+			{
+				working |= -(1 << nbits_read);
+			}
+			
+			return working;
+		}
+		uint64_t read_8byte_le(unsigned char const **cur, unsigned char const *limit)
+		{
+			const unsigned char *pos = *cur;
+			*cur += 8;
+			assert(*cur <= limit);
+			return (Dwarf_Unsigned) *pos
+				| (Dwarf_Unsigned) *(pos + 1) << 8
+				| (Dwarf_Unsigned) *(pos + 2) << 16
+				| (Dwarf_Unsigned) *(pos + 3) << 24
+				| (Dwarf_Unsigned) *(pos + 4) << 32
+				| (Dwarf_Unsigned) *(pos + 5) << 40
+				| (Dwarf_Unsigned) *(pos + 6) << 48
+				| (Dwarf_Unsigned) *(pos + 7) << 56;
+		}
+		uint32_t read_4byte_le(unsigned char const **cur, unsigned char const *limit)
+		{
+			const unsigned char *pos = *cur;
+			*cur += 4;
+			assert(*cur <= limit);
+			return (uint32_t) *pos
+				| (uint32_t) *(pos + 1) << 8
+				| (uint32_t) *(pos + 2) << 16
+				| (uint32_t) *(pos + 3) << 24;
+		}
+		uint16_t read_2byte_le(unsigned char const **cur, unsigned char const *limit)
+		{
+			const unsigned char *pos = *cur;
+			*cur += 2;
+			assert(*cur <= limit);
+			return (uint32_t) *pos
+				| (uint32_t)  *(pos + 1) << 8;
+		}		
+		uint64_t read_8byte_be(unsigned char const **cur, unsigned char const *limit)
+		{
+			const unsigned char *pos = *cur;
+			*cur += 8;
+			assert(*cur <= limit);
+			return  (Dwarf_Unsigned) *pos       << 56
+				  | (Dwarf_Unsigned) *(pos + 1) << 48
+				  | (Dwarf_Unsigned) *(pos + 2) << 40
+				  | (Dwarf_Unsigned) *(pos + 3) << 32
+				  | (Dwarf_Unsigned) *(pos + 4) << 24
+				  | (Dwarf_Unsigned) *(pos + 5) << 16
+				  | (Dwarf_Unsigned) *(pos + 6) << 8
+				  | (Dwarf_Unsigned) *(pos + 7);
+		}
+		uint32_t read_4byte_be(unsigned char const **cur, unsigned char const *limit)
+		{
+			const unsigned char *pos = *cur;
+			*cur += 4;
+			assert(*cur <= limit);
+			return  (Dwarf_Unsigned) *pos       << 24
+				  | (Dwarf_Unsigned) *(pos + 1) << 16
+				  | (Dwarf_Unsigned) *(pos + 2) << 8
+				  | (Dwarf_Unsigned) *(pos + 3);
+		}
+		uint16_t read_2byte_be(unsigned char const **cur, unsigned char const *limit)
+		{
+			const unsigned char *pos = *cur;
+			*cur += 2;
+			assert(*cur <= limit);
+			return (Dwarf_Unsigned) *pos       << 8
+				 | (Dwarf_Unsigned) *(pos + 1);
+		}
+		Dwarf_Addr read_addr(int addrlen, unsigned char const **cur, unsigned char const *limit, bool use_host_byte_order)
+		{
+			assert(addrlen == 4 || addrlen == 8);
+			bool read_be = srk31::host_is_little_endian() ^ use_host_byte_order;
+			return static_cast<Dwarf_Addr>(
+			       (read_be  && addrlen == 4) ? read_4byte_be(cur, limit)
+			     : (read_be  && addrlen == 8) ? read_8byte_be(cur, limit)
+			     : (!read_be && addrlen == 4) ? read_4byte_le(cur, limit)
+			     : (!read_be && addrlen == 8) ? read_8byte_le(cur, limit)
+			     : (assert(false), 0)
+			);
+		}
 	}
 	namespace core
 	{
@@ -354,22 +384,6 @@ namespace dwarf
 		using dwarf::encap::read_8byte_be;
 		using dwarf::encap::read_4byte_be;
 		using dwarf::encap::read_2byte_be;
-	
-		::Elf *FrameSection::get_elf() const
-		{
-			lib::Elf_opaque_in_libdwarf *e;
-			int elf_ret = dwarf_get_elf(dbg.raw_handle(), &e, &core::current_dwarf_error);
-			assert(elf_ret == DW_DLV_OK);
-			return reinterpret_cast< ::Elf *>(e);
-		}
-	
-		int FrameSection::get_elf_machine() const
-		{
-			GElf_Ehdr ehdr;
-			GElf_Ehdr *ret = gelf_getehdr(get_elf(), &ehdr);
-			assert(ret != 0);
-			return ehdr.e_machine;
-		}
 	
 		std::vector<Dwarf_Small>::const_iterator Cie::find_augmentation_element(char marker) const
 		{
@@ -633,7 +647,7 @@ namespace dwarf
 			/* Get the CIE for this FDE. */
 			const core::Cie& cie = *find_cie();
 
-			typedef optional< const FrameSection::instrs_results & > initial_instrs_results_t;
+			typedef opt< const FrameSection::instrs_results & > initial_instrs_results_t;
 			/* Invoke the interpreter. */
 			
 			/* Walk the CIE initial instructions. */
@@ -656,7 +670,7 @@ namespace dwarf
 		FrameSection::interpret_instructions(const Cie& cie, 
 				Dwarf_Addr initial_row_addr, 
 				Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len,
-				optional< const FrameSection::instrs_results & > initial_instrs_results) const
+				opt< const FrameSection::instrs_results & > initial_instrs_results) const
 		{
 			/* Expand the instructions. We would use dwarf_expand_frame_instructions but 
 			 * it seems to be DWARF2-specific, and I don't want to use too many more 
@@ -685,10 +699,10 @@ namespace dwarf
 			}
 			std::stack< map<int, register_def> > remembered_row_defs;
 
-			if (debug) cerr << "Interpreting instrlist " << instrlist << endl;
+			debug() << "Interpreting instrlist " << instrlist << endl;
 			for (auto i_op = instrlist.begin(); i_op != instrlist.end(); ++i_op)
 			{
-				if (debug) cerr << "\tInterpreting instruction " << *i_op << endl;
+				debug() << "\tInterpreting instruction " << *i_op << endl;
 				switch (i_op->fp_base_op << 6 | i_op->fp_extended_op)
 				{
 					// row creation
@@ -820,7 +834,7 @@ namespace dwarf
 					// padding 
 					case DW_CFA_nop: // this is a full zero byte
 						break;
-						cerr << "FIXME!" << endl;
+						debug() << "DW_CFA_nop: FIXME!" << endl;
 					case DW_CFA_GNU_args_size:
 						/* purely informational I think? */
 						break;
@@ -1136,11 +1150,11 @@ namespace dwarf
 
 								/* We want to start at the CFA. So if we don't 
 								 * have the CFA node in the vertex map, abort. */
-								if (vertex_to_index.find(DW_FRAME_CFA_COL3) == vertex_to_index.end())
+								if (vertex_to_index.find(core::FAKE_CFA_REGISTER) == vertex_to_index.end())
 								{ goto continue_loop; }
 								
 								dijkstra_shortest_paths(g, 
-									/* start at CFA */ DW_FRAME_CFA_COL3,
+									/* start at CFA */ core::FAKE_CFA_REGISTER,
 									predecessor_map(p).
 									distance_map(d).
 									weight_map(w).
@@ -1181,7 +1195,7 @@ namespace dwarf
 								// pos is an index, but p maps vertices to vertices!
 								while (pos >= 0)
 								{
-									if (pos == index_for_vertex(DW_FRAME_CFA_COL3))
+									if (pos == index_for_vertex(core::FAKE_CFA_REGISTER))
 									{
 										found_path = true;
 										break;
@@ -1208,7 +1222,7 @@ namespace dwarf
 
 								if (found_path)
 								{
-									if (debug) cerr << "Found that in vaddr range " 
+									debug() << "Found that in vaddr range " 
 										<< std::hex << row_overlap_interval << std::dec 
 										<< " we can rewrite DW_OP_breg" << (unsigned) regnum 
 										<< " " << std::showpos << regoff << std::noshowpos
@@ -1219,10 +1233,10 @@ namespace dwarf
 									for (auto i_edge = path_edges.rbegin(); i_edge != path_edges.rend(); ++i_edge)
 									{
 										auto reg_name = [&](int regnum) -> const char * {
-											if (regnum == DW_FRAME_CFA_COL3) return "CFA";
+											if (regnum == core::FAKE_CFA_REGISTER) return "CFA";
 											else return dwarf_regnames_for_elf_machine(fs.get_elf_machine())[regnum];
 										};
-										if (debug) cerr << reg_name(i_edge->from_reg) 
+										debug() << reg_name(i_edge->from_reg) 
 											<< std::showpos << i_edge->difference << std::noshowpos
 											<< " == " << reg_name(i_edge->to_reg) << endl;
 									}
@@ -1283,7 +1297,7 @@ namespace dwarf
 									};
 									i_op = out_iter.get_iter();
 									// rewriting done!
-									if (debug) cerr << "Rewritten loc expr is " << copied_loc_expr << endl;
+									debug() << "Rewritten loc expr is " << copied_loc_expr << endl;
 									assert(i_op >= copied_loc_expr.begin());
 									assert(i_op <= copied_loc_expr.end());
 									// do a special increment: point i_op after out_iter

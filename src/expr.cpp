@@ -2,7 +2,7 @@
  * 
  * expr.cpp: basic C++ abstraction of DWARF expressions.
  *
- * Copyright (c) 2010, Stephen Kell.
+ * Copyright (c) 2010--17, Stephen Kell.
  */
 
 #include <limits>
@@ -18,7 +18,6 @@ using std::pair;
 using std::make_pair;
 using std::set;
 using std::string;
-using std::cerr;
 using std::endl;
 using dwarf::spec::opt;
 
@@ -26,11 +25,74 @@ namespace dwarf
 {
 	namespace lib
 	{
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Locdesc& ld)
+		{
+			s << dwarf::encap::loc_expr(ld);
+			return s;
+		}	
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Loc& l)
+		{
+			// HACK: we can't infer the DWARF standard from the Dwarf_Loc we've been passed,
+			// so use the default.
+			s << "0x" << std::hex << l.lr_offset << std::dec
+				<< ": " << dwarf::spec::DEFAULT_DWARF_SPEC.op_lookup(l.lr_atom);
+			std::ostringstream buf;
+			std::string to_append;
+
+			switch (dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_count(l.lr_atom))
+			{
+				case 2:
+					buf << ", " << dwarf::encap::attribute_value(
+						l.lr_number2, 
+						dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_form_list(l.lr_atom)[1]
+					);
+					to_append += buf.str();
+				case 1:
+					buf.clear();
+					buf << "(" << dwarf::encap::attribute_value(
+						l.lr_number, 
+						dwarf::spec::DEFAULT_DWARF_SPEC.op_operand_form_list(l.lr_atom)[0]
+					);
+					to_append.insert(0, buf.str());
+					to_append += ")";
+				case 0:
+					s << to_append;
+					break;
+				default: s << "(unexpected number of operands) ";
+			}
+			s << ";";
+			return s;
+		}
+		bool operator<(const Dwarf_Loc& arg1, const Dwarf_Loc& arg2)
+		{
+			return arg1.lr_atom <  arg2.lr_atom
+			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number <  arg2.lr_number)
+			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number ==  arg2.lr_number && arg1.lr_number2 <  arg2.lr_number2)
+			||     (arg1.lr_atom == arg2.lr_atom && arg1.lr_number ==  arg2.lr_number && arg1.lr_number2 == arg2.lr_number2 && 
+				arg1.lr_offset < arg2.lr_offset); 
+		}
+		bool operator==(const Dwarf_Loc& e1, const Dwarf_Loc& e2)
+		{
+			return e1.lr_atom == e2.lr_atom
+				&& e1.lr_number == e2.lr_number
+				&& e1.lr_number2 == e2.lr_number2
+				&& e1.lr_offset == e2.lr_offset;
+		}
+		bool operator!=(const Dwarf_Loc& e1, const Dwarf_Loc& e2)
+		{
+			return !(e1 == e2);
+		}
+	}
+	namespace expr
+	{
+		using namespace dwarf::lib;
+		using core::debug;
+		
 		evaluator::evaluator(const encap::loclist& loclist,
 			Dwarf_Addr vaddr,
 			const ::dwarf::spec::abstract_def& spec,
 			regs *p_regs,
-			boost::optional<Dwarf_Signed> frame_base,
+			opt<Dwarf_Signed> frame_base,
 			const std::stack<Dwarf_Unsigned>& initial_stack)
 		: m_stack(initial_stack), spec(spec), p_regs(p_regs), tos_is_value(false), frame_base(frame_base)
 		{
@@ -78,13 +140,237 @@ namespace dwarf
 			}
 			
 			/* Dump something about the vaddr. */
-			cerr << "Vaddr 0x" << std::hex << vaddr << std::dec
+			debug(2) << "Vaddr 0x" << std::hex << vaddr << std::dec
 				<< " is not covered by any loc expr in " << loclist << endl;
 			throw No_entry();
+		}
+		
+		
+		void evaluator::eval()
+		{
+			if (i != expr.end() && i != expr.begin())
+			{
+				/* This happens when we stopped at a DW_OP_piece argument. 
+				 * Advance the opcode iterator and clear the stack. */
+				++i;
+				while (!m_stack.empty()) m_stack.pop();
+			}
+			opt<std::string> error_detail;
+			while (i != expr.end())
+			{
+				// FIXME: be more descriminate -- do we want to propagate valueness? probably not
+				tos_is_value = false;
+				switch(i->lr_atom)
+				{
+					case DW_OP_const1u:
+					case DW_OP_const2u:
+					case DW_OP_const4u:
+					case DW_OP_const8u:
+					case DW_OP_constu:
+						m_stack.push(i->lr_number);
+						break;
+					case DW_OP_const1s:
+					case DW_OP_const2s:
+					case DW_OP_const4s:
+					case DW_OP_const8s:
+					case DW_OP_consts:
+						m_stack.push((Dwarf_Signed) i->lr_number);
+						break;
+				   case DW_OP_plus_uconst: {
+						int tos = m_stack.top();
+						m_stack.pop();
+						m_stack.push(tos + i->lr_number);
+					} break;
+					case DW_OP_plus: {
+						int arg1 = m_stack.top(); m_stack.pop();
+						int arg2 = m_stack.top(); m_stack.pop();
+						m_stack.push(arg1 + arg2);
+					} break;
+					case DW_OP_shl: {
+						int arg1 = m_stack.top(); m_stack.pop();
+						int arg2 = m_stack.top(); m_stack.pop();
+						m_stack.push(arg2 << arg1);
+					} break;
+					case DW_OP_shr: {
+						int arg1 = m_stack.top(); m_stack.pop();
+						int arg2 = m_stack.top(); m_stack.pop();
+						m_stack.push((int)((unsigned) arg2 >> arg1));
+					} break;
+					case DW_OP_shra: {
+						int arg1 = m_stack.top(); m_stack.pop();
+						int arg2 = m_stack.top(); m_stack.pop();
+						m_stack.push(arg2 >> arg1);
+					} break;
+					case DW_OP_fbreg: {
+						if (!frame_base) goto logic_error;
+						m_stack.push(*frame_base + i->lr_number);
+					} break;
+					case DW_OP_call_frame_cfa: {
+						if (!frame_base) goto logic_error;
+						m_stack.push(*frame_base);
+					} break;
+					case DW_OP_piece: {
+						/* Here we do something special: leave the opcode iterator
+						 * pointing at the piece argument, and return. This allow us
+						 * to probe the piece size (by getting *i) and to resume by
+						 * calling eval() again. */
+						 ++i;
+					}	return;
+					case DW_OP_breg0:
+					case DW_OP_breg1:
+					case DW_OP_breg2:
+					case DW_OP_breg3:
+					case DW_OP_breg4:
+					case DW_OP_breg5:
+					case DW_OP_breg6:
+					case DW_OP_breg7:
+					case DW_OP_breg8:
+					case DW_OP_breg9:
+					case DW_OP_breg10:
+					case DW_OP_breg11:
+					case DW_OP_breg12:
+					case DW_OP_breg13:
+					case DW_OP_breg14:
+					case DW_OP_breg15:
+					case DW_OP_breg16:
+					case DW_OP_breg17:
+					case DW_OP_breg18:
+					case DW_OP_breg19:
+					case DW_OP_breg20:
+					case DW_OP_breg21:
+					case DW_OP_breg22:
+					case DW_OP_breg23:
+					case DW_OP_breg24:
+					case DW_OP_breg25:
+					case DW_OP_breg26:
+					case DW_OP_breg27:
+					case DW_OP_breg28:
+					case DW_OP_breg29:
+					case DW_OP_breg30:
+					case DW_OP_breg31:
+					{
+						/* the breg family get the contents of a register and add an offset */ 
+						if (!p_regs) goto no_regs;
+						int regnum = i->lr_atom - DW_OP_breg0;
+						m_stack.push(p_regs->get(regnum) + i->lr_number);
+					} break;
+					case DW_OP_addr:
+					{
+						m_stack.push(i->lr_number);
+					} break;
+					case DW_OP_reg0:
+					case DW_OP_reg1:
+					case DW_OP_reg2:
+					case DW_OP_reg3:
+					case DW_OP_reg4:
+					case DW_OP_reg5:
+					case DW_OP_reg6:
+					case DW_OP_reg7:
+					case DW_OP_reg8:
+					case DW_OP_reg9:
+					case DW_OP_reg10:
+					case DW_OP_reg11:
+					case DW_OP_reg12:
+					case DW_OP_reg13:
+					case DW_OP_reg14:
+					case DW_OP_reg15:
+					case DW_OP_reg16:
+					case DW_OP_reg17:
+					case DW_OP_reg18:
+					case DW_OP_reg19:
+					case DW_OP_reg20:
+					case DW_OP_reg21:
+					case DW_OP_reg22:
+					case DW_OP_reg23:
+					case DW_OP_reg24:
+					case DW_OP_reg25:
+					case DW_OP_reg26:
+					case DW_OP_reg27:
+					case DW_OP_reg28:
+					case DW_OP_reg29:
+					case DW_OP_reg30:
+					case DW_OP_reg31:
+					{
+						/* the reg family just get the contents of the register */
+						if (!p_regs) goto no_regs;
+						int regnum = i->lr_atom - DW_OP_reg0;
+						m_stack.push(p_regs->get(regnum));
+					} break;
+					case DW_OP_lit0:
+					case DW_OP_lit1:
+					case DW_OP_lit2:
+					case DW_OP_lit3:
+					case DW_OP_lit4:
+					case DW_OP_lit5:
+					case DW_OP_lit6:
+					case DW_OP_lit7:
+					case DW_OP_lit8:
+					case DW_OP_lit9:
+					case DW_OP_lit10:
+					case DW_OP_lit11:
+					case DW_OP_lit12:
+					case DW_OP_lit13:
+					case DW_OP_lit14:
+					case DW_OP_lit15:
+					case DW_OP_lit16:
+					case DW_OP_lit17:
+					case DW_OP_lit18:
+					case DW_OP_lit19:
+					case DW_OP_lit20:
+					case DW_OP_lit21:
+					case DW_OP_lit22:
+					case DW_OP_lit23:
+					case DW_OP_lit24:
+					case DW_OP_lit25:
+					case DW_OP_lit26:
+					case DW_OP_lit27:
+					case DW_OP_lit28:
+					case DW_OP_lit29:
+					case DW_OP_lit30:
+					case DW_OP_lit31:
+						m_stack.push(i->lr_atom - DW_OP_lit0);
+						break;
+					case DW_OP_stack_value:
+						/* This means that the object has no address, but that the 
+						 * DWARF evaluator has just computed its *value*. We record
+						 * this. */
+						tos_is_value = true;
+						break;
+					case DW_OP_deref_size:
+					case DW_OP_deref:
+						/* FIXME: we can do this one if we have p_mem analogous to p_regs. */
+						throw No_entry();
+					default:
+						debug() << "Error: unrecognised opcode: " << spec.op_lookup(i->lr_atom) << std::endl;
+						throw Not_supported("unrecognised opcode");
+					no_regs:
+						debug() << "Warning: asked to evaluate register-dependent expression with no registers." << std::endl;
+						throw No_entry();
+					logic_error:
+						debug() << "Logic error in DWARF expression evaluator";
+						if (error_detail) debug() << ": " << *error_detail;
+						debug() << std::endl;
+						assert(false);
+						throw Not_supported(error_detail ? *error_detail : "unknown");
+				}
+			i++;
+			}
+		}
+		Dwarf_Unsigned eval(const encap::loclist& loclist,
+			Dwarf_Addr vaddr,
+			Dwarf_Signed frame_base,
+			opt<regs&> regs,
+			const ::dwarf::spec::abstract_def& spec,
+			const std::stack<Dwarf_Unsigned>& initial_stack)
+		{
+			assert(false); return 0UL;
 		}
 	}
 	namespace encap
 	{
+		using namespace dwarf::lib;
+		using namespace dwarf::expr;
+		using core::debug;
 		loclist loclist::NO_LOCATION;
 
 		std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll)
@@ -101,7 +387,7 @@ namespace dwarf
 		std::ostream& operator<<(std::ostream& s, const loc_expr& e)
 		{
 			s << "loc described by { ";
-			for (std::vector<Dwarf_Loc>::const_iterator i = e./*m_expr.*/begin(); i != e./*m_expr.*/end(); i++)
+			for (std::vector<Dwarf_Loc>::const_iterator i = e.begin(); i != e.end(); i++)
 			{
 				s << *i << " ";
 			}
@@ -131,55 +417,48 @@ namespace dwarf
 			this->lopc = ld.raw_handle()->ld_lopc;
 		}			
 		
-        std::vector<std::pair<loc_expr, Dwarf_Unsigned> > loc_expr::pieces() const
-        {
-            /* Split the loc_expr into pieces, and return pairs
-             * of the subexpr and the length of the object segment
-             * that this expression locates (or 0 for "whole object"). 
-             * Note that pieces may
-             * not be nested (DWARF 3 Sec. 2.6.4, read carefully). */
-            std::vector<std::pair<loc_expr, Dwarf_Unsigned> > ps;
-
-            std::vector<expr_instr>::const_iterator done_up_to_here = /*m_expr.*/begin();
-            Dwarf_Unsigned done_this_many_bytes = 0UL;
-            for (auto i_instr = /*m_expr.*/begin(); i_instr != /*m_expr.*/end(); ++i_instr)
-            {
-                if (i_instr->lr_atom == DW_OP_piece) 
-                {
-                    ps.push_back(std::make_pair(
-                    	loc_expr(/*std::vector<expr_instr>(*/done_up_to_here, i_instr/*)*/, spec),
-	                    i_instr->lr_number));
-    	            done_this_many_bytes += i_instr->lr_number;
-        	        done_up_to_here = i_instr + 1;
-                }
-                assert(i_instr->lr_atom != DW_OP_bit_piece); // FIXME: not done bit_piece yet
-            }
-            // if we did any DW_OP_pieces, we should have finished on one
-            assert(done_up_to_here == /*m_expr.*/end() || done_this_many_bytes == 0UL);
-            // if we didn't finish on one, we need to add a singleton to the pieces vector
-            if (done_this_many_bytes == 0UL) ps.push_back(
-                std::make_pair(
-                    	loc_expr(*this), 0));
-            return ps;
-        }
-        loc_expr loc_expr::piece_for_offset(Dwarf_Off offset) const
-        {
-        	auto ps = pieces();
-            Dwarf_Off cur_off = 0UL;
-            for (auto i = ps.begin(); i != ps.end(); i++)
-            {
-            	if (i->second == 0UL) return i->first;
-                else if (offset >= cur_off && offset < cur_off + i->second) return i->first;
-                else cur_off += i->second;
-            }
-            throw No_entry(); // no piece covers that offset -- likely a bogus offset
-        }
-		loclist::loclist(const dwarf::lib::loclist& dll)
+		std::vector<std::pair<loc_expr, Dwarf_Unsigned> > loc_expr::pieces() const
 		{
-			for (int i = 0; i != dll.len(); i++)
+			/* Split the loc_expr into pieces, and return pairs
+			 * of the subexpr and the length of the object segment
+			 * that this expression locates (or 0 for "whole object"). 
+			 * Note that pieces may
+			 * not be nested (DWARF 3 Sec. 2.6.4, read carefully). */
+			std::vector<std::pair<loc_expr, Dwarf_Unsigned> > ps;
+
+			std::vector<expr_instr>::const_iterator done_up_to_here = /*m_expr.*/begin();
+			Dwarf_Unsigned done_this_many_bytes = 0UL;
+			for (auto i_instr = /*m_expr.*/begin(); i_instr != /*m_expr.*/end(); ++i_instr)
 			{
-				push_back(loc_expr(dll[i])); 
+				if (i_instr->lr_atom == DW_OP_piece) 
+				{
+					ps.push_back(std::make_pair(
+						loc_expr(/*std::vector<expr_instr>(*/done_up_to_here, i_instr/*)*/, spec),
+						i_instr->lr_number));
+					done_this_many_bytes += i_instr->lr_number;
+					done_up_to_here = i_instr + 1;
+				}
+				assert(i_instr->lr_atom != DW_OP_bit_piece); // FIXME: not done bit_piece yet
 			}
+			// if we did any DW_OP_pieces, we should have finished on one
+			assert(done_up_to_here == /*m_expr.*/end() || done_this_many_bytes == 0UL);
+			// if we didn't finish on one, we need to add a singleton to the pieces vector
+			if (done_this_many_bytes == 0UL) ps.push_back(
+				std::make_pair(
+						loc_expr(*this), 0));
+			return ps;
+		}
+		loc_expr loc_expr::piece_for_offset(Dwarf_Off offset) const
+		{
+			auto ps = pieces();
+			Dwarf_Off cur_off = 0UL;
+			for (auto i = ps.begin(); i != ps.end(); i++)
+			{
+				if (i->second == 0UL) return i->first;
+				else if (offset >= cur_off && offset < cur_off + i->second) return i->first;
+				else cur_off += i->second;
+			}
+			throw No_entry(); // no piece covers that offset -- likely a bogus offset
 		}
 		loclist::loclist(const core::LocList& ll)
 		{
@@ -199,18 +478,17 @@ namespace dwarf
 				push_back(rl.handle.get()[i]);
 			}
 		}
-		
 		loc_expr loclist::loc_for_vaddr(Dwarf_Addr vaddr) const
-        {
-        	for (auto i = this->begin(); i != this->end(); i++)
-            {
-            	if (vaddr >= i->lopc && vaddr < i->hipc) return *i;
-            }
-            throw No_entry(); // bogus vaddr
-        }
+		{
+			for (auto i = this->begin(); i != this->end(); i++)
+			{
+				if (vaddr >= i->lopc && vaddr < i->hipc) return *i;
+			}
+			throw No_entry(); // bogus vaddr
+		}
 		
 		// FIXME: what was the point of this method? It's some kind of normalisation
-		// so that everything takes the form of adding to a pre-pushed base address. 
+		// so that everything takes the form of adding to a pre-pushed base address.
 		// But why? Who needs it?
 		loclist absolute_loclist_to_additive_loclist(const loclist& l)
 		{

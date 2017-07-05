@@ -7,7 +7,7 @@ CXXFLAGS += -I$(root)/include
 CXXFLAGS += -g
 CXXFLAGS += -std=c++14
 LDFLAGS += -L$(root)/lib -Wl,-rpath,$(root)/lib
-LDLIBS += -ldwarfpp -ldwarf -lelf -lsrk31c++ -lc++fileno -lboost_system
+LDLIBS += -ldwarfpp -ldwarf -lelf -lsrk31c++ -lc++fileno -lboost_system -lz
 
 export CXXFLAGS
 export LDFLAGS
@@ -57,3 +57,4 @@ cleanrun-%:
 gdbcleanrun-%:
 	rm -f $*/$* && $(MAKE) gdbrun-$*
 
+grandchildren: LDFLAGS += -pthread -static

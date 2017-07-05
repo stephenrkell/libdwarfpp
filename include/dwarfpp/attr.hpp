@@ -3,39 +3,38 @@
  * attr.hpp: transparently-allocated, mutable representations 
  *			of libdwarf-like structures.
  *
- * Copyright (c) 2010, Stephen Kell.
+ * Copyright (c) 2010--17, Stephen Kell.
  */
 
-#ifndef __DWARFPP_ATTR_HPP
-#define __DWARFPP_ATTR_HPP
+#ifndef DWARFPP_ATTR_HPP_
+#define DWARFPP_ATTR_HPP_
 
 #include <memory>
 #include <vector>
 
 #include "spec.hpp"
 #include "private/libdwarf.hpp" /* includes libdwarf.h, Error, No_entry, some fwddecls */
+#include "expr.hpp"
 
 #include <boost/optional.hpp>
-
 #include <srk31/util.hpp> /* for forward_constructors */
 
 namespace dwarf
 {
-	namespace lib 
-	{ 
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& rl);
-		bool operator==(const Dwarf_Ranges& arg1, const Dwarf_Ranges& arg2);
-		class basic_die; 
-		std::ostream& operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
-		bool operator<(const dwarf::lib::Dwarf_Loc& arg1, const dwarf::lib::Dwarf_Loc& arg2);
-		class attribute;
+	namespace lib
+	{
+		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
+		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& e);
 	}
 	namespace core
 	{
+		// libdwarf handle stuff -- FIXME: avoid depending where possible
 		struct Attribute;
 		struct AttributeList;
 		struct Debug;
 		struct Die;
+		
 		struct root_die;
 		struct iterator_base;
 		struct basic_die;
@@ -44,11 +43,12 @@ namespace dwarf
 	}
 	namespace encap
 	{
+		using namespace dwarf::expr;
 		using namespace dwarf::lib;
 		class rangelist;
-		
 		class loclist;
 		using core::root_die;
+		using core::debug;
 		
 		class attribute_value {
 				friend class core::basic_die; // for use of the NO_ATTR constructor in find_attr
@@ -64,32 +64,32 @@ namespace dwarf
 				Dwarf_Half referencing_attr; // attr# of attribute holding the reference
 				weak_ref(root_die& r, Dwarf_Off off, bool abs,
 					Dwarf_Off referencing_off, Dwarf_Half referencing_attr)
-                    :	off(off), abs(abs), 
+					:	off(off), abs(abs), 
 						referencing_off(referencing_off), 
-                        p_root(&r), referencing_attr(referencing_attr) {}
-                // weak_ref is default-constructible
-                weak_ref() : off(0UL), abs(false), referencing_off(0), p_root(0), referencing_attr(0)
-                { std::cerr << "Warning: default-constructed a weak_ref!" << std::endl; }
-                weak_ref(bool arg) : off(0UL), abs(false), referencing_off(0), p_root(0), referencing_attr(0)
-                { /* Same as above but extra dummy argument, to suppress warning (see clone()). */}
-                virtual weak_ref& operator=(const weak_ref& r); // assignment
-                virtual weak_ref *clone() const { 
-                	weak_ref *n = new weak_ref(true); // FIXME: deleted how? containing attribute's destructor? yes, I think so
+						p_root(&r), referencing_attr(referencing_attr) {}
+				// weak_ref is default-constructible
+				weak_ref() : off(0UL), abs(false), referencing_off(0), p_root(0), referencing_attr(0)
+				{ debug() << "Warning: default-constructed a weak_ref!" << std::endl; }
+				weak_ref(bool arg) : off(0UL), abs(false), referencing_off(0), p_root(0), referencing_attr(0)
+				{ /* Same as above but extra dummy argument, to suppress warning (see clone()). */}
+				virtual weak_ref& operator=(const weak_ref& r); // assignment
+				virtual weak_ref *clone() const { 
+					weak_ref *n = new weak_ref(true); // FIXME: deleted how? containing attribute's destructor? yes, I think so
 					n->p_root = this->p_root;
-                    *n = *this;
-                    return n;
-                }
+					*n = *this;
+					return n;
+				}
 				weak_ref(const weak_ref& r); // copy constructor
 				virtual ~weak_ref() {}
-                bool operator==(const weak_ref& arg) const {
-                	return off == arg.off && abs == arg.abs
-                    && referencing_off == arg.referencing_off 
-                    && referencing_attr == arg.referencing_attr
+				bool operator==(const weak_ref& arg) const {
+					return off == arg.off && abs == arg.abs
+					&& referencing_off == arg.referencing_off 
+					&& referencing_attr == arg.referencing_attr
 					&& p_root == arg.p_root; 
-                }
-                bool operator!=(const weak_ref& arg) const {
-                	return !(*this == arg);
-                }
+				}
+				bool operator!=(const weak_ref& arg) const {
+					return !(*this == arg);
+				}
 			};
 			struct address 
 			/* Why do we have this? It's because of overload resolution.
@@ -114,38 +114,28 @@ namespace dwarf
 				bool operator>=(Dwarf_Addr arg) const { return this->addr >= addr; }
 				//Dwarf_Addr operator Dwarf_Addr() { return addr; }
 				/* FIXME: why *not* have the above? There must be a good reason....
-				 *  ambiguity maybe? */
+				 * ambiguity maybe? */
 			};
-			/*static const attribute_value& DOES_NOT_EXIST() {
-				if (dne_val == 0) dne_val = new attribute_value(); // FIXME: delete this anywhere?
-				return *dne_val;
-			}*/
 			enum form { NO_ATTR, ADDR, FLAG, UNSIGNED, SIGNED, BLOCK, STRING, REF, LOCLIST, RANGELIST, UNRECOG }; // TODO: complete?
 			form get_form() const { return f; }
 		private:
 			Dwarf_Half orig_form;
-			form f; // discriminant			
+			form f; // discriminant
 			union {
 				Dwarf_Bool v_flag;
 				Dwarf_Unsigned v_u;
 				Dwarf_Signed v_s;
 				address v_addr;
-				//std::vector<unsigned char> *v_block; // TODO: make resource-managing
-				//std::string *v_str; // TODO: make resource-managing
-				//ref *v_ref;
-			//};
-			// HACK: we can't include these in the union, it seems
-			// TODO: instead of allocating them here, use new (here) and delete (in destructor)
+				// pointees are RAII-allocated with new/delete -- because non-PODs can't go in union
 				std::vector<unsigned char> *v_block;
 				std::string *v_string;
 				weak_ref *v_ref;
 				encap::loclist *v_loclist;
 				encap::rangelist *v_rangelist;
 			};
-			// -- the operator<< is a friend
-			friend std::ostream& ::dwarf::lib::operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
-
 			static form dwarf_form_to_form(const Dwarf_Half form); // helper hack
+			// -- the operator<< is a friend (WHY?)
+			friend std::ostream& ::dwarf::lib::operator<<(std::ostream& s, const dwarf::lib::Dwarf_Loc& l);
 
 		private:
 			attribute_value() : orig_form(0), f(NO_ATTR) { v_u = 0U; }
@@ -161,11 +151,11 @@ namespace dwarf
 				// spec is no longer passed because it's deducible from r and d.get_offset()
 		public:
 			explicit attribute_value(Dwarf_Bool b)         : orig_form(DW_FORM_flag),	 f(FLAG),	  v_flag(b) {}
-			explicit attribute_value(address addr)         : orig_form(DW_FORM_addr),	 f(ADDR),	  v_addr(addr) {}		 
-			explicit attribute_value(Dwarf_Unsigned u)     : orig_form(DW_FORM_udata),	 f(UNSIGNED), v_u(u) {} 			 
-			explicit attribute_value(Dwarf_Signed s)       : orig_form(DW_FORM_sdata),	 f(SIGNED),   v_s(s) {} 		 
+			explicit attribute_value(address addr)         : orig_form(DW_FORM_addr),	 f(ADDR),	  v_addr(addr) {}
+			explicit attribute_value(Dwarf_Unsigned u)     : orig_form(DW_FORM_udata),	 f(UNSIGNED), v_u(u) {}
+			explicit attribute_value(Dwarf_Signed s)       : orig_form(DW_FORM_sdata),	 f(SIGNED),   v_s(s) {}
 			attribute_value(const char *s)        : orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}
-			attribute_value(const std::string& s) : orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}				 
+			attribute_value(const std::string& s) : orig_form(DW_FORM_string),   f(STRING),   v_string(new std::string(s)) {}
 			attribute_value(const weak_ref& r)    : orig_form(DW_FORM_ref_addr), f(REF),      v_ref(r.clone()) {}
 			
 		public:
@@ -233,23 +223,20 @@ namespace dwarf
 			
 			void print(std::ostream& s, unsigned indent_level) const;
 		};
-		std::ostream& operator<<(std::ostream& s, const attribute_map& arg); 
-		
-        
-        bool operator==(Dwarf_Addr arg, attribute_value::address a);
-        bool operator!=(Dwarf_Addr arg, attribute_value::address a);
-        bool operator<(Dwarf_Addr arg, attribute_value::address a);
-        bool operator<=(Dwarf_Addr arg, attribute_value::address a);
-        bool operator>(Dwarf_Addr arg, attribute_value::address a);
-        bool operator>=(Dwarf_Addr arg, attribute_value::address a);
-        Dwarf_Addr operator-(Dwarf_Addr arg, attribute_value::address a);
-        Dwarf_Addr operator-(attribute_value::address a, Dwarf_Addr arg);
+		std::ostream& operator<<(std::ostream& s, const attribute_map& arg);
+		bool operator==(Dwarf_Addr arg, attribute_value::address a);
+		bool operator!=(Dwarf_Addr arg, attribute_value::address a);
+		bool operator<(Dwarf_Addr arg, attribute_value::address a);
+		bool operator<=(Dwarf_Addr arg, attribute_value::address a);
+		bool operator>(Dwarf_Addr arg, attribute_value::address a);
+		bool operator>=(Dwarf_Addr arg, attribute_value::address a);
+		Dwarf_Addr operator-(Dwarf_Addr arg, attribute_value::address a);
+		Dwarf_Addr operator-(attribute_value::address a, Dwarf_Addr arg);
 
 		std::ostream& operator<<(std::ostream& s, const attribute_value v);
 		std::ostream& operator<<(std::ostream& s, std::pair<const Dwarf_Half, attribute_value>& v);
-        std::ostream& operator<<(std::ostream& s, const attribute_value::address& a);
-    }
+		std::ostream& operator<<(std::ostream& s, const attribute_value::address& a);
+	}
 }
-    
-#endif
 
+#endif

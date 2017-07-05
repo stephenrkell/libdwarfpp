@@ -27,7 +27,7 @@ int main(int argc, char **argv)
 		if (i.tag_here() == DW_TAG_subprogram)
 		{
 			iterator_df<subprogram_die> i_subp = i;
-			if (i_subp->is_variadic(root)) cout << "Variadic: " << i_subp << endl; 
+			if (i_subp->is_variadic()) cout << "Variadic: " << i_subp << endl; 
 			else cout << "Not variadic: " << i_subp << endl;
 		} 
 	}

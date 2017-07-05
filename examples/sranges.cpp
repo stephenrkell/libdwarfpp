@@ -4,8 +4,8 @@
 #include <dwarfpp/attr.hpp>
 #include <boost/icl/interval_map.hpp>
 
-using std::cout; 
-using std::cerr; 
+using std::cout;
+using std::cerr;
 using std::endl;
 using namespace dwarf;
 using namespace dwarf::lib;
@@ -14,9 +14,6 @@ using std::make_pair;
 using std::dynamic_pointer_cast;
 using std::set;
 using std::map;
-
-/* instantiate the following template, for some reason. */
-//dwarf::core::basic_die::basic_die<dwarf::core::iterator_df<dwarf::core::basic_die> >(dwarf::core::basic_root_die&, dwarf::core::iterator_df<dwarf::core::basic_die> const&);
 
 int static_we_should_find;
 
@@ -27,31 +24,25 @@ int main(int argc, char **argv)
 	std::ifstream in(argv[1]);
 	assert(in);
 	core::root_die root(fileno(in));
-	dwarf::lib::file df(fileno(in));
 
-	//cout << root;
-
-	// set<lib::Dwarf_Off> static_vars;
-	// map<lib::Dwarf_Addr, pair<lib::Dwarf_Off, size_t> > addr_lookup;
-	
 	cerr << "Searching for variables..." << endl;
 	for (auto i = root.begin(); i != root.end(); ++i)
 	{
 		if (i.tag_here() == DW_TAG_variable
 			&& i.has_attribute_here(DW_AT_location))
 		{
-			/* DWARF doesn't tell us whether a variable is static or not. 
+			/* DWARF doesn't tell us whether a variable is static or not.
 			 * We want to rule out non-static variables. To do this, we
 			 * rely on our existing lib:: infrastructure. */
 			core::Attribute a(dynamic_cast<core::Die&>(i.get_handle()), DW_AT_location);
 			encap::attribute_value val(a, dynamic_cast<core::Die&>(i.get_handle()), root);
 			auto loclist = val.get_loclist();
 			bool reads_register = false;
-			for (auto i_loc_expr = loclist.begin(); 
-				i_loc_expr != loclist.end(); 
+			for (auto i_loc_expr = loclist.begin();
+				i_loc_expr != loclist.end();
 				++i_loc_expr)
 			{
-				for (auto i_instr = i_loc_expr->begin(); 
+				for (auto i_instr = i_loc_expr->begin();
 					i_instr != i_loc_expr->end();
 					++i_instr)
 				{
@@ -70,14 +61,14 @@ int main(int argc, char **argv)
 					<< (name ? *name : "(no name)") << endl;
 				Dwarf_Off off = i.offset_here();
 				//static_vars.insert(off);
-				
+
 				auto found = root.find(off);
 				assert(found);
 				auto with_static_location
 				 = found.as_a<core::with_static_location_die>();
 				if (!with_static_location)
 				{
-					cerr << "Warning: expected a with_static_location_die, got " 
+					cerr << "Warning: expected a with_static_location_die, got "
 						<< found->summary() << endl;
 					continue;
 				}
@@ -100,8 +91,8 @@ int main(int argc, char **argv)
 // 							out.begin()->first.upper() - out.begin()->first.lower()
 // 						)
 // 					));
-					/* We output to stderr ad-hoc text data in tab-separated fields as follows. 
-					 * file-relative address; 
+					/* We output to stderr ad-hoc text data in tab-separated fields as follows.
+					 * file-relative address;
 					 * CU offset;
 					 * object size;
 					 * name (free text)
@@ -109,14 +100,14 @@ int main(int argc, char **argv)
 					Dwarf_Addr file_relative_addr = out.begin()->first.lower();
 					Dwarf_Off cu_offset =  i.enclosing_cu_offset_here();
 					unsigned size = out.begin()->first.upper() - out.begin()->first.lower();
-					cerr << std::hex 
+					cerr << std::hex
 						<< "0x" << file_relative_addr << '\t' // addr
 						<< "0x" << cu_offset << '\t'  // CU offset
 						<< "0x" << size << '\t' // size
-						<< (name ? *name : "") 
+						<< (name ? *name : "")
 						<< std::dec << endl;
-					/* We output to stdout binary data as follows. 
-					 * file-relative address (width: native); 
+					/* We output to stdout binary data as follows.
+					 * file-relative address (width: native);
 					 * CU offset (64 bits);
 					 * object size (32 bits).
 					 */
@@ -127,15 +118,13 @@ int main(int argc, char **argv)
 					cout.write((char*) &file_relative_addr, addr_size);
 					cout.write((char*) &cu_offset, 8);
 					cout.write((char*) &size, 4);
-					
 				}
-				catch (dwarf::lib::Not_supported)
+				catch (dwarf::expr::Not_supported)
 				{
 					cerr << "Warning: couldn't evaluate location of DIE at 0x"
 						<< std::hex << off << std::dec << endl;
 					continue;
 				}
-				
 			}
 			else
 			{
@@ -143,9 +132,8 @@ int main(int argc, char **argv)
 				cerr << "Found a local variable named "
 					<< (name ? *name : "(no name)") << endl;
 			}
-		} 
+		}
 	}
 
-	
 	return 0;
 }

@@ -111,9 +111,10 @@ artificial_tags = [ \
 ("qualified_type", ([], [], ["type_chain"]) ), \
 ("with_named_children", ([], [], ["basic"])), \
 ("with_static_location", ([], [], ["basic"])), \
-("with_dynamic_location", ([], [], ["with_type_describing_layout"])), \
 ("with_type_describing_layout", ([("type", False)], [], ["program_element"])), \
-("with_data_members", ([], ["member"], ["type"]))
+("with_dynamic_location", ([], [], ["with_type_describing_layout"])), \
+("data_member", ([("data_member_location", False), ("bit_size", False), ("bit_offset", False), ("data_bit_offset", False)], [], ["with_dynamic_location"])), \
+("with_data_members", ([], ["data_member"], ["type"]))
 ]
 artificial_tag_map = dict(artificial_tags)
 
@@ -179,6 +180,7 @@ member_types = [ "class_type", "typedef", "structure_type", "enumeration_type", 
 # but NOTE that these were added for the benefit of Cake, which 
 # totally abuses them for its own purposes. In particular, const_value is inappropriate.
 
+# each tuple is (name, ( attr-list, children-list, supertype-list ) )
 tags = [ \
 ("array_type", ( [], ["subrange_type"], ["type_chain"] ) ), \
 ("class_type", ( [], [ "member", "access_declaration" ] + member_types, ["with_data_members", "with_named_children"] ) ), \
@@ -188,7 +190,7 @@ tags = [ \
 ("imported_declaration", ( [], [], ["basic"]  ) ), \
 ("label", ( [], [], ["basic"]  ) ), \
 ("lexical_block", ( [("low_pc", False), ("high_pc", False), ("ranges", False)], [ "variable" ] , ["with_static_location"] ) ), \
-("member", ( [("data_member_location", False), ("bit_size", False), ("bit_offset", False), ("data_bit_offset", False)], [], ["program_element", "with_dynamic_location"]  ) ), \
+("member", ( [], [], ["data_member"]  ) ), \
 ("pointer_type", ( [("pure", False), ("address_class", False)], [], ["address_holding_type"]  ) ), \
 ("reference_type", ( [("address_class", False)], [], ["address_holding_type"]  ) ), \
 ("rvalue_reference_type", ( [("address_class", False)], [], ["address_holding_type"]  ) ), \
@@ -202,7 +204,7 @@ tags = [ \
 ("variant", ( [], [] , ["basic"] ) ), \
 ("common_block", ( [], [], ["basic"]  ) ), \
 ("common_inclusion", ( [], [], ["basic"]  ) ), \
-("inheritance", ( [("data_member_location", False)], [], ["basic", "with_dynamic_location"]  ) ), \
+("inheritance", ( [], [], ["data_member"]  ) ), \
 ("inlined_subroutine", ( [("high_pc", False), ("low_pc", False), ("ranges", False)], [], ["with_static_location"]  ) ), \
 ("module", ( [], [], ["with_named_children"]  ) ), \
 ("ptr_to_member_type", ( [], [], ["type"]  ) ), \

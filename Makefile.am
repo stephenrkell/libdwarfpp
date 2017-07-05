@@ -16,7 +16,7 @@ dwarfpp_private_includedir = $(includedir)/dwarfpp/private
 dwarfpp_private_include_HEADERS = include/dwarfpp/private/libdwarf-handles.hpp include/dwarfpp/private/libdwarf.hpp
 
 lib_LTLIBRARIES = src/libdwarfpp.la
-src_libdwarfpp_la_SOURCES = src/expr.cpp src/lib.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp
+src_libdwarfpp_la_SOURCES = src/expr.cpp src/lib.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp
 src_libdwarfpp_la_LIBADD = $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lsupc++
 
 INC_PP = include/dwarfpp

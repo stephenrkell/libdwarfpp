@@ -17,8 +17,6 @@ namespace dwarf
 			#undef Elf
 		}
 		// forward decls
-		struct No_entry;
-		struct evaluator;
 		struct loclist;
 		
 		// we need this soon
@@ -32,6 +30,10 @@ namespace dwarf
 			virtual ~Error() 
 			{ /*dwarf_dealloc((Dwarf_Debug) arg, e, DW_DLA_ERROR); */ /* TODO: Fix segfault here */	}
 		};
+		struct No_entry {
+			No_entry() {}
+		};	
+		void default_error_handler(Dwarf_Error error, Dwarf_Ptr errarg); 
 	}
 }
 

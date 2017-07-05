@@ -2,13 +2,13 @@
  * 
  * spec.cpp: tables describing DWARF standards and vendor extensions.
  *
- * Copyright (c) 2008--13, Stephen Kell.
+ * Copyright (c) 2008--17, Stephen Kell.
  */
 
+#include "dwarfpp/util.hpp"
 #include "dwarfpp/spec.hpp"
 #include <vector>
 
-using std::cerr;
 using std::endl;
 using std::string;
 using std::vector;
@@ -22,7 +22,8 @@ namespace dwarf
 		const int empty_def_t::empty_operand_form_list[] = { 0 };
 		const int empty_def_t::empty_class_list[] = { interp::EOL };
 		
-		int explicit_interp(abstract_def& def, int attr, const int *attr_possible_classes, int form, const int *form_possible_classes)
+		int explicit_interp(abstract_def& def, int attr, const int *attr_possible_classes,
+			int form, const int *form_possible_classes)
 		{
 			vector<int> possibles;
 
@@ -79,19 +80,19 @@ namespace dwarf
 				fail:
 				case 0:
 					// if we got here, there's an error 
-					cerr << "Warning: failed to guess an interpretation for attr "
+					debug() << "Warning: failed to guess an interpretation for attr "
 						 << def.attr_lookup(attr) << ", value form " << def.form_lookup(form) << endl;
-					return spec::interp::EOL; // FIXME: throw exception instead?				
+					return interp::EOL; // FIXME: throw exception instead?				
 				default:
 					// this means >1
-					cerr << "Warning: multiple possible interpretations for attr "
+					debug() << "Warning: multiple possible interpretations for attr "
 						 << def.attr_lookup(attr) << ", value form " << def.form_lookup(form) << ": { "; 
 					for (auto i_poss = possibles.begin(); i_poss != possibles.end(); ++i_poss)
 					{
-						if (i_poss != possibles.begin()) cerr << ", ";
-						cerr << *i_poss;
+						if (i_poss != possibles.begin()) debug() << ", ";
+						debug() << *i_poss;
 					}
-					cerr << " }" << endl;
+					debug() << " }" << endl;
 					return *(possibles.begin());
 			}
 		}
@@ -103,21 +104,21 @@ namespace dwarf
 		typedef std::pair<int, const int *> op_operand_forms_mapping_t;
 
 #define DEFINE_MAPS(classname) \
-							const std::map<const char *, int, string_comparator> classname::tag_forward_map(&tag_forward_tbl[0], &tag_forward_tbl[sizeof tag_forward_tbl / sizeof (forward_name_mapping_t)]); \
-							const std::map<int, const char *> classname::tag_inverse_map(&tag_inverse_tbl[0], &tag_inverse_tbl[sizeof tag_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int, string_comparator> classname::attr_forward_map(&attr_forward_tbl[0], &attr_forward_tbl[sizeof attr_forward_tbl / sizeof (forward_name_mapping_t)]); \
-							const std::map<int, const char *> classname::attr_inverse_map(&attr_inverse_tbl[0], &attr_inverse_tbl[sizeof attr_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int, string_comparator> classname::form_forward_map(&form_forward_tbl[0], &form_forward_tbl[sizeof form_forward_tbl / sizeof (forward_name_mapping_t)]); \
-							const std::map<int, const char *> classname::form_inverse_map(&form_inverse_tbl[0], &form_inverse_tbl[sizeof form_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int, string_comparator> classname::encoding_forward_map(&encoding_forward_tbl[0], &encoding_forward_tbl[sizeof encoding_forward_tbl / sizeof (forward_name_mapping_t)]); \
-							const std::map<int, const char *> classname::encoding_inverse_map(&encoding_inverse_tbl[0], &encoding_inverse_tbl[sizeof encoding_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int, string_comparator> classname::op_forward_map(&op_forward_tbl[0], &op_forward_tbl[sizeof op_forward_tbl / sizeof (forward_name_mapping_t)]); \
-							const std::map<int, const char *> classname::op_inverse_map(&op_inverse_tbl[0], &op_inverse_tbl[sizeof op_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<const char *, int, string_comparator> classname::interp_forward_map(&interp_forward_tbl[0], &interp_forward_tbl[sizeof interp_forward_tbl / sizeof (forward_name_mapping_t)]); \
-							const std::map<int, const char *> classname::interp_inverse_map(&interp_inverse_tbl[0], &interp_inverse_tbl[sizeof interp_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
-							const std::map<int, const int *>  classname::op_operand_forms_map(&op_operand_forms_tbl[0], &op_operand_forms_tbl[sizeof op_operand_forms_tbl / sizeof (op_operand_forms_mapping_t)]); \
-							const std::map<int, const int *>  classname::attr_class_map(&attr_class_tbl[0], &attr_class_tbl[sizeof attr_class_tbl / sizeof (attr_class_mapping_t)]); \
-							const std::map<int, const int *>  classname::form_class_map(&form_class_tbl[0], &form_class_tbl[sizeof form_class_tbl / sizeof (form_class_mapping_t)]);
+	const std::map<const char *, int, string_comparator> classname::tag_forward_map(&tag_forward_tbl[0], &tag_forward_tbl[sizeof tag_forward_tbl / sizeof (forward_name_mapping_t)]); \
+	const std::map<int, const char *> classname::tag_inverse_map(&tag_inverse_tbl[0], &tag_inverse_tbl[sizeof tag_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
+	const std::map<const char *, int, string_comparator> classname::attr_forward_map(&attr_forward_tbl[0], &attr_forward_tbl[sizeof attr_forward_tbl / sizeof (forward_name_mapping_t)]); \
+	const std::map<int, const char *> classname::attr_inverse_map(&attr_inverse_tbl[0], &attr_inverse_tbl[sizeof attr_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
+	const std::map<const char *, int, string_comparator> classname::form_forward_map(&form_forward_tbl[0], &form_forward_tbl[sizeof form_forward_tbl / sizeof (forward_name_mapping_t)]); \
+	const std::map<int, const char *> classname::form_inverse_map(&form_inverse_tbl[0], &form_inverse_tbl[sizeof form_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
+	const std::map<const char *, int, string_comparator> classname::encoding_forward_map(&encoding_forward_tbl[0], &encoding_forward_tbl[sizeof encoding_forward_tbl / sizeof (forward_name_mapping_t)]); \
+	const std::map<int, const char *> classname::encoding_inverse_map(&encoding_inverse_tbl[0], &encoding_inverse_tbl[sizeof encoding_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
+	const std::map<const char *, int, string_comparator> classname::op_forward_map(&op_forward_tbl[0], &op_forward_tbl[sizeof op_forward_tbl / sizeof (forward_name_mapping_t)]); \
+	const std::map<int, const char *> classname::op_inverse_map(&op_inverse_tbl[0], &op_inverse_tbl[sizeof op_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
+	const std::map<const char *, int, string_comparator> classname::interp_forward_map(&interp_forward_tbl[0], &interp_forward_tbl[sizeof interp_forward_tbl / sizeof (forward_name_mapping_t)]); \
+	const std::map<int, const char *> classname::interp_inverse_map(&interp_inverse_tbl[0], &interp_inverse_tbl[sizeof interp_inverse_tbl / sizeof (inverse_name_mapping_t)]); \
+	const std::map<int, const int *>  classname::op_operand_forms_map(&op_operand_forms_tbl[0], &op_operand_forms_tbl[sizeof op_operand_forms_tbl / sizeof (op_operand_forms_mapping_t)]); \
+	const std::map<int, const int *>  classname::attr_class_map(&attr_class_tbl[0], &attr_class_tbl[sizeof attr_class_tbl / sizeof (attr_class_mapping_t)]); \
+	const std::map<int, const int *>  classname::form_class_map(&form_class_tbl[0], &form_class_tbl[sizeof form_class_tbl / sizeof (form_class_mapping_t)]);
 
 // generic list-making macros
 #define PAIR_ENTRY_FORWARDS(sym) (std::make_pair(#sym, (sym))),
@@ -670,7 +671,7 @@ pair_type name[] = { \
 			switch(cls)
 			{
 				case interp::block:
-					if (attr_describes_location(attr)) return spec::interp::block_as_dwarf_expr;
+					if (attr_describes_location(attr)) return interp::block_as_dwarf_expr;
 					else return cls;
 				case interp::constant:
 					if (attr == DW_AT_data_member_location)
@@ -678,7 +679,7 @@ pair_type name[] = { \
 						/* In DWARF4, DW_AT_data_member_locations can be 
 						 * encoded as simple offsets. We turn them into
 						 * location expressions. */
-						return spec::interp::constant_to_make_location_expr;
+						return interp::constant_to_make_location_expr;
 					} else return cls;
 				default:
 					return cls;
@@ -716,9 +717,8 @@ pair_type name[] = { \
 				//		inverse_map.end(), 
 				 //   	std::make_pair<const int, const char *>(i->second, i->first))
 				//	!= inverse_map.end());
-			}		
+			}
 		}
-
 		std::ostream& operator<<(std::ostream& o, const abstract_def& a)
 		{
 			return a.print(o);

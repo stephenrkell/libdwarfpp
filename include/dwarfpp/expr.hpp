@@ -2,13 +2,14 @@
  * 
  * expr.hpp: simple C++ abstraction of DWARF expressions and location lists.
  *
- * Copyright (c) 2010, Stephen Kell.
+ * Copyright (c) 2010--17, Stephen Kell.
  */
 
 #ifndef __DWARFPP_EXPR_HPP
 #define __DWARFPP_EXPR_HPP
 
 #include <vector>
+#include <stack>
 #include <boost/icl/interval_map.hpp>
 #include <strings.h> // for bzero
 #include "spec.hpp"
@@ -23,22 +24,56 @@ namespace dwarf
 	using std::vector;
 	using std::string;
 	
+	namespace lib
+	{
+		bool operator==(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
+		bool operator!=(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
+		bool operator<(const lib::Dwarf_Loc& arg1, const lib::Dwarf_Loc& arg2);
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Loc /* a.k.a. expr_instr */ & e);
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Locdesc& ld);
+		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
+		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& e);
+	}
+	
+	namespace expr
+	{
+		class evaluator;
+		class loclist;
+		
+		/* We don't support all expressions. */
+		class Not_supported
+		{
+			const string& m_msg;
+		public:
+			Not_supported(const string& msg) : m_msg(msg) {}
+		};
+		class regs
+		{
+		public:
+			virtual lib::Dwarf_Signed get(int regnum) = 0;
+			virtual void set(int regnum, lib::Dwarf_Signed val) 
+			{ throw Not_supported("writing registers"); }
+		};
+	}
+	
 	namespace core 
 	{ struct Locdesc; struct LocdescList; struct RangesList; struct FrameSection; struct Cie; struct FdeRange; }
 	namespace encap
 	{
 		using namespace dwarf::lib;
+		using dwarf::spec::opt;
 		
-		class rangelist : public vector<lib::Dwarf_Ranges> 
+		class rangelist : public vector<lib::Dwarf_Ranges>
 		{
 		public:
-			template <class In> rangelist(In first, In last) 
+			template <class In> rangelist(In first, In last)
 			: vector<lib::Dwarf_Ranges>(first, last) {}
 			rangelist() : vector<lib::Dwarf_Ranges>() {}
 			
 			rangelist(const core::RangesList& rl);
 			
-			boost::optional<std::pair<Dwarf_Off, long> >
+			opt<std::pair<Dwarf_Off, long> >
 			find_addr(Dwarf_Off file_relative_addr);
 		};
 		std::ostream& operator<<(std::ostream& s, const rangelist& rl);
@@ -52,7 +87,7 @@ namespace dwarf
 				&& i1.lr_number2 == i2.lr_number2
 				&& i1.lr_offset == i2.lr_offset;
 		}
-        
+
 		struct loc_expr : public vector<expr_instr>
 		{
 			/* We used to have NO_LOCATION here. But we don't need it! Recap: 
@@ -67,25 +102,24 @@ namespace dwarf
 			const dwarf::spec::abstract_def& spec;
 			Dwarf_Addr hipc;
 			Dwarf_Addr lopc;
-			/*vector<expr_instr>& m_expr;*/ 
 			loc_expr(spec::abstract_def& spec = spec::dwarf_current) 
-            : spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
+			: spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
 			loc_expr(const lib::Dwarf_Locdesc& desc, const spec::abstract_def& spec = spec::dwarf_current) : 
-                vector<expr_instr>(desc.ld_s, desc.ld_s + desc.ld_cents),
-                spec(spec), hipc(desc.ld_hipc), lopc(desc.ld_lopc)/*,
-                m_expr(*this)*/ {}
+				vector<expr_instr>(desc.ld_s, desc.ld_s + desc.ld_cents),
+				spec(spec), hipc(desc.ld_hipc), lopc(desc.ld_lopc)/*,
+				m_expr(*this)*/ {}
 			loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec = spec::dwarf_current);
-            loc_expr(const vector<expr_instr>& expr,
-            	const spec::abstract_def& spec = spec::dwarf_current)
-            : vector<expr_instr>(expr),
-              spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
-            loc_expr(const loc_expr& arg)  // copy constructor
-            : vector<expr_instr>(arg.begin(), arg.end()),
-              spec(arg.spec), hipc(arg.hipc), lopc(arg.lopc)/*, 
-              m_expr(*this)*/ {}
+			loc_expr(const vector<expr_instr>& expr,
+				const spec::abstract_def& spec = spec::dwarf_current)
+			: vector<expr_instr>(expr),
+			  spec(spec), hipc(0), lopc(0)/*, m_expr(*this)*/ {}
+			loc_expr(const loc_expr& arg)  // copy constructor
+			: vector<expr_instr>(arg.begin(), arg.end()),
+			  spec(arg.spec), hipc(arg.hipc), lopc(arg.lopc)/*, 
+			  m_expr(*this)*/ {}
 
-            loc_expr piece_for_offset(Dwarf_Off offset) const;
-            vector<std::pair<loc_expr, Dwarf_Unsigned> > pieces() const;
+			loc_expr piece_for_offset(Dwarf_Off offset) const;
+			vector<std::pair<loc_expr, Dwarf_Unsigned> > pieces() const;
 			
 			// this is languishing here because it's a HACK.. should take the value as argument
 			// too, to calculate variable-length encodings correctly
@@ -119,15 +153,15 @@ namespace dwarf
 			}
 			
 			template <class In> loc_expr(In first, In last, 
-            	const spec::abstract_def& spec = spec::dwarf_current) 
-            : vector<expr_instr>(first, last),
-              spec(spec), /*m_expr(first, last), */hipc(0), lopc(0) {}
-              
+				const spec::abstract_def& spec = spec::dwarf_current) 
+			: vector<expr_instr>(first, last),
+			  spec(spec), /*m_expr(first, last), */hipc(0), lopc(0) {}
+			  
 			/* This template parses a location expression out of an array of unsigneds. */
 			template<size_t s> 
-            loc_expr(Dwarf_Unsigned const (&arr)[s], Dwarf_Addr lopc, Dwarf_Addr hipc,
-            	const spec::abstract_def& spec = spec::dwarf_current) 
-            : spec(spec), hipc(hipc), lopc(lopc)
+			loc_expr(Dwarf_Unsigned const (&arr)[s], Dwarf_Addr lopc, Dwarf_Addr hipc,
+				const spec::abstract_def& spec = spec::dwarf_current) 
+			: spec(spec), hipc(hipc), lopc(lopc)
 			{
 				initialize_from_opcode_array(&arr[0], &arr[s], lopc, hipc, spec);
 			}
@@ -190,29 +224,28 @@ namespace dwarf
 					lopc == e.lopc &&
 					//e1 == e2;
 					static_cast<const vector<expr_instr>&>(*this)
-                    == static_cast<const vector<expr_instr>&>(e);
+						== static_cast<const vector<expr_instr>&>(e);
 			}
 			bool operator!=(const loc_expr& e) const { return !(*this == e); }
-            loc_expr& operator=(const loc_expr& e) 
-            { 
-                assert(&(this->spec) == &(e.spec)); // references aren't assignable
-                *static_cast<vector<expr_instr> *>(this) = *static_cast<const vector<expr_instr> *>(&e);
-                this->hipc = e.hipc;
-                this->lopc = e.lopc;
-                return *this;
-            }
+			loc_expr& operator=(const loc_expr& e) 
+			{ 
+				assert(&(this->spec) == &(e.spec)); // references aren't assignable
+				*static_cast<vector<expr_instr> *>(this) = *static_cast<const vector<expr_instr> *>(&e);
+				this->hipc = e.hipc;
+				this->lopc = e.lopc;
+				return *this;
+			}
 			friend std::ostream& operator<<(std::ostream& s, const loc_expr& e);
 		};
-		std::ostream& operator<<(std::ostream& s, const loc_expr& e);
 		
 		struct loclist : public vector<loc_expr>
 		{
-			friend class ::dwarf::lib::evaluator;
+			friend class ::dwarf::expr::evaluator;
 			friend class attribute_value;
 			static loclist NO_LOCATION;
 
 			loclist() {} // empty loclist
-			loclist(const dwarf::lib::loclist& dll);
+			loclist(const dwarf::expr::loclist& dll);
 			/* We can construct a loc_expr from a Loc_Desc. 
 			 * So we can construct a loclist from a LocdescList. */
 			loclist(const core::LocdescList& ll); 
@@ -221,9 +254,6 @@ namespace dwarf
 			loclist(const core::Locdesc& l); 
 			loclist(const vector<loc_expr>& v) : vector<loc_expr>(v) {}
 			loclist(const loc_expr& loc) : vector<loc_expr>(1, loc) {}
-			//bool operator==(const loclist& oll) const { return *this == oll; }
-			//bool operator!=(const loclist& oll) const { return !(*this == oll); }
-			//friend std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll);
 			loc_expr loc_for_vaddr(Dwarf_Addr vaddr) const;
 			// boost::icl::interval_map<Dwarf_Addr, vector<expr_instr> > as_interval_map() const;
 			set< boost::icl::discrete_interval<Dwarf_Addr> > intervals() const
@@ -234,12 +264,12 @@ namespace dwarf
 					working.insert(boost::icl::discrete_interval<Dwarf_Addr>::right_open(
 						i_expr->lopc,
 						i_expr->hipc
-						));
+					));
 				}
 				return working;
 			}
 		};
-		std::ostream& operator<<(std::ostream& s, const ::dwarf::encap::loclist& ll);	
+		std::ostream& operator<<(std::ostream& s, const loclist& ll);
 		
 		/* Instruction sequences in a CIE/FDE. */
 		struct frame_instrlist;
@@ -252,7 +282,6 @@ namespace dwarf
 			 : Dwarf_Frame_Op3(arg), dbg(dbg) {}
 		};
 		std::ostream& operator<<(std::ostream& s, const frame_instr& arg);
-		
 		
 		struct frame_instrlist : public vector<frame_instr>
 		{
@@ -280,6 +309,89 @@ namespace dwarf
 		uint16_t read_2byte_be(unsigned char const **cur, unsigned char const *limit);
 		uint16_t read_2byte_be(unsigned char const **cur, unsigned char const *limit);
 	} // end namespace encap
+	
+	namespace expr
+	{
+		using namespace dwarf::lib;
+		using dwarf::spec::opt;
+		using std::stack;
+		using std::ostream;
+		class evaluator {
+			std::stack<Dwarf_Unsigned> m_stack;
+			vector<Dwarf_Loc> expr;
+			const ::dwarf::spec::abstract_def& spec;
+			regs *p_regs; // optional set of register values, for DW_OP_breg*
+			bool tos_is_value; // whether we saw a DW_OP_stack_value hence have calculated a value not an addr
+			opt<Dwarf_Signed> frame_base;
+			vector<Dwarf_Loc>::iterator i;
+			void eval();
+		public:
+			evaluator(const vector<unsigned char> expr, 
+				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0), tos_is_value(false)
+			{
+				//i = expr.begin();
+				assert(false);
+			}
+			evaluator(const encap::loclist& loclist,
+				Dwarf_Addr vaddr,
+				const ::dwarf::spec::abstract_def& spec = spec::DEFAULT_DWARF_SPEC,
+				regs *p_regs = 0,
+				opt<Dwarf_Signed> frame_base = opt<Dwarf_Signed>(),
+				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>());
+			
+			evaluator(const vector<Dwarf_Loc>& loc_desc,
+				const ::dwarf::spec::abstract_def& spec,
+				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>())
+				: m_stack(initial_stack), spec(spec), p_regs(0), tos_is_value(false)
+			{
+				expr = loc_desc;
+				i = expr.begin();
+				eval();
+			}
+			evaluator(const vector<Dwarf_Loc>& loc_desc,
+				const ::dwarf::spec::abstract_def& spec,
+				regs& regs,
+				Dwarf_Signed frame_base,
+				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+				: m_stack(initial_stack), spec(spec), p_regs(&regs), tos_is_value(false)
+			{
+				expr = loc_desc;
+				i = expr.begin();
+				this->frame_base = frame_base;
+				eval();
+			}
+
+			evaluator(const vector<Dwarf_Loc>& loc_desc,
+				const ::dwarf::spec::abstract_def& spec,
+				Dwarf_Signed frame_base,
+				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+				: m_stack(initial_stack), spec(spec), p_regs(0), tos_is_value(false)
+			{
+				//if (av.get_form() != dwarf::encap::attribute_value::LOCLIST) throw "not a DWARF expression";
+				//if (av.get_loclist().size() != 1) throw "only support singleton loclists for now";
+				//expr = *(av.get_loclist().begin());
+				expr = loc_desc;
+				i = expr.begin();
+				this->frame_base = frame_base;
+				eval();
+			}
+			
+			Dwarf_Unsigned tos() const { return m_stack.top(); }
+			Dwarf_Unsigned tos(bool may_be_value) const { // FIXME: more complete+orthogonal interface
+				if (may_be_value) return m_stack.top();
+				if (!tos_is_value && !may_be_value) return m_stack.top();
+				throw No_entry();
+			}
+			bool finished() const { return i == expr.end(); }
+			Dwarf_Loc current() const { return *i; }
+		};
+		Dwarf_Unsigned eval(const encap::loclist& loclist,
+			Dwarf_Addr vaddr,
+			Dwarf_Signed frame_base,
+			opt<regs&> rs,
+			const ::dwarf::spec::abstract_def& spec,
+			const stack<Dwarf_Unsigned>& initial_stack);
+	} // end namespace expr
 }
 
 #endif

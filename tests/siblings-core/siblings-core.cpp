@@ -32,22 +32,19 @@ int main(int argc, char **argv)
 	cout << "struct Foo's children are..." << endl;
 	
 	auto children = found.children_here();
-	for (auto i = children.first; i != children.second; ++i)
-	{
-		cout << i;
-	}
+	for (auto i = children.first; i != children.second; ++i) cout << i;
 	
 	cout << "struct Foo's DW_TAG_member children are..." << endl;
 	
 	auto member_children = found.children_here().subseq_of<member_die>();
-	assert(member_children.first.base().base() != member_children.second.base().base());
-	assert(member_children.first.base() != member_children.second.base());
+	assert(member_children.first != member_children.second);
+	assert(member_children.first != member_children.second);
 	assert(member_children.first != member_children.second);
 	int count = 0;
-	for (auto i = member_children.first; i != member_children.second; ++i, ++count)
-	{
-		cout << i.base().base();
-	}
+	for (auto i = member_children.first; 
+		i != member_children.second; 
+		++i, ++count) cout << i;
+
 	assert(count >= 2);
 	
 	return 0;

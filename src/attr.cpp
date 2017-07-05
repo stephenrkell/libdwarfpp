@@ -4,13 +4,45 @@
 
 #include <utility>
 using std::make_pair;
-using std::cerr;
 using std::endl;
 
 namespace dwarf
 {
+	namespace lib
+	{
+		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2)
+		{
+			return e1.dwr_addr1 == e2.dwr_addr1
+				&& e1.dwr_addr2 == e2.dwr_addr2
+				&& e1.dwr_type == e2.dwr_type;
+		}
+		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2)
+		{
+			return !(e1 == e2);
+		}
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& rl)
+		{
+			switch (rl.dwr_type)
+			{
+				case DW_RANGES_ENTRY:
+					s << "[0x" << std::hex << rl.dwr_addr1 
+						<< ", 0x" << std::hex << rl.dwr_addr2 << ")";
+				break;
+				case DW_RANGES_ADDRESS_SELECTION:
+					assert(rl.dwr_addr1 == 0xffffffff || rl.dwr_addr1 == 0xffffffffffffffffULL);
+					s << "set base 0x" << std::hex << rl.dwr_addr2;
+				break;
+				case DW_RANGES_END:
+					assert(rl.dwr_addr1 == 0 && rl.dwr_addr2 == 0);
+					s << "end";
+				break;
+				default: assert(false); break;
+			}
+			return s;
+		}
+	}
 	namespace encap
-    {
+	{
 		void attribute_value::print_raw(std::ostream& s) const
 		{
 			switch (f)
@@ -20,10 +52,10 @@ namespace dwarf
 					break;
 				case FLAG:
 					s << "(flag) " << (v_flag ? "true" : "false");
-					break;				
+					break;
 				case UNSIGNED:
 					s << "(unsigned) " << v_u;
-					break;				
+					break;
 				case SIGNED:
 					s << "(signed) " << v_s;
 					break;
@@ -62,7 +94,7 @@ namespace dwarf
 					s << "(unrecognised attribute)";
 					break;
 				
-				default: 
+				default:
 					s << "FIXME! (not present)";
 					break;
 			
@@ -99,10 +131,10 @@ namespace dwarf
 				case DW_FORM_ref_udata:
 				case DW_FORM_indirect:
 				default:
-					cerr << "Warning: unknown attribute form 0x" 
+					debug() << "Warning: unknown attribute form 0x"
 						<< std::hex << form << std::dec << endl;
 					return dwarf::encap::attribute_value::NO_ATTR;
-			}	
+			}
 		}
 	
 		std::ostream& operator<<(std::ostream& s, const attribute_value v)
@@ -110,80 +142,55 @@ namespace dwarf
 			v.print_raw(s);
 			return s;
 		}
-        
-        std::ostream& operator<<(std::ostream& s, const rangelist& rl)
-        {
-        	s << "rangelist { ";
-            for (auto i_r = rl.begin(); i_r != rl.end(); ++i_r)
-            {
-            	if (i_r != rl.begin()) s << ", ";
-            	s << *i_r;
-            }
-            s << "}";
-            return s;
-        }
-        std::ostream& operator<<(std::ostream& s, const attribute_value::address& a)
-        {
-        	s << a.addr;
-            return s;
-        }
-        bool operator==(Dwarf_Addr arg, attribute_value::address a)
-        {
-        	return arg == a.addr;
-        }
-        bool operator!=(Dwarf_Addr arg, attribute_value::address a)
-        {
-        	return arg != a.addr;
-        }
-        bool operator<(Dwarf_Addr arg, attribute_value::address a)
-        {
-        	return arg < a.addr;
-		}        
-        bool operator<=(Dwarf_Addr arg, attribute_value::address a)
-        {
-        	return arg <= a.addr;
-        }
-        bool operator>(Dwarf_Addr arg, attribute_value::address a)
-        {
-        	return arg > a.addr;
-        }
-        bool operator>=(Dwarf_Addr arg, attribute_value::address a)
-        {
-        	return arg >= a.addr;
-        }
-        Dwarf_Addr operator-(Dwarf_Addr arg, attribute_value::address a)
-        {
-        	return arg - a.addr;
+		
+		std::ostream& operator<<(std::ostream& s, const rangelist& rl)
+		{
+			s << "rangelist { ";
+			for (auto i_r = rl.begin(); i_r != rl.end(); ++i_r)
+			{
+				if (i_r != rl.begin()) s << ", ";
+				s << *i_r;
+			}
+			s << "}";
+			return s;
 		}
-        Dwarf_Addr operator-(attribute_value::address a, Dwarf_Addr arg)
-        {
-        	return a.addr - arg;
-		}             
-    }
-    namespace lib
-    {
-        std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& rl)
-        {
-        	switch (rl.dwr_type)
-            {
-            	case DW_RANGES_ENTRY:
-        	        s << "[0x" << std::hex << rl.dwr_addr1 
-            	        << ", 0x" << std::hex << rl.dwr_addr2 << ")";
-                break;
-                case DW_RANGES_ADDRESS_SELECTION:
-                	assert(rl.dwr_addr1 == 0xffffffff || rl.dwr_addr1 == 0xffffffffffffffffULL);
-                    s << "set base 0x" << std::hex << rl.dwr_addr2;
-                break;
-                case DW_RANGES_END:
-                	assert(rl.dwr_addr1 == 0 && rl.dwr_addr2 == 0);
-                    s << "end";
-                break;
-                default: assert(false); break;
-            }
-            return s;
-        }
-    }
-    namespace encap {
+		std::ostream& operator<<(std::ostream& s, const attribute_value::address& a)
+		{
+			s << a.addr;
+			return s;
+		}
+		bool operator==(Dwarf_Addr arg, attribute_value::address a)
+		{
+			return arg == a.addr;
+		}
+		bool operator!=(Dwarf_Addr arg, attribute_value::address a)
+		{
+			return arg != a.addr;
+		}
+		bool operator<(Dwarf_Addr arg, attribute_value::address a)
+		{
+			return arg < a.addr;
+		}		
+		bool operator<=(Dwarf_Addr arg, attribute_value::address a)
+		{
+			return arg <= a.addr;
+		}
+		bool operator>(Dwarf_Addr arg, attribute_value::address a)
+		{
+			return arg > a.addr;
+		}
+		bool operator>=(Dwarf_Addr arg, attribute_value::address a)
+		{
+			return arg >= a.addr;
+		}
+		Dwarf_Addr operator-(Dwarf_Addr arg, attribute_value::address a)
+		{
+			return arg - a.addr;
+		}
+		Dwarf_Addr operator-(attribute_value::address a, Dwarf_Addr arg)
+		{
+			return a.addr - arg;
+		}
 		void attribute_value::print_as(std::ostream& s, int cls) const
 		{
 			switch(cls & ~spec::interp::FLAGS)
@@ -194,14 +201,14 @@ namespace dwarf
 						print_raw(s);
 						break;
 					default: assert(false);
-				} break;				
+				} break;
 				case spec::interp::block: switch(f)
 				{
 					case BLOCK:
 						print_raw(s);
 						break;
 					default: assert(false);
-				} break;		
+				} break;
 				case spec::interp::constant: switch(f)
 				{
 					case UNSIGNED:
@@ -209,34 +216,34 @@ namespace dwarf
 						print_raw(s);
 						break;
 					default: assert(false);
-				} break;		
+				} break;
 				case spec::interp::lineptr: switch(f)
 				{
 					case UNSIGNED: // and specifically data4 or data8
 						s << "(lineptr) 0x" << std::hex << v_u << std::dec;
-						break;					
+						break;
 					default: assert(false);
 				} break;
-				case spec::interp::block_as_dwarf_expr:		
+				case spec::interp::block_as_dwarf_expr:
 				case spec::interp::loclistptr: switch(f)
 				{
 					case LOCLIST:
 						s << *v_loclist; 
 						break;
 					default: assert(false);
-				} break;		
+				} break;
 				case spec::interp::macptr: switch(f)
 				{
 					case UNSIGNED: // specifically data4 or data8
 						s << "(macptr) 0x" << std::hex << v_u << std::dec;
 						break;
 					default: assert(false);
-				} break;		
+				} break;
 				case spec::interp::rangelistptr: switch(f)
 				{
 					case RANGELIST: // specifically data4 or data8
 						//s << "(rangelist) 0x" << std::hex << v_u << std::dec;
-                        s << *v_rangelist;
+						s << *v_rangelist;
 						break;
 					default: assert(false);
 				} break;
@@ -246,14 +253,14 @@ namespace dwarf
 						print_raw(s);
 						break;
 					default: assert(false);
-				} break;		
+				} break;
 				case spec::interp::flag: switch(f)
 				{
 					case FLAG:
 						print_raw(s);
 						break;
 					default: assert(false);
-				} break;		
+				} break;
 				case spec::interp::reference: switch(f)
 				{
 					case REF:
@@ -261,10 +268,10 @@ namespace dwarf
 						break;
 					default: assert(false);
 				} break;
-				default: 
+				default:
 					s << "(raw) ";
 					print_raw(s);
-			}			
+			}
 		} // end attribute_value::print_as
 		
 		// temporary HACK: copy  (... increasingly less like a copy)
@@ -433,18 +440,12 @@ namespace dwarf
 				fail:
 				default:
 					// FIXME: we failed to case-catch, or handle, the FORM; do something
-					std::cerr << "FIXME: didn't know how to handle an attribute "
+					debug() << "FIXME: didn't know how to handle an attribute "
 						<< "numbered 0x" << std::hex << attr << std::dec << " of form "
 						<< spec.form_lookup(orig_form) 
 						<< ", skipping." << std::endl;
 					this->f = UNRECOG;
-					//throw Not_supported("unrecognised attribute");
-					/* NOTE: this Not_supportd doesn't happen in some cases, because often
-					 * we have successfully guessed an interp:: class for the attribute
-					 * anyway. FIXME: remember how this works, and see if we can do better. */
-					//break;
 			}
-			
 		}
 		core::iterator_df<> attribute_value::get_refiter() const // { assert(f == REF); return v_ref->off; }
 		{
@@ -455,7 +456,7 @@ namespace dwarf
 			 */
 			assert(f == REF);
 			assert(v_ref->p_root);
-			return v_ref->p_root->find(v_ref->off);
+			return v_ref->p_root->pos(v_ref->off);
 			
 			/* A possible solution: 
 			 * - all DIEs have a reference to their enclosing compile unit DIE (sticky)
@@ -542,14 +543,14 @@ namespace dwarf
 					v_s = av.v_s;
 				break;
 				case BLOCK:
-					//std::cerr << "Copy constructing a block attribute value from vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;
+					//debug() << "Copy constructing a block attribute value from vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;
 					v_block = new std::vector<unsigned char>(*av.v_block);
-					//std::cerr << "New block is at " << std::hex << (unsigned) v_block << std::dec << std::endl;						
+					//debug() << "New block is at " << std::hex << (unsigned) v_block << std::dec << std::endl;						
 				break;
 				case STRING:
-					//std::cerr << "Copy constructing a string attribute value from string at 0x" << std::hex << (unsigned) v_string << std::dec << std::endl;
+					//debug() << "Copy constructing a string attribute value from string at 0x" << std::hex << (unsigned) v_string << std::dec << std::endl;
 					v_string = new std::string(*av.v_string);
-					//std::cerr << "New string is at " << std::hex << (unsigned) v_string << std::dec << std::endl;
+					//debug() << "New string is at " << std::hex << (unsigned) v_string << std::dec << std::endl;
 				break;
 				case REF:
 					v_ref = /*new ref(av.v_ref->ds, av.v_ref->off, av.v_ref->abs,
@@ -566,15 +567,14 @@ namespace dwarf
 					v_rangelist = new rangelist(*av.v_rangelist);
 				break;
 				case UNRECOG:
-					std::cerr << "Warning: copy-constructing a dwarf::encap::attribute_value of unknown form " << f << std::endl;
+					debug() << "Warning: copy-constructing a dwarf::encap::attribute_value of unknown form " << f << std::endl;
 				break; 
 				default: 
 					assert(false);
 					break;
-			} // end switch				
+			} // end switch
 		}
 
-		
 		/* Ditto operators. */
 		bool attribute_value::operator==(const attribute_value& v) const { 
 			if (this->f != v.f) return false;
@@ -599,10 +599,10 @@ namespace dwarf
 					return this->v_addr == v.v_addr;
 				case LOCLIST:
 					return *(this->v_loclist) == *(v.v_loclist);
-                case RANGELIST:
-                    return *(this->v_rangelist) == *(v.v_rangelist);
+				case RANGELIST:
+					return *(this->v_rangelist) == *(v.v_rangelist);
 				default: 
-					std::cerr << "Warning: comparing a dwarf::encap::attribute_value of unknown form " << v.f << std::endl;
+					debug() << "Warning: comparing a dwarf::encap::attribute_value of unknown form " << v.f << std::endl;
 					return false;
 			} // end switch
 		}
@@ -616,7 +616,7 @@ namespace dwarf
 					// nothing allocated
 				break;
 				case BLOCK:
-					//std::cerr << "Destructing a block attribute_value with vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;
+					//debug() << "Destructing a block attribute_value with vector at 0x" << std::hex << (unsigned) v_block << std::dec << std::endl;
 					delete v_block;
 				break;
 				case STRING:
@@ -636,23 +636,23 @@ namespace dwarf
 			} // end ~attribute_value
 
 		attribute_value::weak_ref& 
-        attribute_value::weak_ref::operator=(const attribute_value::weak_ref& r)
-        {
+		attribute_value::weak_ref::operator=(const attribute_value::weak_ref& r)
+		{
 			assert(r.p_root == this->p_root);
-            this->off = r.off;
-            this->abs = r.abs;
-            this->referencing_off = r.referencing_off;
-            this->referencing_attr = r.referencing_attr;
-            return *this;
-        }
+			this->off = r.off;
+			this->abs = r.abs;
+			this->referencing_off = r.referencing_off;
+			this->referencing_attr = r.referencing_attr;
+			return *this;
+		}
 
-        attribute_value::weak_ref::weak_ref(const attribute_value::weak_ref& r)
-        {
+		attribute_value::weak_ref::weak_ref(const attribute_value::weak_ref& r)
+		{
 			this->p_root = r.p_root;
-            *this = r;
-        }
+			*this = r;
+		}
 
-		boost::optional<std::pair<Dwarf_Off, long int> >
+		opt<std::pair<Dwarf_Off, long int> >
 		rangelist::find_addr(Dwarf_Off dieset_relative_address)
 		{
 			iterator found = this->end();
@@ -667,17 +667,17 @@ namespace dwarf
 				switch(i->dwr_type)
 				{
 					case DW_RANGES_ENTRY:
-						//std::cerr << "Considering range " << *i << std::endl;
+						//debug() << "Considering range " << *i << std::endl;
 						if (dieset_relative_address >= i->dwr_addr1
 							&& dieset_relative_address < i->dwr_addr2)
 						{
-							//std::cerr << "Matches..." << std::endl;
+							//debug() << "Matches..." << std::endl;
 							found = i;
 							offset += dieset_relative_address - i->dwr_addr1;
 						}
 						else if (i->dwr_addr2 <= dieset_relative_address)
 						{
-							//std::cerr << "Precedes." << std::endl;
+							//debug() << "Precedes." << std::endl;
 							offset += i->dwr_addr2 - i->dwr_addr1;
 						}
 					break;
@@ -695,8 +695,8 @@ namespace dwarf
 			}
 			if (found == this->end()) 
 			{
-				//std::cerr << "No match." << std::endl;
-				return boost::optional<std::pair<Dwarf_Off, long int> >();
+				//debug() << "No match." << std::endl;
+				return opt<std::pair<Dwarf_Off, long int> >();
 			}
 			else return std::make_pair<dwarf::lib::Dwarf_Off, long int>(
 				(Dwarf_Off) offset, 

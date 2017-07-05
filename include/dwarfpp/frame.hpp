@@ -17,6 +17,7 @@
 #include <boost/optional.hpp>
 #include <boost/icl/interval_map.hpp>
 #include <boost/iterator/transform_iterator.hpp>
+#include "util.hpp"
 #include "spec.hpp"
 #include "opt.hpp"
 #include "attr.hpp" // includes forward decls for iterator_df!
@@ -222,14 +223,14 @@ namespace dwarf
 			instrs_results interpret_instructions(const Cie& cie, 
 				Dwarf_Addr initial_row_addr, 
 				Dwarf_Ptr instrs, Dwarf_Unsigned instrs_len,
-				optional< const instrs_results & > initial_instrs_results = optional< const instrs_results & >()) const;
+				opt< const instrs_results & > initial_instrs_results = opt< const instrs_results & >()) const;
 		};
 
 #define LIBDWARF_OK(ret) \
 	((ret) == DW_DLV_OK ? 1 : \
 		((((ret) == DW_DLV_ERROR) ? ( \
 			(dwarf_errno(current_dwarf_error) == DW_DLE_MDE)  \
-			? ((cerr << "warning: libdwarf reported mangled frame entries" << endl), 0) \
+			? ((debug(0) << "warning: libdwarf reported mangled frame entries" << endl), 0) \
 			: (0)) \
 		: 0)))
 
