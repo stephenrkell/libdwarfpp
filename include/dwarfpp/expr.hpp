@@ -5,15 +5,17 @@
  * Copyright (c) 2010--17, Stephen Kell.
  */
 
-#ifndef __DWARFPP_EXPR_HPP
-#define __DWARFPP_EXPR_HPP
+#ifndef DWARFPP_EXPR_HPP_
+#define DWARFPP_EXPR_HPP_
 
 #include <vector>
 #include <stack>
 #include <boost/icl/interval_map.hpp>
 #include <strings.h> // for bzero
 #include "spec.hpp"
-#include "private/libdwarf.hpp"
+#include "libdwarf.hpp"
+#include "libdwarf-handles.hpp"
+#include "abstract.hpp"
 #include "opt.hpp"
 
 namespace dwarf
@@ -23,18 +25,6 @@ namespace dwarf
 	using std::set;
 	using std::vector;
 	using std::string;
-	
-	namespace lib
-	{
-		bool operator==(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
-		bool operator!=(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
-		bool operator<(const lib::Dwarf_Loc& arg1, const lib::Dwarf_Loc& arg2);
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Loc /* a.k.a. expr_instr */ & e);
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Locdesc& ld);
-		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
-		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& e);
-	}
 	
 	namespace expr
 	{

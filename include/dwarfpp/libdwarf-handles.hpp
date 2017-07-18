@@ -1,3 +1,33 @@
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * libdwarf-handles.hpp: basic C++ wrapping of libdwarf C API (info section).
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
+
+#ifndef DWARFPP_PRIVATE_LIBDWARF_HANDLES_HPP_
+#define DWARFPP_PRIVATE_LIBDWARF_HANDLES_HPP_
+
+#include "dwarfpp/libdwarf.hpp"
+#include "dwarfpp/abstract.hpp"
+
+#include <iostream>
+#include <utility>
+#include <functional>
+#include <vector>
+
+namespace dwarf
+{
+	namespace core
+	{
+		using std::unique_ptr;
+		using std::vector;
+		using std::pair;
+		using namespace dwarf::lib;
+		/* Forward-declare what we assume from libdwarfpp. */
+		struct root_die;
+		struct iterator_base;
+		struct abstract_die;
 		
 		/* FIXME: clean up Errors properly. It's complicated. A Dwarf_Error is a handle
 		 * that needs to be dwarf_dealloc'd, but there are two exceptions:
@@ -51,7 +81,7 @@
 						DW_DLA_STRING);
 				} else assert(!arg); 
 			}
-		};		
+		};
 		typedef struct Dwarf_Die_s*        Dwarf_Die;
 		struct Die : /*private*/ virtual abstract_die // remind me: why is this private?
 		{
@@ -79,31 +109,31 @@
 			
 			// to avoid making exception handling compulsory, 
 			// we provide static "maybe" constructor functions (defined in lib.hpp)...
-			static inline handle_type 
+			static handle_type 
 			try_construct(root_die& r, const iterator_base& die); /* siblingof */
-			static inline handle_type 
+			static handle_type 
 			try_construct(root_die& r); /* siblingof with null die */
-			static inline handle_type 
+			static handle_type 
 			try_construct(const iterator_base& die); /* child */
-			static inline handle_type 
+			static handle_type 
 			try_construct(root_die& r, Dwarf_Off off); /* offdie */
 			
 			// ... and an "upgrade" constructor that is guaranteed not to fail
-			inline Die(handle_type h);
+			Die(handle_type h) : handle(std::move(h)) {}
 			
 			// ... and a "nullptr" constructor
-			inline Die(std::nullptr_t n, root_die *p_r) : handle(nullptr, deleter(nullptr, *p_r)) {} 
+			Die(std::nullptr_t n, root_die *p_r) : handle(nullptr, deleter(nullptr, *p_r)) {} 
 			
 			// ... then the "normal" constructors, that throw exceptions on failure
-			inline Die(root_die& r, const iterator_base& die); /* siblingof */
-			inline explicit Die(root_die& r); /* siblingof in the root case */
-			inline explicit Die(const iterator_base& die); /* child */
-			inline explicit Die(root_die& r, Dwarf_Off off); /* offdie */
+			Die(root_die& r, const iterator_base& die); /* siblingof */
+			explicit Die(root_die& r); /* siblingof in the root case */
+			explicit Die(const iterator_base& die); /* child */
+			Die(root_die& r, Dwarf_Off off); /* offdie */
 			
 			// move constructor
-			inline Die(Die&& d) : handle(std::move(d.handle)) {}
+			Die(Die&& d) : handle(std::move(d.handle)) {}
 			// move assignment
-			inline Die& operator=(Die&& d) { handle = std::move(d.handle); return *this; }
+			Die& operator=(Die&& d) { handle = std::move(d.handle); return *this; }
 
 			raw_handle_type raw_handle()       { return handle.get(); }
 			raw_handle_type raw_handle() const { return handle.get(); }
@@ -115,7 +145,7 @@
 			Dwarf_Off enclosing_cu_offset_here() const;
 			bool has_attr_here(Dwarf_Half attr) const;
 			bool has_attribute_here(Dwarf_Half attr) const { return has_attr_here(attr); }
-			inline spec& spec_here() const;
+			spec& spec_here() const;
 			
 			// for convenience, this one is public -- basic_die's subclasses call it
 			// (whereas the rest of our abstract_die implementation is private)
@@ -680,7 +710,7 @@
 			{
 				debug() << "Warning: libdwarf didn't understand DWARF expression in " //DIE 0x"
 					<< std::hex /*<< a.d.get_offset() << ", */ << "attribute " << DEFAULT_DWARF_SPEC.attr_lookup(a.attr_here()) << std::dec
-					<< endl;
+					<< std::endl;
 				return handle_type(nullptr, deleter(a.get_dbg()));
 			}
 			assert(listlen == 1);
@@ -700,7 +730,7 @@
 			if (ret != DW_DLV_OK)
 			{
 				debug() << "Warning: libdwarf didn't understand DWARF expression from caller."
-					<< endl;
+					<< std::endl;
 				return handle_type(nullptr, deleter(dbg));
 			}
 			assert(listlen == 1);
@@ -837,3 +867,7 @@
 		// inlines we couldn't define earlier -- declared in private/libdwarf-handles.hpp
 		inline encap::attribute_map Die::copy_attrs() const
 		{ return encap::attribute_map(AttributeList(*this), *this, get_constructing_root()); }
+
+	}
+}
+#endif

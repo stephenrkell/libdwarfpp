@@ -8,39 +8,6 @@ using std::endl;
 
 namespace dwarf
 {
-	namespace lib
-	{
-		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2)
-		{
-			return e1.dwr_addr1 == e2.dwr_addr1
-				&& e1.dwr_addr2 == e2.dwr_addr2
-				&& e1.dwr_type == e2.dwr_type;
-		}
-		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2)
-		{
-			return !(e1 == e2);
-		}
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& rl)
-		{
-			switch (rl.dwr_type)
-			{
-				case DW_RANGES_ENTRY:
-					s << "[0x" << std::hex << rl.dwr_addr1 
-						<< ", 0x" << std::hex << rl.dwr_addr2 << ")";
-				break;
-				case DW_RANGES_ADDRESS_SELECTION:
-					assert(rl.dwr_addr1 == 0xffffffff || rl.dwr_addr1 == 0xffffffffffffffffULL);
-					s << "set base 0x" << std::hex << rl.dwr_addr2;
-				break;
-				case DW_RANGES_END:
-					assert(rl.dwr_addr1 == 0 && rl.dwr_addr2 == 0);
-					s << "end";
-				break;
-				default: assert(false); break;
-			}
-			return s;
-		}
-	}
 	namespace encap
 	{
 		void attribute_value::print_raw(std::ostream& s) const

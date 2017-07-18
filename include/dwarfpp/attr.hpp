@@ -1,6 +1,6 @@
 /* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
  * 
- * attr.hpp: transparently-allocated, mutable representations 
+ * attr.hpp: transparently-allocated, mutable representations
  *			of libdwarf-like structures.
  *
  * Copyright (c) 2010--17, Stephen Kell.
@@ -13,20 +13,13 @@
 #include <vector>
 
 #include "spec.hpp"
-#include "private/libdwarf.hpp" /* includes libdwarf.h, Error, No_entry, some fwddecls */
-#include "expr.hpp"
+#include "libdwarf.hpp" /* includes libdwarf.h, Error, No_entry, some fwddecls */
 
 #include <boost/optional.hpp>
 #include <srk31/util.hpp> /* for forward_constructors */
 
 namespace dwarf
 {
-	namespace lib
-	{
-		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
-		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
-		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& e);
-	}
 	namespace core
 	{
 		// libdwarf handle stuff -- FIXME: avoid depending where possible
@@ -43,7 +36,6 @@ namespace dwarf
 	}
 	namespace encap
 	{
-		using namespace dwarf::expr;
 		using namespace dwarf::lib;
 		class rangelist;
 		class loclist;

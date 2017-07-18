@@ -4,7 +4,8 @@
 #include <dwarfpp/attr.hpp>
 #include <srk31/selective_iterator.hpp>
 
-using std::cout; 
+using std::cout;
+using std::cerr;
 using std::endl;
 using namespace dwarf;
 using dwarf::core::iterator_sibs;

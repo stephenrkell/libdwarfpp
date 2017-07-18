@@ -1,6 +1,7 @@
 #ifndef DWARFPP_LIBDWARF_HPP_
 #define DWARFPP_LIBDWARF_HPP_
 
+#include <iostream>
 #include <libelf.h>
 
 namespace dwarf
@@ -34,6 +35,18 @@ namespace dwarf
 			No_entry() {}
 		};	
 		void default_error_handler(Dwarf_Error error, Dwarf_Ptr errarg); 
+
+		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
+		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& e);
+		bool operator==(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
+		bool operator!=(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
+		bool operator<(const lib::Dwarf_Loc& arg1, const lib::Dwarf_Loc& arg2);
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Loc /* a.k.a. expr_instr */ & e);
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Locdesc& ld);
+		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
+		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
+		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& e);
 	}
 }
 
