@@ -1,3 +1,10 @@
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * abstract.cpp: base class and factory definitions
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
+
 #include "dwarfpp/abstract.hpp"
 #include "dwarfpp/abstract-inl.hpp"
 #include "dwarfpp/libdwarf-handles.hpp"

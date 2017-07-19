@@ -1,4 +1,10 @@
-// abstract_die and factory
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * abstract.hpp: base class and factory definitions
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
+
 #ifndef DWARFPP_ABSTRACT_HPP_
 #define DWARFPP_ABSTRACT_HPP_
 

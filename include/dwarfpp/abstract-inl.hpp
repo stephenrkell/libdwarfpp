@@ -1,3 +1,10 @@
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * abstract-inl.hpp: inlines declared in abstract.hpp.
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
+
 #ifndef DWARFPP_ABSTRACT_INL_HPP_
 #define DWARFPP_ABSTRACT_INL_HPP_
 

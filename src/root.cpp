@@ -1,3 +1,10 @@
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * root.cpp: root node of DIE tree
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
+
 #include "dwarfpp/root.hpp"
 #include "dwarfpp/root-inl.hpp"
 #include "dwarfpp/iter.hpp"

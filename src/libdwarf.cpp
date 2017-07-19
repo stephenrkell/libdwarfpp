@@ -1,3 +1,10 @@
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * libdwarf.cpp: utility code used by libdwarf wrappers
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
+
 #include "dwarfpp/libdwarf.hpp"
 #include "dwarfpp/util.hpp"
 

@@ -1,4 +1,9 @@
-// iterators
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * iter.hpp: DIE tree iterators
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
 
 #ifndef DWARFPP_ITER_HPP_
 #define DWARFPP_ITER_HPP_

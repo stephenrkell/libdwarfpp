@@ -26,6 +26,6 @@ int main(int argc, char **argv)
 	cout << "Deciseconds for our code: " << exit_status2 << endl;
 	
 	/* This is only likely to pass for an optimised build. */
-	assert(exit_status2 < 3 * exit_status1); 
+	assert(exit_status2 < 1.4 * exit_status0); 
 	return 0;
 }

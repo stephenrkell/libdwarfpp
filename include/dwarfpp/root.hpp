@@ -1,4 +1,9 @@
-// root_die and basic_die; maybe iterator_base too? only if necessary
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * root.hpp: root node of DIE tree, and basic_die base class.
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
 
 #ifndef DWARFPP_ROOT_HPP_
 #define DWARFPP_ROOT_HPP_

@@ -1,4 +1,9 @@
-// all the operator overloads etc. that we define on libdwarf data
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * libdwarf-data.cpp: operator overloads etc. on libdwarf data
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
 
 #include "dwarfpp/libdwarf.hpp"
 #include "dwarfpp/abstract.hpp"

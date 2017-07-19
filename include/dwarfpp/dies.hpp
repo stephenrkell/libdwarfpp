@@ -1,4 +1,9 @@
-// all the adt-esque stuff
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * dies.hpp: classes and methods specific to each DIE tag
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
 
 #ifndef DWARFPP_DIES_HPP_
 #define DWARFPP_DIES_HPP_

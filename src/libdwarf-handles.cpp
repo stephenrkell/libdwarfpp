@@ -1,4 +1,9 @@
-// de-inlined versions of all the libdwarf-specific handle methods
+/* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
+ * 
+ * libdwarf-handles.cpp: short libdwarf-specific handle methods
+ *
+ * Copyright (c) 2008--17, Stephen Kell.
+ */
 // remember the goal here: to allow easy rebasing of the library
 // (with a bit of #ifdef'ing)
 // ... onto DWARF libraries that aren't libdwarf.
