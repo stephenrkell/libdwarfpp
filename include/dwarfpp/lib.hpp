@@ -2,7 +2,8 @@
  * 
  * lib.hpp: basic C++ wrapping of libdwarf C API (info section).
  *
- * Copyright (c) 2008--17, Stephen Kell.
+ * Copyright (c) 2008--17, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 
 #ifndef DWARFPP_LIB_HPP_

@@ -2,7 +2,8 @@
  * 
  * libdwarf.cpp: utility code used by libdwarf wrappers
  *
- * Copyright (c) 2008--17, Stephen Kell.
+ * Copyright (c) 2008--17, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 
 #include "dwarfpp/libdwarf.hpp"

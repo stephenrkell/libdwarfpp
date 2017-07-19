@@ -2,7 +2,8 @@
  * 
  * expr.cpp: basic C++ abstraction of DWARF expressions.
  *
- * Copyright (c) 2010--17, Stephen Kell.
+ * Copyright (c) 2010--17, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 
 #include <limits>

@@ -2,7 +2,8 @@
  * 
  * iter.hpp: DIE tree iterators
  *
- * Copyright (c) 2008--17, Stephen Kell.
+ * Copyright (c) 2008--17, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 
 #ifndef DWARFPP_ITER_HPP_

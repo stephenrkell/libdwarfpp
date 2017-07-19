@@ -2,7 +2,8 @@
  * 
  * util.cpp: utilities
  *
- * Copyright (c) 2017--, Stephen Kell.
+ * Copyright (c) 2017--, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 
 #include <cstdlib>

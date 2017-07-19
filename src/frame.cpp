@@ -2,7 +2,8 @@
  * 
  * frame.cpp: .debug_frame and .eh_frame decoding
  *
- * Copyright (c) 2013, Stephen Kell.
+ * Copyright (c) 2013--17, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 
 #include <limits>

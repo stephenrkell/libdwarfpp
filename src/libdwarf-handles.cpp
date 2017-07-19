@@ -2,7 +2,8 @@
  * 
  * libdwarf-handles.cpp: short libdwarf-specific handle methods
  *
- * Copyright (c) 2008--17, Stephen Kell.
+ * Copyright (c) 2008--17, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 // remember the goal here: to allow easy rebasing of the library
 // (with a bit of #ifdef'ing)

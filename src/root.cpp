@@ -2,7 +2,8 @@
  * 
  * root.cpp: root node of DIE tree
  *
- * Copyright (c) 2008--17, Stephen Kell.
+ * Copyright (c) 2008--17, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 
 #include "dwarfpp/root.hpp"

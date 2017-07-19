@@ -1,0 +1,25 @@
+This is experimental research software! If you're interested in 
+licensing it under any particular terms, please contact the author, 
+Stephen Kell <stephen.kell@cl.cam.ac.uk>.
+
+Since people seem interested in using this software, I am making it 
+available as free software, for redistribution and/or modification as 
+follows:
+
+- under the terms of GNU Lesser General Public License version 2.1, 
+whose text is in the file LICENSE.lgpl-2.1;
+
+- or, at your option, under the terms of any subsequent version of the 
+GNU Lesser General Public License, as published by the Free Software 
+Foundation.
+
+The standard disclaimer: this library is distributed in the hope that it 
+will be useful, but WITHOUT ANY WARRANTY; without even the implied 
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See 
+the GNU Lesser General Public License for more details.
+
+The above does not mean I won't license the software *to you* under 
+different if you want it under a different license, please contact me.
+
+Stephen Kell
+19th July 2017

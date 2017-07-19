@@ -2,7 +2,8 @@
  * 
  * expr.hpp: simple C++ abstraction of DWARF expressions and location lists.
  *
- * Copyright (c) 2010--17, Stephen Kell.
+ * Copyright (c) 2010--17, Stephen Kell. For licensing information, see the
+ * LICENSE file in the root of the libdwarfpp tree.
  */
 
 #ifndef DWARFPP_EXPR_HPP_
