@@ -1,11 +1,25 @@
-New README for libdwarfpp, 2016/2/22:
+Build guide for the impatient:
+
+$ make -C contrib  # if you lack libsrk31c++ or libc++fileno
+$ ./autogen.sh
+$ ./configure
+$ make
+$ make -C tests    # if you're feeling conscientious; send bug reports!
+
+A bit more detail:
 
 To build this you'll need a recent-ish C++ compiler, a GNU build system,
 recent-ish boost, and my other repositories libsrk31c++ and
-libc++fileno.
+libc++fileno (present as submodules in contrib/, if building from git).
 
-Autotools support is new and is untested except on Debian-based
-machines; improvements are welcome.
+You'll also need David Anderson's libdwarf. I'm slowly working on making
+things compile-time configurable to use libdw instead (from elfituls), 
+but it's not there yet.
+
+Autotools support is new and is only lightly tested; improvements are
+welcome. On some non-Debian-based distributions, libdwarf headers don't
+appear in /usr/include but somewhere else. Configure with
+--with-libdwarf-includes=/path/to/include to make this work.
 
 There's not much documentation for the library. The easiest way to get
 started is probably to look at the (smaller) examples in examples/.
@@ -15,7 +29,7 @@ What's included:
 - an iterator-based DIE tree abstraction (root_die)
 - friendly abstraction of DIE attributes, location lists etc.
 - a DWARF expression evaluator (see caveats below)
-- DIEs abstracted into per-tag data types
+- DIEs abstracted into class hierarchy (per-tag data types)
 - ... providing many useful utility methods
 - ... particularly for computing addresses
 - can add and modify DIEs in memory (but not write out, yet; see below)
@@ -30,3 +44,5 @@ present.
 
 It can't generate DWARF output, yet, although this wouldn't be a
 disruptive thing to add (still a non-trivial effort, though).
+
+Send bug reports, patches etc. to Stephen Kell <srk31@cl.cam.ac.uk>.
