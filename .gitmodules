@@ -1,0 +1,7 @@
+[submodule "contrib/libc++fileno"]
+    path = contrib/libc++fileno
+    url = git://github.com/stephenrkell/libcxxfileno.git
+[submodule "contrib/libsrk31c++"]
+    path = contrib/libsrk31c++
+    url = git://github.com/stephenrkell/libsrk31cxx.git
+
