@@ -14,6 +14,12 @@
 #include "abstract.hpp"
 #include "abstract-inl.hpp"
 #include "expr.hpp"
+#include "dwarfpp/root.hpp"
+#include "dwarfpp/root-inl.hpp"
+#include "dwarfpp/iter.hpp"
+#include "dwarfpp/iter-inl.hpp"
+#include "dwarfpp/dies.hpp"
+#include "dwarfpp/dies-inl.hpp"
 
 using std::map;
 using std::pair;
