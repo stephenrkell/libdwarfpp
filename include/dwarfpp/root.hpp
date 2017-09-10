@@ -379,6 +379,7 @@ namespace dwarf
 
 			multimap<string, Dwarf_Off> visible_named_grandchildren_cache;
 			bool visible_named_grandchildren_is_complete;
+			friend class in_memory_abstract_die::attribute_map;
 
 			FrameSection *p_fs;
 			Dwarf_Off current_cu_offset; // 0 means none
@@ -529,12 +530,13 @@ namespace dwarf
 			 */
 			iterator_base find_named_child(const iterator_base& start, const string& name);
 			/* This one is only for searches anchored at the root, so no need for "start". */
-			iterator_base find_visible_named_grandchild(const string& name);
-			std::vector<iterator_base> find_all_visible_named_grandchildren(const string& name);
+			iterator_base find_visible_grandchild_named(const string& name);
+			std::vector<iterator_base> find_all_visible_grandchildren_named(const string& name);
 			
 			bool is_under(const iterator_base& i1, const iterator_base& i2);
 			
 			// libdwarf has this weird stateful CU API
+			// FIXME: this belongs in a libdwarf abstraction layer somewhere
 			opt<Dwarf_Off> first_cu_offset;
 			opt<Dwarf_Unsigned> last_seen_cu_header_length;
 			opt<Dwarf_Half> last_seen_version_stamp;

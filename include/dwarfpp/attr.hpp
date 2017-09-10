@@ -215,6 +215,28 @@ namespace dwarf
 			//print_to(std::ostream& s, const AttributeList& attrs, root_die& r);
 			
 			void print(std::ostream& s, unsigned indent_level) const;
+			
+			/* In order of insert() to preserve the invariant in root_die,
+			 * we restrict the insertion interface a bit and make it polymorphic.
+			 * The invariant we're talking about here concerns root_die's
+			 * visible_named_grandchildren_is_complete: if we add a global name to a 
+			 * depth-2 DIE, we need to update the cache or invalidate it. We do
+			 * this by overriding some stuff in a derived class (in in_memory_abstract_die).  */
+			virtual 
+			std::pair<iterator, bool> insert(const value_type& val)
+			{
+				return this->base::insert(val);
+			}
+			virtual
+			std::pair<iterator,bool> insert(value_type&& val) // was template <class P> ... (P&& val)
+			{
+				return this->base::insert(val);
+			}
+			virtual
+			iterator insert(const_iterator position, const value_type& val)
+			{
+				return this->base::insert(position, val);
+			}
 		};
 		std::ostream& operator<<(std::ostream& s, const attribute_map& arg);
 		bool operator==(Dwarf_Addr arg, attribute_value::address a);

@@ -84,6 +84,7 @@ namespace dwarf
 				i_cached != matching_cached.second; 
 				++i_cached)
 			{
+				hit_in_cache.insert(i_cached->second);
 				recurse(pos(i_cached->second, 2));
 				if (max != 0 && results.size() >= max) return;
 			}
@@ -95,8 +96,10 @@ namespace dwarf
 				auto vg_seq = visible_named_grandchildren();
 				for (auto i_g = std::move(vg_seq.first); i_g != vg_seq.second; ++i_g)
 				{
-					/* skip any we saw before. 
-					 * FIXME: something's wrong; we never add to this set */
+					// skip any with the wrong name.
+					if (!i_g.name_here() || *i_g.name_here() != *path_pos) continue;
+					
+					/* skip any we saw before.  */
 					if (hit_in_cache.find(i_g.offset_here()) != hit_in_cache.end()) continue;
 
 					/* It's visible; use resolve_all from hereon. */

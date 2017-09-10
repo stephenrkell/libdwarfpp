@@ -72,7 +72,49 @@ namespace dwarf
 			Dwarf_Off m_offset;
 			Dwarf_Off m_cu_offset;
 			Dwarf_Half m_tag;
-			encap::attribute_map m_attrs;
+			struct attribute_map : public encap::attribute_map
+			{
+			private:
+				in_memory_abstract_die *p_owner;
+			public:
+				// constructor -- we start empty and belong to an instance of in_memory_abstract_die
+				attribute_map(in_memory_abstract_die& d) : p_owner(&d) {}
+				// using encap::attribute_map::attribute_map(
+				typedef encap::attribute_map super;
+			private:
+				void update_cache_on_insert(iterator inserted);
+			public:
+				std::pair<iterator, bool> insert(const value_type& val)
+				{
+					auto ret = this->super::insert(val);
+					auto inserted = ret.second;
+					if (inserted) update_cache_on_insert(ret.first);
+					return ret;
+				}
+				std::pair<iterator,bool> insert(value_type&& val) // was template <typename P>
+				{
+					auto ret = this->super::insert(val);
+					auto inserted = ret.second;
+					if (inserted) update_cache_on_insert(ret.first);
+					return ret;
+				}
+				iterator
+				insert(const_iterator position, const value_type& val)
+				{
+					unsigned size_before = size();
+					auto ret = this->super::insert(position, val);
+					if (size() > size_before) update_cache_on_insert(ret);
+					return ret;
+				}
+				iterator
+				insert(const_iterator position, value_type&& val) // was template <typename P>
+				{
+					unsigned size_before = size();
+					auto ret = this->super::insert(position, val);
+					if (size() > size_before) update_cache_on_insert(ret);
+					return ret;
+				}
+			} m_attrs;
 			
 			Dwarf_Off get_offset() const { return m_offset; }
 			Dwarf_Half get_tag() const { return m_tag; }
@@ -91,7 +133,7 @@ namespace dwarf
 			{ return *p_root; }
 			
 			in_memory_abstract_die(root_die& r, Dwarf_Off offset, Dwarf_Off cu_offset, Dwarf_Half tag)
-			 : p_root(&r), m_offset(offset), m_cu_offset(cu_offset), m_tag(tag)
+			 : p_root(&r), m_offset(offset), m_cu_offset(cu_offset), m_tag(tag), m_attrs(*this)
 			{}
 		};
 

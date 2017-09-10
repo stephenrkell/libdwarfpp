@@ -200,5 +200,25 @@ case DW_TAG_ ## name: return &dummy_ ## name;
 				default: return &dummy_basic;
 			}
 		}
+		
+		void in_memory_abstract_die::attribute_map::update_cache_on_insert(
+			attribute_map::iterator inserted
+		)
+		{
+			if (inserted->first == DW_AT_name)
+			{
+				auto found = p_owner->p_root->pos(p_owner->m_offset);
+				assert(found);
+				if (found.depth() == 2 && found.global_name_here())
+				{
+					// we can either invalidate the whole thing...
+					// this->visible_named_grandchildren_is_complete = false;
+					// ... or we can preserve the completeness invariant if it holds!
+					p_owner->p_root->visible_named_grandchildren_cache.insert(
+						make_pair(*found.name_here(), p_owner->m_offset)
+					);
+				}
+			}
+		}
 	}
 }

@@ -362,7 +362,7 @@ namespace dwarf
 		}
 		
 		iterator_base
-		root_die::find_visible_named_grandchild(const string& name)
+		root_die::find_visible_grandchild_named(const string& name)
 		{
 			vector<string> name_vec(1, name);
 			std::vector<iterator_base > found;
@@ -372,7 +372,7 @@ namespace dwarf
 		}
 		
 		std::vector<iterator_base>
-		root_die::find_all_visible_named_grandchildren(const string& name)
+		root_die::find_all_visible_grandchildren_named(const string& name)
 		{
 			vector<string> name_vec(1, name);
 			std::vector<iterator_base > found;

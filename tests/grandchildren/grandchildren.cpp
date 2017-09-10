@@ -20,12 +20,12 @@ int main(int argc, char **argv)
 	assert(in);
 	core::root_die r(fileno(in));
 
-	auto vg_seq = r.grandchildren();
-	assert(vg_seq.first != vg_seq.second);
+	auto g_seq = r.grandchildren();
+	assert(g_seq.first != g_seq.second);
 	unsigned count = 0;
 	Dwarf_Off last_saw_cu = 0ul;
 	bool seen_multiple_cus = false;
-	for (auto i_g = std::move(vg_seq.first); i_g != vg_seq.second; ++i_g, ++count)
+	for (auto i_g = std::move(g_seq.first); i_g != g_seq.second; ++i_g, ++count)
 	{
 		/* IMPORTANT: this test needs to be statically linked! */
 		Dwarf_Off cu_off = i_g.enclosing_cu().offset_here();
