@@ -9,8 +9,14 @@
 #include "dwarfpp/libdwarf.hpp"
 #include "dwarfpp/abstract.hpp"
 #include "dwarfpp/abstract-inl.hpp"
+#include "dwarfpp/root.hpp"
+#include "dwarfpp/root-inl.hpp"
+#include "dwarfpp/iter.hpp"
+#include "dwarfpp/iter-inl.hpp"
 #include "dwarfpp/attr.hpp"
 #include "dwarfpp/expr.hpp"
+#include "dwarfpp/dies.hpp"
+#include "dwarfpp/dies-inl.hpp"
 
 #include <sstream>
 
