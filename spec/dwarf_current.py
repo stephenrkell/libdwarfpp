@@ -28,7 +28,7 @@ attr_types = [ \
 ("string_length", "loclist" ), \
 ("common_reference", "refiter" ), \
 ("comp_dir", "string" ), \
-("containing_type", "refiter" ), \
+("containing_type", "refiter_is_type"), \
 ("default_value", "refiter" ), \
 ("inline", "signed" ), \
 ("lower_bound", "unsigned" ), \
@@ -207,8 +207,8 @@ tags = [ \
 ("inheritance", ( [], [], ["data_member"]  ) ), \
 ("inlined_subroutine", ( [("high_pc", False), ("low_pc", False), ("ranges", False)], [], ["with_static_location"]  ) ), \
 ("module", ( [], [], ["with_named_children"]  ) ), \
-("ptr_to_member_type", ( [], [], ["type"]  ) ), \
-("set_type", ( [], [], ["type"]  ) ), \
+("ptr_to_member_type", ( [("containing_type", True)], [], ["type_chain"]  ) ), \
+("set_type", ( [], [], ["type_chain"]  ) ), \
 ("subrange_type", ( [("upper_bound", False), ("lower_bound", False), ("count", False), ("type", False)], [], ["type"]  ) ), \
 ("with_stmt", ( [], [], ["basic"]  ) ), \
 ("access_declaration", ( [], [], ["basic"]  ) ), \
@@ -217,7 +217,7 @@ tags = [ \
 ("const_type", ( [], [], ["qualified_type"]  ) ), \
 ("constant", ( [], [] , ["program_element"] ) ), \
 ("enumerator", ( [("const_value", False)], [], ["program_element"] ) ), \
-("file_type", ( [], [], ["type"]  ) ), \
+("file_type", ( [], [], ["type_chain"]  ) ), \
 ("friend", ( [], [], ["basic"]  ) ), \
 ("namelist", ( [], [], ["basic"]  ) ), \
 ("namelist_item", ( [], [], ["basic"]  ) ), \
@@ -225,20 +225,20 @@ tags = [ \
 ("subprogram", ( [("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False), ("pure", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["type_describing_subprogram", "with_static_location", "with_named_children"]  ) ), \
 ("template_type_parameter", ( [], [], ["basic"]  ) ), \
 ("template_value_parameter", ( [], [], ["basic"]  ) ), \
-("thrown_type", ( [], [], ["type_chain"]  ) ), \
+("thrown_type", ( [], [], ["program_element"]  ) ), \
 ("try_block", ( [], [], ["basic"]  ) ), \
 ("variant_part", ( [], [], ["basic"]  ) ), \
 ("variable", ( [("location", False)], [] , ["program_element", "with_static_location", "with_dynamic_location"] ) ), \
 ("volatile_type", ( [], [], ["qualified_type"]  ) ), \
 ("dwarf_procedure", ( [], [], ["basic"]  ) ), \
 ("restrict_type", ( [], [], ["qualified_type"]  ) ), \
-("interface_type", ( [], [ "member" ], ["type"]  ) ), \
+("interface_type", ( [], [ "member" ], ["with_data_members"]  ) ), \
 ("namespace", ( [], [], ["program_element", "with_named_children"]  ) ), \
 ("imported_module", ( [], [], ["basic"]  ) ), \
 ("unspecified_type", ( [], [] , ["type"] ) ), \
 ("partial_unit", ( [], [], ["basic"]  ) ), \
 ("imported_unit", ( [], [] , ["basic"] ) ), \
 ("condition", ( [], [], ["basic"]  ) ), \
-("shared_type", ( [], [], ["type"]  ) ) \
+("shared_type", ( [], [], ["qualified_type"]  ) ) \
 ]
 tag_map = dict(tags)

@@ -15,13 +15,299 @@
 #include "dwarfpp/dies.hpp"
 #include "dwarfpp/dies-inl.hpp"
 
+#include <memory>
 #include <srk31/algorithm.hpp>
 
 namespace dwarf
 {
 	namespace core
 	{
+		using std::make_unique;
+		
+		opt<std::string> compile_unit_die::source_file_fq_pathname(unsigned o) const
+		{
+			string filepath = source_file_name(o);
+			opt<string> maybe_dir = this->get_comp_dir();
+			if (filepath.length() > 0 && filepath.at(0) == '/') return opt<string>(filepath);
+			else if (!maybe_dir) return opt<string>();
+			else
+			{
+				// we want to do 
+				// return dir + "/" + path;
+				// BUT "path" can contain "../".
+				string ourdir = *maybe_dir;
+				string ourpath = filepath;
+				while (boost::starts_with(ourpath, "../"))
+				{
+					char *buf = strdup(ourdir.c_str());
+					ourdir = dirname(buf); /* modifies buf! */
+					free(buf);
+					ourpath = ourpath.substr(3);
+				}
+
+				return opt<string>(ourdir + "/" + ourpath);
+			}
+		}
+
+		iterator_base
+		with_named_children_die::named_child(const std::string& name) const
+		{
+			/* The default implementation just asks the root. Since we've somehow 
+			 * been called via the payload, we have the added inefficiency of 
+			 * searching for ourselves first. This shouldn't happen, though 
+			 * I'm not sure if we explicitly avoid it. Warn. */
+			debug(2) << "Warning: inefficient usage of with_named_children_die::named_child" << endl;
+
+			/* NOTE: the idea about payloads knowing about their children is 
+			 * already dodgy because it breaks our "no knowledge of structure" 
+			 * property. We can likely work around this by requiring that named_child 
+			 * implementations call back to the root if they fail, i.e. that the root
+			 * is allowed to know about structure which the child doesn't. 
+			 * Or we could call into the root to "validate" our view, somehow, 
+			 * to support the case where a given root "hides" some DIEs.
+			 * This might be a method
+			 * 
+			 *  iterator_base 
+			 *  root_die::check_named_child(const iterator_base& found, const std::string& name)
+			 * 
+			 * which calls around into find_named_child if the check fails. 
+			 * 
+			 * i.e. the root_die has a final say, but the payload itself "hints"
+			 * at the likely answer. So the payload can avoid find_named_child's
+			 * linear search in the common case, but fall back to it in weird
+			 * scenarios (deletions). 
+			 */
+			root_die& r = get_root();
+			Dwarf_Off off = get_offset();
+			auto start_iter = r.find(off);
+			return r.find_named_child(start_iter, name); 
+		}
+		
+		/* type abstract equality and abstract naming. */
+		bool types_abstractly_equal(iterator_df<type_die> t1, iterator_df<type_die> t2)
+		{
+			// both immediately void?
+			if (!t1 && !t2) return true;
+			// no, so we can delegate to one or other
+			if (t1) return t1->abstractly_equals(t2);
+			else return t2->abstractly_equals(t1);
+		}
+		std::ostream& print_type_abstract_name(std::ostream& s, iterator_df<type_die> t)
+		{
+			if (!t) { s << "void"; return s; }
+			return t->print_abstract_name(s);
+		}
+		string abstract_name_for_type(iterator_df<type_die> t)
+		{
+			std::ostringstream s;
+			print_type_abstract_name(s, t);
+			return s.str();
+		}
+		bool base_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<base_type_die>()
+				&& (t.as_a<base_type_die>()->get_encoding() == this->get_encoding())
+				&& (t.as_a<base_type_die>()->get_byte_size() == this->get_byte_size())
+				&& (t.as_a<base_type_die>()->get_bit_size() == this->get_bit_size())
+				&& (t.as_a<base_type_die>()->get_bit_offset() == this->get_bit_offset());
+		}
+		std::ostream& base_type_die::print_abstract_name(std::ostream& s) const
+		{
+			s << get_canonical_name();
+			return s;
+		}
+		bool with_data_members_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<with_data_members_die>()
+				&& (t.as_a<with_data_members_die>()->arbitrary_name() == this->arbitrary_name());
+					/* FIXME: handle namespace */
+		}
+		std::ostream& with_data_members_die::print_abstract_name(std::ostream& s) const
+		{
+			vector<string> name_path(1, arbitrary_name()); /* FIXME: handle namespaces */
+			for (auto i = name_path.begin(); i != name_path.end(); ++i)
+			{
+				if (name_path.size() > 1) s << "__NL" << i->length() << "_";
+				s << *i;
+			}
+			return s;
+		}
+		bool enumeration_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<enumeration_type_die>()
+				&& (t.as_a<enumeration_type_die>()->arbitrary_name() == this->arbitrary_name());
+					/* FIXME: handle namespace */
+		}
+		std::ostream& enumeration_type_die::print_abstract_name(std::ostream& s) const
+		{
+			vector<string> name_path(1, arbitrary_name()); /* FIXME: handle namespaces */
+			for (auto i = name_path.begin(); i != name_path.end(); ++i)
+			{
+				if (name_path.size() > 1) s << "__NL" << i->length() << "_";
+				s << *i;
+			}
+			return s;
+		}
+		bool type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			// should never recurse
+			return types_abstractly_equal(get_concrete_type(), t ? t->get_concrete_type() : t);
+		}
+		bool array_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<array_type_die>() &&
+				t.as_a<array_type_die>()->element_count()
+					 == find_self().as_a<array_type_die>()->element_count();
+		}
+		bool subrange_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<subrange_type_die>()
+				&& t.as_a<subrange_type_die>()->get_lower_bound() == get_lower_bound()
+				&& t.as_a<subrange_type_die>()->get_upper_bound() == get_upper_bound();
+		}
+		bool string_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<string_type_die>()
+				&& t.as_a<string_type_die>()->fixed_length_in_bytes() == fixed_length_in_bytes()
+				/* FIXME: element size/count */;
+					unsigned element_size = 1; /* FIXME: always 1? */
+					auto opt_byte_size = fixed_length_in_bytes();
+		}
+		bool set_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<set_type_die>()
+				&& types_abstractly_equal(t.as_a<set_type_die>()->get_type(), get_type());
+
+		}
+		bool file_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<file_type_die>()
+				&& types_abstractly_equal(t.as_a<file_type_die>()->get_type(), get_type());
+		}
+		bool address_holding_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<address_holding_type_die>()
+				&& t.get_tag() == get_tag()
+				&& types_abstractly_equal(t.as_a<address_holding_type_die>()->get_type(), get_type());
+		}
+		bool ptr_to_member_type_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			return t.is_a<ptr_to_member_type_die>()
+				&& types_abstractly_equal(t.as_a<ptr_to_member_type_die>()->get_containing_type(), get_containing_type())
+				&& types_abstractly_equal(t.as_a<ptr_to_member_type_die>()->get_type(), get_type());
+		}
+		bool type_describing_subprogram_die::abstractly_equals(iterator_df<type_die> t) const
+		{
+			t = t ? t->get_concrete_type() : t;
+			bool mostly_matches = t.is_a<type_describing_subprogram_die>()
+				&& types_abstractly_equal(t.as_a<type_describing_subprogram_die>()->get_return_type(), get_return_type())
+				&& t.as_a<type_describing_subprogram_die>()->is_variadic() == is_variadic();
+			if (!mostly_matches) return false;
+			auto my_fps = find_self().children().subseq_of<formal_parameter_die>();
+			auto ts_fps = t.children_here().subseq_of<formal_parameter_die>();
+			auto i_my_fp = my_fps.first;
+			auto i_ts_fp = ts_fps.first;
+			for (; i_my_fp != my_fps.second; ++i_my_fp, ++i_ts_fp)
+			{
+				if (!i_ts_fp) return false; // we have more argments
+				if (!types_abstractly_equal(i_my_fp->get_type(), i_ts_fp->get_type())) return false;
+			}
+			if (i_ts_fp) return false; // t has more arguments
+			return true;
+		}
+		/* This one does for typedef and qualified types. */
+		std::ostream& type_die::print_abstract_name(std::ostream& s) const
+		{
+			// should never recurse
+			return print_type_abstract_name(s, get_concrete_type());
+		}
+		std::ostream& array_type_die::print_abstract_name(std::ostream& s) const
+		{
+			opt<Dwarf_Unsigned> element_count = find_self().as_a<array_type_die>()->element_count();
+			s << "__ARR" << (element_count ? *element_count : 0) << "_";
+			return print_type_abstract_name(s, get_type());
+		}
+		std::ostream& subrange_type_die::print_abstract_name(std::ostream& s) const
+		{
+			s << "__SUBR" << (get_lower_bound() ? *get_lower_bound() : 0) << "_"
+				<< ((get_upper_bound() && get_lower_bound()) ? 
+					(*get_upper_bound() - *get_lower_bound()) : 0) << "_";
+			return print_type_abstract_name(s, get_type());
+		}
+		std::ostream& string_type_die::print_abstract_name(std::ostream& s) const
+		{
+			s << "__STR" << (fixed_length_in_bytes() ? *fixed_length_in_bytes() : 0) << "_";
+			/* Strings have two sizes: element size and element count. */
+			// in liballocs we used to do this:
+			// const Dwarf_Unsigned element_size = 1; /* FIXME: always 1? */
+			// string_prefix << "__STR" << (element_count ? *element_count : 0) << "_"
+			// << element_size;
+			//if (opt_element_size && *opt_element_size != 1) s << *opt_element_size;
+			s << "_";
+			s << 1; // FIXME
+			return s; //print_type_abstract_name(s, get_type());
+			// FIXME: element type?
+		}
+		std::ostream& set_type_die::print_abstract_name(std::ostream& s) const
+		{
+			s << "__SET_"; return print_type_abstract_name(s, get_type());
+		}
+		std::ostream& file_type_die::print_abstract_name(std::ostream& s) const
+		{
+			s << "__FILE_"; return print_type_abstract_name(s, get_type());
+		}
+		std::ostream& address_holding_type_die::print_abstract_name(std::ostream& s) const
+		{
+			switch (get_tag())
+			{
+				case DW_TAG_pointer_type:
+					s << "__PTR_"; break;
+				case DW_TAG_reference_type:
+					s << "__REF_"; break;
+				case DW_TAG_rvalue_reference_type:
+					s << "__RR_"; break;
+				default: assert(false); abort();
+			}
+			return print_type_abstract_name(s, get_type());
+		}
+		std::ostream& ptr_to_member_type_die::print_abstract_name(std::ostream& s) const
+		{
+			s << "__MEMPTR_";
+			return print_type_abstract_name(s, get_type());
+		}
+		std::ostream& type_describing_subprogram_die::print_abstract_name(std::ostream& s) const
+		{
+			s << "__FUN_FROM_";
+			unsigned argnum = 0;
+			auto fps = find_self().children().subseq_of<formal_parameter_die>();
+			for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp, ++argnum)
+			{
+				/* args should not be void */
+				/* We're making a canonical typename, so use canonical argnames. */
+				s << "__ARG" << argnum << "_";
+				print_type_abstract_name(s, i_fp->find_type());
+			}
+			if (is_variadic()) s << "__VA_";
+			s << "__FUN_TO_";
+			return print_type_abstract_name(s, get_return_type());
+		}
+		
 		void type_iterator_df::increment(bool skip_dependencies /* = false */)
+		{
+			vector<pair<iterator_df<type_die>, iterator_df<program_element_die> > > ignored_back_edges;
+			this->increment(ignored_back_edges, skip_dependencies);
+		}
+		void type_iterator_df::increment(vector<pair<iterator_df<type_die>, iterator_df<program_element_die>> >& out_back_edges, bool skip_dependencies)
 		{
 			assert(base() == m_stack.back().first);
 			/* We are doing the usual incremental depth-first traversal, which means
@@ -108,15 +394,19 @@ namespace dwarf
 			auto go_sideways = [&]() -> pair<iterator_base, iterator_base> {
 				auto& reason = m_stack.back().second;
 				auto NO_MORE = make_pair(iterator_base::END, iterator_base::END);
-				assert(m_stack.back().first);
+				// m_stack.back().first might be null
 				/* NOTE: we are testing "reason", and it need not be a type.
 				 * It just needs to be a thing with a type,
 				 * so includes members, inheritances, FPs, ... */
 				if (reason.is_a<data_member_die>())
 				{
 					/* Get the next data member -- just using the iterator_base should be enough. */
-					basic_die::children_iterator<data_member_die> cur(m_stack.back().second, END);
+					basic_die::children_iterator<data_member_die> cur(
+						reason,
+						reason.parent().children().second
+					);
 					assert(cur);
+					assert(cur.is_a<data_member_die>());
 					++cur;
 					if (cur) return make_pair(cur->get_type(), cur);
 					return NO_MORE;
@@ -133,7 +423,10 @@ namespace dwarf
 				}
 				else if (reason.is_a<formal_parameter_die>())
 				{
-					basic_die::children_iterator<formal_parameter_die> cur(m_stack.back().first, END);
+					basic_die::children_iterator<formal_parameter_die> cur(
+						reason,
+						reason.parent().children().second
+					);
 					++cur;
 					if (cur) return make_pair(cur->get_type(), cur);
 					else return NO_MORE;
@@ -172,6 +465,7 @@ namespace dwarf
 				}
 				// else we are already walking the deeper thing, so do as if we can't descend
 				//std::cerr << "Yes, so pretending we can't move deeper..." << std::endl;
+				out_back_edges.push_back(deeper_target);
 			}
 			
 			do
@@ -204,7 +498,37 @@ namespace dwarf
 			assert(false); // FIXME
 		}
 
-/* from type_die */
+		/* protected helper */
+		string
+		type_die::arbitrary_name() const
+		{
+			string name_to_use;
+			if (get_name()) name_to_use = *get_name();
+			else
+			{
+				std::ostringstream s;
+				s << "0x" << std::hex << get_offset() << std::dec;
+				string offsetstr = s.str();
+				/* We really want to allow deduplicating anonymous structure types
+				 * that originate in the same header file but are included in multiple
+				 * compilation units. Since each gets a different offset, using that
+				 * for the fake name string is a bad idea. Instead, use the defining
+				 * source file path, if we have it. */
+				if (get_decl_file() && get_decl_line())
+				{
+					std::ostringstream s;
+					opt<string> maybe_fqp = find_self().enclosing_cu()->source_file_fq_pathname(*get_decl_file());
+					s << (maybe_fqp ? 
+						*maybe_fqp : 
+						find_self().enclosing_cu()->source_file_name(*get_decl_file())) 
+						<< "_" << *get_decl_line();
+					name_to_use = s.str();
+				}
+				else name_to_use = offsetstr;
+			}
+			return name_to_use;
+		}
+		
 		size_t type_hash_fn(iterator_df<type_die> t) 
 		{
 			opt<uint32_t> summary = t ? t->summary_code() : opt<uint32_t>(0);
@@ -293,8 +617,65 @@ namespace dwarf
 		{
 			return find_self();
 		}
-		
 		opt<uint32_t> type_die::summary_code() const
+		{
+			return this->summary_code_using_walk_type();
+		}
+		
+		opt<uint32_t> type_die::summary_code_using_iterators() const
+		{
+			if (this->cached_summary_code) return this->cached_summary_code;
+			
+			/* The "old way" to compute summary codes was to walk the type
+			 * and fold in the summary code of all the constituent types,
+			 * plus a few words here and there to record how they relate
+			 * to each other. Think about that again for a second. Because
+			 * walk_type walks over the whole type structure, we're not
+			 * compositional. If I'm a structure containing a structure containing
+			 * some ints, we use the summaries of the ints *and* the contained
+			 * structure. That's redundant.
+			 *
+			 * So, we want a compositional way. In this example the obvious
+			 * thing is just to use the contained structure's summary, i.e.
+			 * to skip over indirectly depended-on types. I started on a solution
+			 * along these lines, until I noticed that....
+			 * 
+			 * ... in cyclic cases this doesn't work. The neat thing that walk_type
+			 * did for us was cycle avoidance. It visited cycle members, only once,
+			 * in an order that depends on where we start. If we have a struct that
+			 * is part of the same cycle, doing walk_type on it would visit the same
+			 * nodes but in a different order, hence giving a different output.
+			 * That's good (we want different nodes to give different summary codes)
+			 * but also non-compositional (we can't re-use the summary code of
+			 * visited nodes).
+			 * 
+			 * The way out of this to define the summary code of cyclic types in
+			 * terms of the strongly-connected component of the type graph.
+			 * This we can cache the SCC, and indeed amortise costs by sharing it
+			 * among all nodes participating in it. Then we just need a way
+			 * of digesting the SCC. The summary code is the SCC digest `plus`
+			 * something to denote the start node. For this we can use the type's
+			 * abstract name. */
+			
+			auto maybe_scc = get_scc();
+			if (!maybe_scc)
+			{
+				/* We're acyclic. Just iterate over our immediate child types,
+				 * shifting in their SCCs, and we're done. */
+			}
+			else
+			{
+				/* We're cyclic.  */
+			}
+			
+			/* If it's acyclic, we have just computed the summary
+			 * code and it's naturally compositional, */
+		
+			/* We enumerate the edge set. */
+			return opt<uint32_t>();
+		}
+		
+		opt<uint32_t> type_die::summary_code_using_walk_type() const
 		{
 			debug(2) << "Computing summary code for " << *this << std::endl;
 			/* Here we compute a 4-byte hash-esque summary of a data type's 
@@ -587,16 +968,308 @@ namespace dwarf
 			); /* end call to walk_type */
 			debug(2) << "Finished walk" << std::endl;
 			code_to_return = output_word.val; 
-			out:
-				get_root().type_summary_code_cache.insert(
-					make_pair(get_offset(), code_to_return)
-				);
+		out:
+			get_root().type_summary_code_cache.insert(
+				make_pair(get_offset(), code_to_return)
+			);
 			debug(2) << "Got summary code: ";
 			if (code_to_return) debug(2) << std::hex << *code_to_return << std::dec;
 			else debug(2) << "(no code)";
 			debug(2) << endl;
 			this->cached_summary_code = code_to_return;
 			return code_to_return;
+		}
+		
+		/* reverse-engineering helper. */
+		iterator_df<type_die> type_iterator_df::source_vertex_for_stack_entry(
+			const pair< iterator_df<type_die>, iterator_df<program_element_die> >& p
+		)
+		{
+			auto& target = p.first;
+			auto& reason = p.second;
+			if (!reason) return iterator_base::END;
+			if (reason.is_a<type_describing_subprogram_die>())
+			{
+				/* The target is the return type, so the source is the reason itself. */
+				return reason.as_a<type_describing_subprogram_die>();
+			}
+			else if (reason.is_a<data_member_die>())
+			{
+				/* The source is the containing with_data_members_type. */
+				auto parent = reason.parent();
+				assert(parent.is_a<with_data_members_die>());
+				return parent.as_a<with_data_members_die>();
+			}
+			else if (reason.is_a<formal_parameter_die>())
+			{
+				/* The source is the containing type_describing_subprogram. */
+				auto parent = reason.parent();
+				assert(parent.is_a<type_describing_subprogram_die>());
+				return parent.as_a<type_describing_subprogram_die>();
+			}
+			else if (reason.is_a<type_chain_die>())
+			{
+				/* It's just the type that we came from. */
+				return reason.as_a<type_die>();
+			}
+			else
+			{
+				assert(false);
+				abort();
+			}
+		}
+
+		inline type_edge_compare::type_edge_compare() : function([](const type_edge& arg1, const type_edge& arg2) -> bool {
+			auto& source1 = arg1.source();
+			auto& label1 = arg1.label();
+			auto& target1 = arg1.target();
+			auto& source2 = arg2.source();
+			auto& label2 = arg2.label();
+			auto& target2 = arg2.target();
+
+			/* The main trick here is that we want the comparison to follow
+			 * abstract equality. What does that mean? Among other things,
+			 * if we have two identical type graphs in different CUs,
+			 * then regardless of their numerical DWARF offsets or relative
+			 * spacing/ordering in the file, their edges should compare equal.
+			 * BUT WAIT. Do we ever compare edges originating in different CUs?
+			 * Remember that we're building the SCCs so that we can characterise
+			 * cyclic types in terms of their edge sets. During the building of
+			 * SCCs, we use this comparator to store the edges in sets. There,
+			 * an arbitrary ordering is fine -- everything in the set is from
+			 * some common cycle and hence from the same CU. It's when we're
+			 * actually processing SCCs into summary codes (HOW does that work?)
+			 * that we need an abstract relation among the edges.
+			 * 
+			 * Each source/dest vertex has an abstract name. So it's only really 
+			 * the "reason" that needs abstracting. We don't want to use DWARF offsets
+			 * or offset differences because they may vary across CUs. We could use
+			 * ordinals ("first fp child", "seventh member child") etc. if they were cheap
+			 * to compute. We could make this happen by having type_iterator_df remember
+			 * the ordinal for its "reason".
+			 */
+	// 		/* Logically the edge label refers to the "reason" DIE. 
+	// 		 * Can we say this must be the source DIE or an an immediate child?
+	// 		 * Currently reasons are either members or inheritances or formal parameters
+	// 		 * or the DIE itself. */
+	// 		if (source_vertex() == reason())
+	// 		{
+	// 			return 0;
+	// 		}
+	// 		else
+	// 		{
+	// 			assert(source_vertex().parent() == reason());
+	// 			// we have to linear-search :-(
+	// 			auto seq = source_vertex().parent().children();
+	// 			unsigned n = 1;
+	// 			for (i_child = seq.first; i_child != seq.second; ++n, ++i_child)
+	// 			{
+	// 				if (i_child == reason()) return n;
+	// 			}
+	// 			assert(false); abort();
+	// 			// FIXME: why use a number? why not just use the reason DIE?
+	// 			// I think it's something about collating edge sets correctly;
+	// 			// it's the analogous abstraction as "abstract names" for type DIEs.
+	// 			// So can we factor this into the SCC std::set comparator?
+	// 		}
+			return arg1 < arg2; // FIXME
+		}){}
+
+		
+		opt<type_scc_t> type_die::get_scc() const
+		{
+			/* In general, to get a representation of the SCC (if any)
+			 * in which a type DIE participates,
+			 * we walk it and look for back edges. 
+			 * We remember all the edges we see.
+			 * If we have seen no back edges, it's not in a cycle
+			 * and hence not in an SCC. */
+
+			/* This is a generic implementation. If subclasses know that they can 
+			 * never be part of a cycle, they're allowed to override to just the following.
+				return opt<type_scc_t>();
+			 * FIXME: do this. Base types. others? */
+			
+			// cheque the cache. we might have a null pointer cached, meaning "not cyclic"
+			if (opt_cached_scc) return *opt_cached_scc ? **opt_cached_scc : opt<type_scc_t>();
+			
+			bool saw_cycle_directly_including_start_node = false;
+			auto t = find_self();
+			vector<pair<iterator_df<type_die>, iterator_df<program_element_die> > > last_move_back_edges;
+			type_iterator_df i_t = t;
+			
+			vector< type_scc_t > back_edge_cycles;
+			multimap< iterator_df<type_die>, unsigned > cycles_by_participating_node;
+			
+			/* Once we've computed these,
+			 * we elaborate the set of edges in the SCC.
+			 * by first enumerating the cycles that the start node participates in,
+			 * then by enumerating the cycles that any participating nodes participate in,
+			 * and so on, until a fixed point. We don't need to traverse any cycle
+			 * more than once. */
+			while (i_t)
+			{
+				/* REMEMBER: type iterators are allowed to walk the "no DIE" (void) case,
+				 * so we might have END here. */
+				debug() << "Walking: " << i_t.summary() << std::endl;
+				auto prev_stack = i_t.m_stack;
+				auto& source = prev_stack.back().first;
+				last_move_back_edges.clear(); // FIXME: does increment() do this?
+				i_t.increment(last_move_back_edges);
+				// i_t may now be END!
+				for (auto i_e = last_move_back_edges.begin(); i_e != last_move_back_edges.end(); ++i_e)
+				{
+					debug() << "Got " << last_move_back_edges.size() << " back edges." << std::endl;
+					/* If we see back-edges, we're exploring a partially-cyclic type.
+					 * But just because we find back-edges doesn't mean the start node
+					 * is part of a cycle. The cycle might not reach back to the start node.
+					 * 
+					 * Put differently: we are definitely seeing a cycle. But the cycle
+					 * might not include the start node. How does this affect our caching
+					 * logic? It's only when we know that the cycle includes the start
+					 * node that we can make use of nodes' cached SCC presence/absence.
+					 *
+					 * Edges that are not in a cycle are those that 
+					 * are not *under* the target of any back-edge, where "under" is 
+					 * defined in terms of the depth-first tree. Our start node is the 
+					 * root of the depth-first tree, by definition. So to figure out 
+					 * whether the root node is part of a cycle, we only need to look
+					 * for back-edges that directly reach *it*. We remember this for
+					 * later; if we didn't see any cycle involving the root node,
+					 * we're not cyclic and can skip the remaining SCC calculation stuff. */
+					// is this a back-edge reaching back to the root?
+					/* back edges are (target, reason) */
+					auto back_edge_source = i_t.source_vertex();
+					auto& back_edge_target = i_e->first;
+					auto& back_edge_reason = i_e->second;
+					bool this_cycle_includes_start_node = (back_edge_target == t);
+					saw_cycle_directly_including_start_node |= this_cycle_includes_start_node;
+					/* Build the cycle we're currently forming, and give it an index. */
+					type_scc_t s;
+					unsigned idx = back_edge_cycles.size();
+					debug() << "Recording a new cycle, idx " << idx << std::endl;
+					/* general edges are ((source, reason), target). */
+					/* The back edge is in the cycle. */
+					s.insert(
+						make_pair(
+							make_pair(
+								/* source */ iterator_df<type_die>(source),
+								/* reason */ iterator_df<program_element_die>(back_edge_reason)
+							),
+							/* target */ iterator_df<type_die>(back_edge_target)
+						)
+					);
+					cycles_by_participating_node.insert(make_pair(
+						back_edge_source, idx
+					));
+					cycles_by_participating_node.insert(make_pair(
+						back_edge_target, idx
+					));
+					/* Stacks are (target, reason). 
+					 * All the tree edges are also in the cycle. Or are they?
+					 * Only if we've seen the back-edge's target node as the source of this tree edge
+					 * or a later tree edge.
+					 * The stack records the target node and the reaching reason.
+					 * To get the source node we have to do some reverse engineering. */
+					bool seen_back_edge_target = false;
+					for (auto i_tree_edge = prev_stack.begin();
+						i_tree_edge != prev_stack.end();
+						++i_tree_edge)
+					{
+						auto tree_edge_source = type_iterator_df::source_vertex_for_stack_entry(
+							*i_tree_edge
+						);
+						if (!tree_edge_source) continue; // it's the fake initial edge
+						auto& tree_edge_target = i_tree_edge->first;
+						auto& tree_edge_reason = i_tree_edge->second;
+						
+						debug() << "Now walking tree edge from " << tree_edge_source.summary()
+							<< " to " << tree_edge_target.summary() << "; is it in the cycle? ";
+						
+						seen_back_edge_target |= (tree_edge_source == back_edge_target);
+						
+						if (seen_back_edge_target)
+						{
+							debug() << "yes" << std::endl;
+							/* This tree edge is in the cycle. */
+							s.insert(
+								make_pair(
+									make_pair(
+										/* source */ iterator_df<type_die>(tree_edge_source),
+										/* reason */ iterator_df<program_element_die>(tree_edge_reason)
+									),
+									/* target */ iterator_df<type_die>(tree_edge_target)
+								)
+							);
+							cycles_by_participating_node.insert(make_pair(
+								tree_edge_source, idx
+							));
+							cycles_by_participating_node.insert(make_pair(
+								tree_edge_target, idx
+							));
+						} else debug() << "no" << std::endl;
+					}
+					// give this cycle its identity
+					back_edge_cycles.push_back(s);
+				}
+			} // end while i_t
+			/* Did we see a cycle involving the root node? */
+			auto cycle_idxs = cycles_by_participating_node.equal_range(t);
+			if (cycle_idxs.first == cycle_idxs.second)
+			{
+				// cache the negative result: a positive optional holding a null pointer
+				t.as_a<type_die>()->opt_cached_scc
+				 = optional<shared_ptr<type_scc_t> >(shared_ptr<type_scc_t>(nullptr));
+				// return it
+				return opt<type_scc_t>();
+			}
+			/* Okay, so we did see a cycle including the start node.
+			 * Elaborate the SCC by coalecing all cycles. */
+			vector<bool> done(back_edge_cycles.size(), false);
+			shared_ptr<type_scc_t> p_scc = std::make_shared<type_scc_t>();
+			debug() << "Created a shared SCC structure at " << p_scc.get() << std::endl;
+			type_scc_t& scc = *p_scc;
+			std::function<void(unsigned)> transitively_add_cycle_n;
+			transitively_add_cycle_n = [&done, &transitively_add_cycle_n,
+				cycles_by_participating_node, &back_edge_cycles, &scc]
+			(unsigned n) -> void {
+				if (done[n]) return;
+				done[n] = true;
+				type_scc_t& cur = back_edge_cycles.at(n);
+				for (auto i_e = cur.begin(); i_e != cur.end(); ++i_e)
+				{
+					scc.insert(*i_e);
+					auto source_range = cycles_by_participating_node.equal_range(i_e->source());
+					for (auto i_n = source_range.first; i_n != source_range.second; ++i_n)
+					{
+						transitively_add_cycle_n(i_n->second);
+					}
+					auto target_range = cycles_by_participating_node.equal_range(i_e->target());
+					for (auto i_n = target_range.first; i_n != target_range.second; ++i_n)
+					{
+						transitively_add_cycle_n(i_n->second);
+					}
+				}
+			};
+			for (auto i_cycle_idx = cycle_idxs.first; i_cycle_idx != cycle_idxs.second; ++i_cycle_idx)
+			{
+				transitively_add_cycle_n(i_cycle_idx->second);
+			}
+			
+			/* We have the SCC. Cache it in all participating nodes. */
+			for (auto i_e = scc.begin(); i_e != scc.end(); ++i_e)
+			{
+				if (i_e->source()->opt_cached_scc && i_e->source()->opt_cached_scc != p_scc)
+				{
+					debug() << "This shouldn't happen: already cached SCC at " 
+						<< i_e->source()->opt_cached_scc->get() << std::endl;
+				}
+				assert(!i_e->source()->opt_cached_scc || i_e->source()->opt_cached_scc == p_scc);
+				i_e->source()->opt_cached_scc = p_scc;
+				assert(!i_e->target()->opt_cached_scc || i_e->target()->opt_cached_scc == p_scc);
+				i_e->target()->opt_cached_scc = p_scc;
+			}
+			return scc;
 		}
 		bool type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
@@ -728,6 +1401,55 @@ namespace dwarf
 			return !(bit_size_and_offset.second == 0
 				&& bit_size_and_offset.first == 8 * *opt_byte_sz);
 		}
+		
+		string
+		base_type_die::canonical_name_for(spec& spec, unsigned encoding,
+			unsigned byte_size, unsigned bit_size, unsigned bit_offset)
+		{
+			std::ostringstream name;
+			string encoding_name = spec.encoding_lookup(encoding);
+			assert(encoding_name.substr(0, sizeof "DW_ATE_" - 1) == "DW_ATE_");
+			switch (encoding)
+			{
+				case DW_ATE_signed:
+					name << "int";
+					break;
+				case DW_ATE_unsigned: 
+					name << "uint";
+					break;
+				default:
+					name << encoding_name.substr(sizeof "DW_ATE_" - 1);
+					break;
+			}
+
+			bool needs_suffix = !(bit_offset == 0 && bit_size == 8 * byte_size);
+			name << "$" << bit_size;
+			if (needs_suffix) name << "$" << bit_offset;
+			return name.str();
+		}
+		
+		string
+		base_type_die::get_canonical_name() const
+		{
+			return canonical_name_for(find_self().enclosing_cu().spec_here(),
+				get_encoding(), *get_byte_size(),
+				bit_size_and_offset().first, bit_size_and_offset().second);
+		}
+/* from ptr_to_member_type_die */
+		bool ptr_to_member_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		{
+			if (!t) return false;
+			
+			debug(2) << "Testing ptr_to_member_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
+			
+			auto other_t = t->get_concrete_type();
+			auto other_t_as_pmem = other_t.as_a<ptr_to_member_type_die>();
+			return other_t.tag_here() == DW_TAG_ptr_to_member_type
+				&& other_t_as_pmem->get_type()->may_equal(get_type(), assuming_equal)
+				&& other_t_as_pmem->get_containing_type()->may_equal(get_containing_type(),
+					assuming_equal);
+		}
 /* from array_type_die */
 		iterator_df<type_die> array_type_die::get_concrete_type() const
 		{
@@ -741,7 +1463,6 @@ namespace dwarf
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			if (get_tag() != t.tag_here()) return false;
-
 			if (get_name() != t.name_here()) return false;
 
 			// our subrange type(s) should be equal, if we have them
@@ -2047,16 +2768,16 @@ namespace dwarf
 			/* Decide whether to create -- need to search existing base types.
 			 * HACK: use naming and visible_named_grandchildren:
 			 * Varied-width/size types should always have the same name as the full-width one.
-			 */
-			vector<iterator_base> all_found = get_root().find_all_visible_named_grandchildren(
-				*bt->get_name());
-				
-			/* We want to iterate over visible named grandchildren, in a way that
-			 * exploits the cache in resolve_all_visible_from_root. How to do this?
-			 * I think we have to write a new kind of iterator. */
+			 * To exploit the cache in resolve_all_visible_from_root, I added a new method
+			 * find_all_visible_named_grandchildren() that takes a name. */
+			auto name = *bt->get_name();
+			vector<iterator_base> all_found = get_root().find_all_visible_grandchildren_named(name);
+			debug() << "Found " << all_found.size() 
+				<< " (in any CU) matching '" << name << "'" << std::endl;
 			
 			/* Does any of them really match? */
-			auto not_equal = [effective_bit_size, effective_bit_offset](const iterator_base &i) {
+			auto not_equal_in_bits
+			 = [effective_bit_size, effective_bit_offset](const iterator_base &i) {
 				if (!i.is_a<base_type_die>()) return true;
 				auto other_bt = i.as_a<base_type_die>();
 				pair<Dwarf_Unsigned, Dwarf_Unsigned> bit_size_and_offset = other_bt->bit_size_and_offset();
@@ -2065,13 +2786,11 @@ namespace dwarf
 					&& effective_bit_offset == bit_size_and_offset.second);
 			};
 			
-			Dwarf_Unsigned effective_byte_size = 
-				((effective_bit_offset + effective_bit_size) % 8 == 0) ?
-				(effective_bit_offset + effective_bit_size) / 8 :
-				1 + (effective_bit_offset + effective_bit_size) / 8;
-			
-			auto new_end = std::remove_if(all_found.begin(), all_found.end(), not_equal);
-			switch (srk31::count(all_found.begin(), new_end))
+			auto new_end = std::remove_if(all_found.begin(), all_found.end(), not_equal_in_bits);
+			unsigned count_after_removal = srk31::count(all_found.begin(), new_end);
+			debug() << "Of those, " << count_after_removal << " are equal in bits (sz "
+				 << effective_bit_size << ", offs " << effective_bit_offset << ")" << std::endl;
+			switch (count_after_removal)
 			{
 				case 0: {
 					// we need to create
@@ -2088,6 +2807,10 @@ namespace dwarf
 					attrs.insert(make_pair(DW_AT_data_bit_offset, v_bit_offset));
 					encap::attribute_value v_encoding(bt->get_encoding());
 					attrs.insert(make_pair(DW_AT_encoding, v_encoding));
+					Dwarf_Unsigned effective_byte_size = 
+						((effective_bit_offset + effective_bit_size) % 8 == 0) ?
+						(effective_bit_offset + effective_bit_size) / 8 :
+						1 + (effective_bit_offset + effective_bit_size) / 8;
 					encap::attribute_value v_byte_size(effective_byte_size);
 					attrs.insert(make_pair(DW_AT_byte_size, v_byte_size));
 					// debugging
@@ -2100,7 +2823,6 @@ namespace dwarf
 					// pick the first and return
 					return all_found.begin()->as_a<base_type_die>();
 			}
-			
 		}
 /* from data_member_die */
 		encap::loclist data_member_die::get_dynamic_location() const

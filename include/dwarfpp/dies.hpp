@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <stack>
 #include <set>
+#include <boost/optional/optional.hpp> // until we are using C++17
 #include <srk31/rotate.hpp>
 
 #include "dwarfpp/root.hpp"
@@ -32,6 +33,8 @@ namespace dwarf
 	using std::unordered_set;
 	using std::unordered_map;
 	using std::endl;
+	using boost::optional;
+	using std::shared_ptr;
 	
 	namespace core
 	{
@@ -149,7 +152,7 @@ namespace dwarf
 		 * provide a faster-than-default (i.e. faster than linear search)
 		 * way to look up named children (e.g. hash table). */
 		virtual 
-		inline iterator_base
+		iterator_base
 		named_child(const std::string& name) const;
 	};
 
@@ -203,95 +206,193 @@ struct summary_code_word_t
 	{
 		if (!o) 
 		{
-			val = opt<uint32_t>();
+			val = opt<uint32_t>(); // FIXME: do I want this to "lock" at the invalid state? for incomplete types etc.
 			return *this;
 		}
 		else return this->operator<<(*o);
 	}
 	summary_code_word_t() : val(0) {}
 };
+/* To do summary codes efficiently, we need to make them compositional. 
+ * This means that given the summary codes for the types we depend on,
+ * we should be able to re-use those to compute the code our own type.
+ * Unfortunately, type graphs are cyclic, and so the naive approach
+ * (which we used to use) of doing a depth-first search and skipping
+ * back-edges, is non-compositional: depending on where you start the
+ * exploration, different edges are back-edges, and so a depended-on type's
+ * code can include/exclude different edges than the depending type does.
+ * To avoid this problem, we need to identify the strongly-connected
+ * components in the type graph. Then, any type that participates in a
+ * cycle can summarised by a pair: its strongly-connected component, and
+ * its own identity.
+ *
+ * Two problems: how do we represent strongly-connected components (SCCs)
+ * and how do we identify nodes? To answer the first: an SCC is just a set
+ * of edges -- including the back-edges.
+ 
+ * Nodes themselves are tricky. There is no obvious good way to identify
+ * nodes in the graph, since we don't want to be sensitive to their DWARF
+ * offsets, or even their relative ordering in the DWARF info section.
+ * We define an "abstract name". It is definitely not unique -- we are
+ * still building up to that, by defining summary codes -- but it should
+ * satisfy the property that
+ * 
+ * - no DIE cycle includes two distinct types with the same abstract name;
+ * 
+ * - distinct types with the same abstract name will summarise differently,
+ *   either because they are not cyclic (and their tree-structures are 
+ *   different in the obvious way) or because they participate in cycles
+ *   that are distinct *even* after names are abstracted.
+ *
+ * Whether the last one is true depends a lot on how an SCC, as a set of 
+ * edges, gets crumpled down into a summary code.
+ */
+struct type_edge;
+struct type_edge_compare;
+typedef set<type_edge, type_edge_compare> type_scc_t;
+bool types_abstractly_equal(iterator_df<type_die> t1, iterator_df<type_die> t2);
+std::ostream& print_type_abstract_name(std::ostream& s, iterator_df<type_die> t);
+string abstract_name_for_type(iterator_df<type_die> t);
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
 		attr_optional(byte_size, unsigned)
 		mutable opt<uint32_t> cached_summary_code;
+	protected:
+		string arbitrary_name() const;
+	public:
+		mutable optional<shared_ptr<type_scc_t> > opt_cached_scc; // HACK: should be private, but test-scc needs it
 		virtual opt<Dwarf_Unsigned> calculate_byte_size() const;
 		// virtual bool is_rep_compatible(iterator_df<type_die> arg) const;
 		virtual iterator_df<type_die> get_concrete_type() const;
 		virtual iterator_df<type_die> get_unqualified_type() const;
+		virtual bool abstractly_equals(core::iterator_df<core::type_die> t) const;
+		virtual std::ostream& print_abstract_name(std::ostream& s) const ;
+		virtual opt<type_scc_t> get_scc() const;
 		virtual opt<uint32_t>		 summary_code() const;
+		/* FIXME: temporary side-by-side impls while we compare / bug-fix. */
+		virtual opt<uint32_t>		 summary_code_using_iterators() const;
+		virtual opt<uint32_t>		 summary_code_using_walk_type() const;
 		virtual bool may_equal(core::iterator_df<core::type_die> t, 
 			const std::set< std::pair<core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
 		bool equal(core::iterator_df<core::type_die> t, 
 			const std::set< std::pair<core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
 		bool operator==(const dwarf::core::type_die& t) const;
 end_class(type)
-		struct type_iterator_df : public iterator_base,
-								  public boost::iterator_facade<
-								    type_iterator_df
-								  , type_die
-								  , boost::forward_traversal_tag
-								  , type_die& /* Reference */
-								  , Dwarf_Signed /* difference */
-								  >
-		{
-			typedef type_iterator_df self;
-			friend class boost::iterator_core_access;
+struct type_edge : public pair< pair<iterator_df<type_die>, iterator_df<program_element_die> >, iterator_df<type_die> >
+{
+	using pair::pair;
+	using pair::operator=;
+	const iterator_df<type_die>& source() const { return first.first; }
+	iterator_df<type_die>& source() { return first.first; }
+	const iterator_df<program_element_die>& label() const { return first.second; }
+	iterator_df<program_element_die>& label() { return first.second; }
+	const iterator_df<type_die>& target() const { return second; }
+	iterator_df<type_die>& target() { return second; }
+};
+struct type_edge_compare : std::function<bool(const type_edge&, const type_edge&)>
+{
+	type_edge_compare(); // initializes the std::function with a lambda
+};
+/* "Type iterators" actually walk *edges* in the type DIE graph, 
+ * not types per se: the target DIE of an edge is the iterator's
+ * "position" if you dereference it, and the DIE which models the
+ * edge itself is the "reason". The source edge is implied by the
+ * reason, e.g. for a member_die it's the containing structure;
+ * for a formal_parameter_die it's the containing subprogram type,
+ * etc.. 
+ * If you walk a type, you get the edges in the depth-first traversal,
+ * without the back-edges. What if you want to know about the back-edges?
+ * Bit of a HACK: I have added the "back_edges_here()" method which
+ * gives you a vector of (reason, target) pairs. We use this when
+ * computing the SCC of a type DIE. */
+struct type_iterator_df : public iterator_base,
+						  public boost::iterator_facade<
+							type_iterator_df
+						  , type_die
+						  , boost::forward_traversal_tag
+						  , type_die& /* Reference */
+						  , Dwarf_Signed /* difference */
+						  >
+{
+	typedef type_iterator_df self;
+	friend class boost::iterator_core_access;
 
-			// extra state needed!
-			// FIXME: we have to decide whether our current position should be 
-			// on the stack or not.
-			// "On" is slightly nicer for uniformity.
-			// "Not on" means we can avoid copying the iterator in trivial cases,
-			// but we have to store the present "reason" separately.
-			// We go for "on" for now.
-			deque< pair<iterator_base, iterator_base> > m_stack;
-			
-			iterator_base& base_reference()
-			{ return static_cast<iterator_base&>(*this); }
-			const iterator_base& base() const
-			{ return static_cast<const iterator_base&>(*this); }
-			
-			type_iterator_df() : iterator_base() {}
-			type_iterator_df(const iterator_base& arg)
-			 : iterator_base(arg) { m_stack.push_back(make_pair(base(), END)); }// this COPIES so avoid
-			type_iterator_df(iterator_base&& arg)
-			 : iterator_base(arg) { m_stack.push_back(make_pair(base(), END)); } // FIXME: use std::move here, and test
-			type_iterator_df(const self& arg)
-			 : iterator_base(arg), m_stack(arg.m_stack) {}
-			type_iterator_df(self&& arg)
-			 : iterator_base(arg), m_stack(std::move(arg.m_stack)) {}
-			
-			self& operator=(const iterator_base& arg)
-			{ this->base_reference() = arg; 
-			  while (!this->m_stack.empty()) this->m_stack.pop_back();
-			  this->m_stack.push_back(make_pair(base(), END));
-			  return *this; }
-			self& operator=(iterator_base&& arg)
-			{ this->base_reference() = std::move(arg); 
-			  while (!this->m_stack.empty()) this->m_stack.pop_back();
-			  this->m_stack.push_back(make_pair(base(), END));
-			  return *this; }
-			self& operator=(const self& arg)
-			{ self tmp(arg); 
-			  std::swap(this->base_reference(), tmp.base_reference());
-			  std::swap(this->m_stack, tmp.m_stack);
-			  return *this; }
-			self& operator=(self&& arg)
-			{ this->base_reference() = std::move(arg);
-			  this->m_stack = std::move(arg.m_stack);
-			  return *this; }
+	// extra state needed!
+	// FIXME: we have to decide whether our current position should be 
+	// on the stack or not.
+	// "On" is slightly nicer for uniformity.
+	// "Not on" means we can avoid copying the iterator in trivial cases,
+	// but we have to store the present "reason" separately.
+	// We go for "on" for now.
+	deque< pair<iterator_df<type_die>, iterator_df<program_element_die> > > m_stack;
 
-			iterator_df<program_element_die> reason() const 
-			{ if (!m_stack.empty()) return this->m_stack.back().second; else return END; }
-			void increment(bool skip_dependencies = false);
-			void increment_skipping_dependencies();
-			void decrement();
-			type_die& dereference() const
-			{ return dynamic_cast<type_die&>(this->iterator_base::dereference()); }
-			
-			/* Since we want to walk "void", which has no representation,
-			 * we're only at the end if we're both "no DIE" and "no reason". */
-			operator bool() const { return !(!this->base() && !this->reason()); }
-		};
+	iterator_base& base_reference()
+	{ return static_cast<iterator_base&>(*this); }
+	const iterator_base& base() const
+	{ return static_cast<const iterator_base&>(*this); }
+
+	type_iterator_df() : iterator_base() {}
+	type_iterator_df(const iterator_base& arg)
+	 : iterator_base(arg) { m_stack.push_back(make_pair(base(), END)); }// this COPIES so avoid
+	type_iterator_df(iterator_base&& arg)
+	 : iterator_base(arg) { m_stack.push_back(make_pair(base(), END)); } // FIXME: use std::move here, and test
+	type_iterator_df(const self& arg)
+	 : iterator_base(arg), m_stack(arg.m_stack) {}
+	type_iterator_df(self&& arg)
+	 : iterator_base(arg), m_stack(std::move(arg.m_stack)) {}
+
+	self& operator=(const iterator_base& arg)
+	{ this->base_reference() = arg; 
+	  while (!this->m_stack.empty()) this->m_stack.pop_back();
+	  this->m_stack.push_back(make_pair(base(), END));
+	  return *this; }
+	self& operator=(iterator_base&& arg)
+	{ this->base_reference() = std::move(arg); 
+	  while (!this->m_stack.empty()) this->m_stack.pop_back();
+	  this->m_stack.push_back(make_pair(base(), END));
+	  return *this; }
+	self& operator=(const self& arg)
+	{ self tmp(arg); 
+	  std::swap(this->base_reference(), tmp.base_reference());
+	  std::swap(this->m_stack, tmp.m_stack);
+	  return *this; }
+	self& operator=(self&& arg)
+	{ this->base_reference() = std::move(arg);
+	  this->m_stack = std::move(arg.m_stack);
+	  return *this; }
+
+	iterator_df<program_element_die> reason() const 
+	{ if (!m_stack.empty()) return this->m_stack.back().second; else return END; }
+private: /* helpers */
+	static iterator_df<type_die> source_vertex_for_stack_entry(
+		const pair< iterator_df<type_die>, iterator_df<program_element_die> >& p);
+	friend class type_die;
+public:
+	iterator_df<type_die> source_vertex() const { return source_vertex_for_stack_entry(m_stack.back()); }
+	iterator_df<program_element_die> edge_label() const
+	{
+		return reason();
+	}
+	pair< pair<iterator_df<type_die>, unsigned>, iterator_df<type_die> > as_edge() const
+	{
+		return make_pair(
+			make_pair(
+				source_vertex(),
+				edge_label()
+			),
+			*this
+		);
+	}
+	void increment(vector<pair<iterator_df<type_die>, iterator_df<program_element_die> > >& out_back_edges, bool skip_dependencies = false);
+	void increment(bool skip_dependencies = false);
+	void increment_skipping_dependencies();
+	void decrement();
+	type_die& dereference() const
+	{ return dynamic_cast<type_die&>(this->iterator_base::dereference()); }
+
+	/* Since we want to walk "void", which has no representation,
+	 * we're only at the end if we're both "no DIE" and "no reason". */
+	operator bool() const { return !(!this->base() && !this->reason()); }
+};
 /* type_set and related utilities. */
 size_t type_hash_fn(iterator_df<type_die> t);
 bool type_eq_fn(iterator_df<type_die> t1, iterator_df<type_die> t2);
@@ -448,12 +549,16 @@ begin_class(type_describing_subprogram, base_initializations(initialize_base(typ
 		virtual iterator_df<type_die> get_return_type() const = 0;
 		virtual bool is_variadic() const;
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
+		bool abstractly_equals(iterator_df<type_die> t) const;
+		std::ostream& print_abstract_name(std::ostream& s) const;
 end_class(type_describing_subprogram)
 /* address_holding_type_die */
 begin_class(address_holding_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
 		attr_optional(address_class, unsigned)
 		iterator_df<type_die> get_concrete_type() const;
 		opt<Dwarf_Unsigned> calculate_byte_size() const;
+		bool abstractly_equals(iterator_df<type_die> t) const;
+		std::ostream& print_abstract_name(std::ostream& s) const;
 end_class(type_chain)
 /* qualified_type_die */
 begin_class(qualified_type, base_initializations(initialize_base(type_chain)), declare_base(type_chain))
@@ -464,6 +569,8 @@ begin_class(with_data_members, base_initializations(initialize_base(type)), decl
 		child_tag(member)
 		iterator_base find_definition() const; // for turning declarations into defns
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; 
+		bool abstractly_equals(iterator_df<type_die> t) const;
+		std::ostream& print_abstract_name(std::ostream& s) const;
 end_class(with_data_members)
 
 #define extra_decls_subprogram \
@@ -488,11 +595,15 @@ end_class(with_data_members)
 		iterator_df<type_die> ultimate_element_type() const; \
 		opt<Dwarf_Unsigned> ultimate_element_count() const; \
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
-		iterator_df<type_die> get_concrete_type() const;
+		iterator_df<type_die> get_concrete_type() const; \
+		bool abstractly_equals(iterator_df<type_die> t) const; \
+		std::ostream& print_abstract_name(std::ostream& s) const;
 #define extra_decls_string_type \
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		opt<Dwarf_Unsigned> fixed_length_in_bytes() const; \
 		opt<encap::loclist> dynamic_length_in_bytes() const; \
+		bool abstractly_equals(iterator_df<type_die> t) const; \
+		std::ostream& print_abstract_name(std::ostream& s) const; \
 		opt<Dwarf_Unsigned> calculate_byte_size() const;
 #define extra_decls_pointer_type \
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
@@ -502,7 +613,12 @@ end_class(with_data_members)
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		opt<Dwarf_Unsigned> calculate_byte_size() const; \
 		pair<Dwarf_Unsigned, Dwarf_Unsigned> bit_size_and_offset() const; \
-		bool is_bitfield_type() const;
+		bool is_bitfield_type() const; \
+		bool abstractly_equals(iterator_df<type_die> t) const; \
+		std::ostream& print_abstract_name(std::ostream& s) const; \
+		string get_canonical_name() const; \
+		static string canonical_name_for(spec& spec, unsigned encoding, \
+			unsigned byte_size, unsigned bit_size, unsigned bit_offset);
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
 #define extra_decls_structure_type \
 		opt<Dwarf_Unsigned> calculate_byte_size() const; \
@@ -512,9 +628,23 @@ end_class(with_data_members)
 #define extra_decls_class_type \
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
 #define extra_decls_enumeration_type \
+		bool abstractly_equals(iterator_df<type_die> t) const; \
+		std::ostream& print_abstract_name(std::ostream& s) const; \
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
 #define extra_decls_subrange_type \
+		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
+		bool abstractly_equals(iterator_df<type_die> t) const; \
+		std::ostream& print_abstract_name(std::ostream& s) const;
+#define extra_decls_set_type \
+		bool abstractly_equals(iterator_df<type_die> t) const; \
+		std::ostream& print_abstract_name(std::ostream& s) const;
+#define extra_decls_file_type \
+		bool abstractly_equals(iterator_df<type_die> t) const; \
+		std::ostream& print_abstract_name(std::ostream& s) const;
+#define extra_decls_ptr_to_member_type \
+		bool abstractly_equals(iterator_df<type_die> t) const; \
+		std::ostream& print_abstract_name(std::ostream& s) const; \
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
 #define extra_decls_member \
 		iterator_df<type_die> find_or_create_type_handling_bitfields() const;
@@ -527,7 +657,7 @@ end_class(with_data_members)
 /* (which is *separate* from decl_file and decl_line attributes). */ \
 public: \
 inline std::string source_file_name(unsigned o) const; \
-inline opt<std::string> source_file_fq_pathname(unsigned o) const; \
+opt<std::string> source_file_fq_pathname(unsigned o) const; \
 inline unsigned source_file_count() const; \
 /* We define fields and getters for the per-CU info (NOT attributes) */ \
 /* available from libdwarf. These will be filled in by root_die::make_payload(). */ \
@@ -574,6 +704,11 @@ friend class factory;
 #undef extra_decls_reference_type
 #undef extra_decls_base_type
 #undef extra_decls_formal_parameter
+#undef extra_decls_set_type
+#undef extra_decls_file_type
+#undef extra_decls_ptr_to_member_type
+#undef extra_decls_unspecified_type
+#undef extra_decls_subrange_type
 
 #undef has_stack_based_location
 #undef has_object_based_location

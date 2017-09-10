@@ -49,7 +49,7 @@ namespace dwarf
 			 * An iterator can either be a libdwarf handle, or a pointer to some
 			 * refcounted state (including such a handle, and maybe other cached stuff). */
 		public:
-			string summary() const { return this->abstract_die::summary(); }
+			string summary() const { if (is_end_position()) return "(END)"; return this->abstract_die::summary(); }
 			abstract_die& get_handle() const
 			{
 				if (!is_real_die_position()) 
@@ -429,7 +429,9 @@ namespace dwarf
 			 * by defining our own comparison simply as offset comparison. */
 			bool operator<(const iterator_base& arg) const
 			{
-				return this->offset_here() < arg.offset_here();
+				/* END has an infinite offset. */
+				return (arg.is_end_position() && !this->is_end_position())
+					|| (!this->is_end_position() && this->offset_here() < arg.offset_here());
 			}
 			
 			basic_die& dereference() const 
