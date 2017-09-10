@@ -1,5 +1,5 @@
 ACLOCAL_AMFLAGS = -I m4
-AM_CXXFLAGS = -fno-omit-frame-pointer -std=c++11 -ggdb3 -fvar-tracking-assignments -O2 -fkeep-inline-functions -Wall -Wno-deprecated-declarations -Iinclude -Iinclude/dwarfpp $(LIBSRK31CXX_CFLAGS) $(LIBCXXFILENO_CFLAGS)
+AM_CXXFLAGS = -fno-omit-frame-pointer -std=c++14 -ggdb3 -fvar-tracking-assignments -O2 -fkeep-inline-functions -Wall -Wno-deprecated-declarations -Iinclude -Iinclude/dwarfpp $(LIBSRK31CXX_CFLAGS) $(LIBCXXFILENO_CFLAGS)
 
 extra_DIST = libdwarfpp.pc.in
 pkgconfigdir = $(libdir)/pkgconfig
