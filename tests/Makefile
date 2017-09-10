@@ -58,3 +58,4 @@ gdbcleanrun-%:
 	rm -f $*/$* && $(MAKE) gdbrun-$*
 
 grandchildren: LDFLAGS += -pthread -static
+visible-named: LDFLAGS += -pthread -static
