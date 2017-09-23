@@ -777,7 +777,7 @@ namespace dwarf
 				}
 				/* If we have a "reason" that is a member_die or inheritance_die, 
 				 * */
-				if (reason && (reason.is_a<member_die>() || reason.is_a<inheritance_die>()))
+				if (reason && (reason.is_a<data_member_die>()))
 				{
 					debug(2) << "This type is walked for reason of a member: ";
 					reason.print(debug(2), 0);
@@ -786,7 +786,7 @@ namespace dwarf
 					if (reason->get_declaration() && *reason->get_declaration()) return false;
 
 					// calculate its offset
-					opt<Dwarf_Unsigned> opt_offset = reason.as_a<with_dynamic_location_die>()
+					opt<Dwarf_Unsigned> opt_offset = reason.as_a<data_member_die>()
 						->byte_offset_in_enclosing_type();
 					if (!opt_offset)
 					{
@@ -1973,16 +1973,11 @@ namespace dwarf
 			return true;
 		}
 		
-/* from spec::with_dynamic_location_die */ 
+/* from spec::data_member_die */ 
 		opt<Dwarf_Unsigned> 
-		with_dynamic_location_die::byte_offset_in_enclosing_type(
+		data_member_die::byte_offset_in_enclosing_type(
 			bool assume_packed_if_no_location /* = false */) const
 		{
-			if (get_tag() != DW_TAG_member && get_tag() != DW_TAG_inheritance)
-			{
-				// we need to be a member or inheritance
-				return opt<Dwarf_Unsigned>();
-			}
 			// if we're a declaration, that's bad
 			if (get_declaration() && *get_declaration())
 			{
@@ -1990,14 +1985,13 @@ namespace dwarf
 			}
 			
 			root_die& r = get_root();
-			auto it = find_self();
-			auto parent = r.parent(it);
-			auto enclosing_type_die = parent.as_a<core::type_die>();
+			iterator_df<data_member_die> self = find_self();
+			auto parent = r.parent(self);
+			auto enclosing_type_die = parent.as_a<core::with_data_members_die>();
 			if (!enclosing_type_die) return opt<Dwarf_Unsigned>();
 			
 			opt<encap::loclist> data_member_location 
-			 = it.is_a<member_die>() ? it.as_a<member_die>()->get_data_member_location() 
-			 : it.is_a<inheritance_die>() ? it.as_a<inheritance_die>()->get_data_member_location()
+			 = self.is_a<data_member_die>() ? self.as_a<data_member_die>()->get_data_member_location()
 			 : opt<encap::loclist>();
 			if (!data_member_location)
 			{
@@ -2006,60 +2000,63 @@ namespace dwarf
 				// OR contained in a union
 				// OR if the caller passed assume_packed_if_no_location
 				// HACK: support class types (and others) here
-				auto parent_first_member
-				 = enclosing_type_die.children().subseq_of<core::with_dynamic_location_die>().first;
-				assert(parent_first_member != iterator_base::END);
+				auto parent_members = parent.children().subseq_of<data_member_die>();
+				assert(parent_members.first != parent_members.second);
+				auto real_first_memb = parent_members.first;
+				// skip decls
 				while (
-					!(parent_first_member.is_a<member_die>() || parent_first_member.is_a<inheritance_die>())
-					|| (parent_first_member->get_declaration() && *parent_first_member->get_declaration())
+					(real_first_memb->get_declaration() && *real_first_memb->get_declaration())
 				)
 				{
-					++parent_first_member;
+					++real_first_memb;
 					// at the latest, we should hit ourselves
-					assert(parent_first_member != iterator_base::END);
+					assert(real_first_memb != iterator_base::END);
 				}
 				
 				// if we are the first member of a struct, or any member of a union, we're okay
-				if (it.offset_here() == parent_first_member.offset_here()
-				 || enclosing_type_die.tag_here() == DW_TAG_union_type)
+				if (self == real_first_memb
+				 || enclosing_type_die.is_a<union_type_die>())
 				{
 					return opt<Dwarf_Unsigned>(0U);
 				}
 				
-				/* Otherwise we might still be okay. FIXME: have I really seen code that needs this? */
+				/* Otherwise we might still be okay. Needed e.g. for synthetic DIEs from dwarfidl */
 				if (assume_packed_if_no_location)
 				{
-					auto previous_member = parent_first_member;
-					assert(previous_member);
-					// if there is one member or more before us...
-					if (previous_member != it)
+					auto a_previous_memb = real_first_memb;
+					assert(a_previous_memb);
+					// if there is one member or more before us... linear search
+					if (a_previous_memb != self)
 					{
 						do
 						{
-							auto next_member = previous_member;
+							auto next_memb = a_previous_memb;
 							// advance to the next non-decl member or inheritance DIE 
 							do
 							{
-								++next_member;
-							} while (next_member != it
-								&& (!(next_member.is_a<member_die>() || next_member.is_a<inheritance_die>())
-								|| (next_member->get_declaration() && *next_member->get_declaration())));
+								do
+								{
+									++next_memb;
+								} while (next_memb->get_declaration() && *next_memb->get_declaration());
+							} while (next_memb && next_memb != self);
 							// break if we hit ourselves
-							if (next_member == it) break;
-							previous_member = std::move(next_member);
-						} while (true); 
+							if (next_memb == self) break;
+							a_previous_memb = std::move(next_memb);
+						} while (true);
 
-						if (previous_member) 
+						if (a_previous_memb) // it's the 
 						{
-							auto prev_memb_t = previous_member->get_type();
+							auto& the_previous_memb = a_previous_memb;
+							auto prev_memb_t = the_previous_memb->get_type();
 							if (prev_memb_t)
 							{
 								auto opt_prev_byte_size = prev_memb_t->calculate_byte_size();
 								if (opt_prev_byte_size)
 								{
 									/* Do we have an offset for the previous member? */
-									auto opt_prev_member_offset = previous_member->byte_offset_in_enclosing_type(
+									auto opt_prev_member_offset = the_previous_memb->byte_offset_in_enclosing_type(
 										true);
+									// FIXME: quadratic
 
 									/* If that succeeded, we can go ahead. */
 									if (opt_prev_member_offset)
@@ -2074,7 +2071,7 @@ namespace dwarf
 				
 				// if we got here, we really can't figure it out
 				debug() << "Warning: encountered DWARF member lacking a location: "
-					<< it << std::endl;
+					<< self << std::endl;
 				return opt<Dwarf_Unsigned>();
 			}
 			else if (data_member_location->size() != 1)
@@ -2093,7 +2090,7 @@ namespace dwarf
 				try {
 					return expr::evaluator(
 						data_member_location->at(0), 
-						it.enclosing_cu().spec_here(), 
+						self.enclosing_cu().spec_here(), 
 						std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, 0UL))).tos();
 				} 
 				catch (expr::Not_supported)
@@ -2104,10 +2101,11 @@ namespace dwarf
 		location_not_understood:
 				// error
 				debug() << "Warning: encountered DWARF member with location I didn't understand: "
-					<< it << std::endl;
+					<< self << std::endl;
 				return opt<Dwarf_Unsigned>();
 		}
 		
+/* from spec::with_dynamic_location_die */ 
 		boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned> 
 		with_static_location_die::file_relative_intervals(
 		

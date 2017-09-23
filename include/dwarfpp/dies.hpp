@@ -468,11 +468,6 @@ void walk_type(core::iterator_df<core::type_die> t,
 			root_die& r,
 			Dwarf_Off dieset_relative_ip,
 			dwarf::expr::regs *p_regs = 0) const = 0;
-			
-		/** This gets an offset in an enclosing object. NOTE that it's only 
-			defined for members and inheritances (and not even all of those), 
-			but it's here for convenience. */
-		virtual opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(bool assume_packed_if_no_location = false) const;
 
 		/** This gets a location list describing the location of the thing, 
 			assuming that the instantiating_instance_location has been pushed
@@ -535,6 +530,8 @@ begin_class(data_member, base_initializations(initialize_base(with_dynamic_locat
 	has_object_based_location
 	attr_optional(data_member_location, loclist)
 	virtual iterator_df<type_die> find_or_create_type_handling_bitfields() const;
+	/** This gets an offset in an enclosing object. */
+	virtual opt<Dwarf_Unsigned> byte_offset_in_enclosing_type(bool assume_packed_if_no_location = false) const;
 end_class(data_member)
 /* type_chain_die */
 begin_class(type_chain, base_initializations(initialize_base(type)), declare_base(type))
