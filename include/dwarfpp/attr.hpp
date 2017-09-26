@@ -101,10 +101,10 @@ namespace dwarf
 				bool operator>=(const address& arg) const { return this->addr >= arg.addr; }
 				bool operator==(Dwarf_Addr arg) const { return this->addr == arg; }
 				bool operator!=(Dwarf_Addr arg) const { return !(*this == arg); }
-				bool operator<(Dwarf_Addr arg) const { return this->addr < addr; }
-				bool operator<=(Dwarf_Addr arg) const { return this->addr <= addr; }
-				bool operator>(Dwarf_Addr arg) const { return this->addr > addr; }
-				bool operator>=(Dwarf_Addr arg) const { return this->addr >= addr; }
+				bool operator<(Dwarf_Addr arg) const { return this->addr < arg; }
+				bool operator<=(Dwarf_Addr arg) const { return this->addr <= arg; }
+				bool operator>(Dwarf_Addr arg) const { return this->addr > arg; }
+				bool operator>=(Dwarf_Addr arg) const { return this->addr >= arg; }
 				//Dwarf_Addr operator Dwarf_Addr() { return addr; }
 				/* FIXME: why *not* have the above? There must be a good reason....
 				 * ambiguity maybe? */

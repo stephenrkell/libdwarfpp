@@ -43,6 +43,7 @@ namespace dwarf
 			
 			// needs g++ 4.8+! or some other C++11-compliant compiler
 			using optional<T>::optional;
+			operator bool() const { return super::operator bool(); }
 		};
 		/* END the non-specialised opt<> case. */
 		

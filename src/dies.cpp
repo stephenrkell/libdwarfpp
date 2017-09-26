@@ -1139,9 +1139,9 @@ namespace dwarf
 					 * we're not cyclic and can skip the remaining SCC calculation stuff. */
 					// is this a back-edge reaching back to the root?
 					/* back edges are (target, reason) */
-					auto back_edge_source = i_t.source_vertex();
-					auto& back_edge_target = i_e->first;
-					auto& back_edge_reason = i_e->second;
+					iterator_df<type_die> back_edge_source = i_t.source_vertex();
+					iterator_df<type_die>& back_edge_target = i_e->first;
+					iterator_df<program_element_die>& back_edge_reason = i_e->second;
 					bool this_cycle_includes_start_node = (back_edge_target == t);
 					saw_cycle_directly_including_start_node |= this_cycle_includes_start_node;
 					/* Build the cycle we're currently forming, and give it an index. */
@@ -1150,15 +1150,15 @@ namespace dwarf
 					debug() << "Recording a new cycle, idx " << idx << std::endl;
 					/* general edges are ((source, reason), target). */
 					/* The back edge is in the cycle. */
-					s.insert(
+					type_edge new_e(
 						make_pair(
-							make_pair(
-								/* source */ iterator_df<type_die>(source),
-								/* reason */ iterator_df<program_element_die>(back_edge_reason)
-							),
-							/* target */ iterator_df<type_die>(back_edge_target)
-						)
+							/* source */ iterator_df<type_die>(source),
+							/* reason */ iterator_df<program_element_die>(back_edge_reason)
+						),
+						/* target */ iterator_df<type_die>(back_edge_target)
 					);
+					
+					s.insert(new_e);
 					cycles_by_participating_node.insert(make_pair(
 						back_edge_source, idx
 					));
@@ -1192,15 +1192,14 @@ namespace dwarf
 						{
 							debug() << "yes" << std::endl;
 							/* This tree edge is in the cycle. */
-							s.insert(
+							type_edge new_e(
 								make_pair(
-									make_pair(
-										/* source */ iterator_df<type_die>(tree_edge_source),
-										/* reason */ iterator_df<program_element_die>(tree_edge_reason)
-									),
-									/* target */ iterator_df<type_die>(tree_edge_target)
-								)
+									/* source */ iterator_df<type_die>(tree_edge_source),
+									/* reason */ iterator_df<program_element_die>(tree_edge_reason)
+								),
+								/* target */ iterator_df<type_die>(tree_edge_target)
 							);
+							s.insert(new_e);
 							cycles_by_participating_node.insert(make_pair(
 								tree_edge_source, idx
 							));
@@ -1690,8 +1689,8 @@ namespace dwarf
 				if (*i_count) 
 				{
 					opt_total_count = opt_total_count ? 
-						*opt_total_count * (**i_count)
-						: (*i_count);
+						opt<Dwarf_Unsigned>(*opt_total_count * (**i_count))
+						: opt<Dwarf_Unsigned>(*i_count);
 				}
 				else
 				{

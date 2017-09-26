@@ -296,7 +296,7 @@ namespace dwarf
 				if (found_live != live_dies.end())
 				{
 					return iterator_base(static_cast<abstract_die&&>(*found_live->second),
-						it.maybe_depth() ? it.depth() + 1 : opt<unsigned short>(),
+						it.maybe_depth() ? opt<unsigned short>(it.depth() + 1u) : opt<unsigned short>(),
 						*this);
 				} // else fall through
 			}
@@ -328,7 +328,7 @@ namespace dwarf
 			if (maybe_handle)
 			{
 				iterator_base new_it(Die(std::move(maybe_handle)),
-					it.maybe_depth() ? it.depth() + 1 : opt<unsigned short>(),
+					it.maybe_depth() ? opt<unsigned short>(it.depth() + 1u) : opt<unsigned short>(),
 					it.get_root());
 				// install in parent cache, first_child_of
 				parent_of[new_it.offset_here()] = start_offset;
