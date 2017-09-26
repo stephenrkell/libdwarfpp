@@ -60,6 +60,10 @@ include/dwarfpp/dwarf-current-adt.h: spec/gen-adt-cpp.py spec/dwarf_current.py
 include/dwarfpp/dwarf-current-factory.h: spec/gen-factory-cpp.py spec/dwarf_current.py
 	python spec/gen-factory-cpp.py > "$@"
 
+# to avoid propagating libdwarf CFLAGS into all clients, symlink the libdwarf.h we use
+include/libdwarf.h: $(libdwarf_includes)/libdwarf.h
+	(cd $(dir $@) && ln -s "$(realpath $<)" "$(notdir $@)" )
+
 lib/libdwarfpp.so: $(lib_LTLIBRARIES)
 	mkdir -p lib && cd lib && ln -sf ../src/.libs/libdwarfpp.so .
 
