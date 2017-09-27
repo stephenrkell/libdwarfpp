@@ -43,7 +43,7 @@ namespace dwarf
 			
 			// needs g++ 4.8+! or some other C++11-compliant compiler
 			using optional<T>::optional;
-			operator bool() const { return super::operator bool(); }
+			operator bool() const { return this->is_initialized(); }
 		};
 		/* END the non-specialised opt<> case. */
 		
@@ -55,6 +55,8 @@ namespace dwarf
 			
 			/* forward the underlying constructors */ 
 			using shared_ptr<T>::shared_ptr;
+
+			operator bool() const { return !!static_cast<const super&>(*this); }
 		};
 
 		/* Similarly, we need one for iterators, i.e. things which extend 
@@ -71,6 +73,8 @@ namespace dwarf
 
 			/* forward the underlying constructors */ 
 			using T::T;
+			
+			// operator bool is already taken care of in iterator_base
 		};
 
 		/* These do the opposite: unspecialise, to reinstate the double indirection. 
