@@ -607,7 +607,7 @@ namespace dwarf
 				
 				if (it.tag_here() != DW_TAG_compile_unit)
 				{
-					debug(2) << "Warning: made payload for non-CU at 0x" << std::hex << it.offset_here() << std::dec << endl;
+					debug(6) << "Warning: made payload for non-CU at 0x" << std::hex << it.offset_here() << std::dec << endl;
 				}
 				return it.cur_payload;
 			}

@@ -373,8 +373,6 @@ namespace dwarf
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
 			map<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
 			
-			/* This cache is in addition to the in-payload cache. */
-			map<Dwarf_Off, opt<uint32_t> > type_summary_code_cache;
 			opt<Dwarf_Off> synthetic_cu;
 
 			multimap<string, Dwarf_Off> visible_named_grandchildren_cache;

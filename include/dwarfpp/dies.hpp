@@ -248,8 +248,17 @@ struct summary_code_word_t
  * edges, gets crumpled down into a summary code.
  */
 struct type_edge;
-struct type_edge_compare;
-typedef set<type_edge, type_edge_compare> type_scc_t;
+struct type_edge_compare : std::function<bool(const type_edge&, const type_edge&)>
+{
+	type_edge_compare(); // initializes the std::function with a lambda
+};
+struct type_scc_t : public set<type_edge, type_edge_compare>
+{
+	using set::set;
+	// FIXME: we could try to maintain this on inserts.
+	// if we remove an edge, we have to invalidate it and recompute.
+	summary_code_word_t edges_summary;
+};
 bool types_abstractly_equal(iterator_df<type_die> t1, iterator_df<type_die> t2);
 std::ostream& print_type_abstract_name(std::ostream& s, iterator_df<type_die> t);
 string abstract_name_for_type(iterator_df<type_die> t);
@@ -288,10 +297,6 @@ struct type_edge : public pair< pair<iterator_df<type_die>, iterator_df<program_
 	const iterator_df<type_die>& target() const { return second; }
 	iterator_df<type_die>& target() { return second; }
 };
-struct type_edge_compare : std::function<bool(const type_edge&, const type_edge&)>
-{
-	type_edge_compare(); // initializes the std::function with a lambda
-};
 /* "Type iterators" actually walk *edges* in the type DIE graph, 
  * not types per se: the target DIE of an edge is the iterator's
  * "position" if you dereference it, and the DIE which models the
@@ -303,76 +308,119 @@ struct type_edge_compare : std::function<bool(const type_edge&, const type_edge&
  * without the back-edges. What if you want to know about the back-edges?
  * Bit of a HACK: I have added the "back_edges_here()" method which
  * gives you a vector of (reason, target) pairs. We use this when
- * computing the SCC of a type DIE. */
-struct type_iterator_df : public iterator_base,
-						  public boost::iterator_facade<
-							type_iterator_df
-						  , type_die
-						  , boost::forward_traversal_tag
-						  , type_die& /* Reference */
-						  , Dwarf_Signed /* difference */
-						  >
+ * computing the SCC of a type DIE.
+ *
+ * Another wart: we have type_iterator_df which avoids repeat visits
+ * to any node; and we have type_iterator_edge_df which will visit
+ * the same node as many times as there are distinct-labelled incoming
+ * edges to it. */
+
+struct type_iterator_base : public iterator_base
 {
-	typedef type_iterator_df self;
+	typedef type_iterator_base self;
 	friend class boost::iterator_core_access;
 
-	// extra state needed!
-	// FIXME: we have to decide whether our current position should be 
-	// on the stack or not.
-	// "On" is slightly nicer for uniformity.
-	// "Not on" means we can avoid copying the iterator in trivial cases,
-	// but we have to store the present "reason" separately.
-	// We go for "on" for now.
+	/* The stack records the grey nodes. The back of the stack
+	 * may or may not be our current position.  */
 	deque< pair<iterator_df<type_die>, iterator_df<program_element_die> > > m_stack;
+	struct black_offsets_set_t : std::unordered_set<Dwarf_Off>
+	{
+		bool contains(const iterator_base& i) const
+		{
+			return this->find(i.is_end_position() ? (Dwarf_Off)-1 : i.offset_here())
+				!= this->end();
+		}
+		void insert(const iterator_base& i)
+		{
+			this->unordered_set::insert(i.is_end_position() ? (Dwarf_Off)-1 : i.offset_here());
+		}
+		using unordered_set::unordered_set;
+	} black_offsets;
 
+	iterator_df<program_element_die> m_reason;
 	iterator_base& base_reference()
 	{ return static_cast<iterator_base&>(*this); }
 	const iterator_base& base() const
 	{ return static_cast<const iterator_base&>(*this); }
 
-	type_iterator_df() : iterator_base() {}
-	type_iterator_df(const iterator_base& arg)
-	 : iterator_base(arg) { m_stack.push_back(make_pair(base(), END)); }// this COPIES so avoid
-	type_iterator_df(iterator_base&& arg)
-	 : iterator_base(arg) { m_stack.push_back(make_pair(base(), END)); } // FIXME: use std::move here, and test
-	type_iterator_df(const self& arg)
-	 : iterator_base(arg), m_stack(arg.m_stack) {}
-	type_iterator_df(self&& arg)
-	 : iterator_base(arg), m_stack(std::move(arg.m_stack)) {}
+	type_iterator_base() : iterator_base() {}
+	type_iterator_base(const iterator_base& arg)
+	 : iterator_base(arg)   { m_stack.push_back(make_pair(base(), END)); }// this COPIES so avoid
+	type_iterator_base(iterator_base&& arg)
+	 : iterator_base(arg)   { m_stack.push_back(make_pair(base(), END)); } // FIXME: use std::move here, and test
+	type_iterator_base(const self& arg)
+	 : iterator_base(arg), m_stack(arg.m_stack),
+	   black_offsets(arg.black_offsets), m_reason(arg.m_reason) {}
+	type_iterator_base(self&& arg)
+	 : iterator_base(arg), m_stack(std::move(arg.m_stack)),
+	   black_offsets(std::move(arg.black_offsets)), m_reason(std::move(arg.m_reason)) {}
 
-	self& operator=(const iterator_base& arg)
+	bool is_grey(const iterator_base& i) const 
+	{
+		return !black_offsets.contains(i)
+		&& std::find_if(m_stack.begin(), m_stack.end(),
+			[i](const pair<iterator_df<type_die>, iterator_df<program_element_die> >& pair)
+			{ return pair.first == i; }
+		) != m_stack.end();
+	}
+	bool pos_is_grey() const { return is_grey(base()); }
+	
+	//bool is_latest_grey(const iterator_base& i) const
+	//{ return i == m_stack.back().first; }
+	
+	//bool pos_is_latest_grey() const { return is_latest_grey(base()); }
+	
+	// for if we moved (for edge-reflecting purposes) to a non-latest-grey position...
+	bool is_black(const iterator_base& i) const
+	{ return black_offsets.contains(i); }
+	bool pos_is_black() const
+	{ return is_black(base()); }
+	
+	bool pos_is_white() const { return !pos_is_black() && !pos_is_grey(); }
+	
+	enum colour { WHITE, GREY, BLACK };
+	colour colour_of(const iterator_base& i) const
+	{ return is_black(i) ? BLACK : is_grey(i) ? GREY : WHITE; }
+	colour pos_colour() const { return colour_of(base()); }
+
+	self& operator=(const iterator_base& arg) // assign fresh from an iterator
 	{ this->base_reference() = arg; 
-	  while (!this->m_stack.empty()) this->m_stack.pop_back();
+	  while (!this->m_stack.empty()) this->m_stack.pop_back(); // clear the stack
+	  this->black_offsets.clear(); // = std::move(std::set<Dwarf_Off>());
+	  this->m_reason = END;
 	  this->m_stack.push_back(make_pair(base(), END));
 	  return *this; }
 	self& operator=(iterator_base&& arg)
 	{ this->base_reference() = std::move(arg); 
 	  while (!this->m_stack.empty()) this->m_stack.pop_back();
+	  black_offsets.clear(); // = std::move(std::set<Dwarf_Off>());
+	  this->m_reason = END;
 	  this->m_stack.push_back(make_pair(base(), END));
 	  return *this; }
 	self& operator=(const self& arg)
 	{ self tmp(arg); 
 	  std::swap(this->base_reference(), tmp.base_reference());
 	  std::swap(this->m_stack, tmp.m_stack);
+	  std::swap(this->black_offsets, tmp.black_offsets);
+	  std::swap(this->m_reason, tmp.m_reason);
 	  return *this; }
 	self& operator=(self&& arg)
 	{ this->base_reference() = std::move(arg);
 	  this->m_stack = std::move(arg.m_stack);
+	  this->black_offsets = std::move(arg.black_offsets);
+	  this->m_reason = std::move(arg.m_reason);
 	  return *this; }
 
-	iterator_df<program_element_die> reason() const 
-	{ if (!m_stack.empty()) return this->m_stack.back().second; else return END; }
-private: /* helpers */
-	static iterator_df<type_die> source_vertex_for_stack_entry(
-		const pair< iterator_df<type_die>, iterator_df<program_element_die> >& p);
+	iterator_df<program_element_die> reason() const
+	{ return m_reason; }
+protected: /* helpers */
+	iterator_df<type_die> source_vertex_for(const iterator_df<type_die>&, const iterator_df<program_element_die>& p) const;
 	friend class type_die;
 public:
-	iterator_df<type_die> source_vertex() const { return source_vertex_for_stack_entry(m_stack.back()); }
-	iterator_df<program_element_die> edge_label() const
-	{
-		return reason();
-	}
-	pair< pair<iterator_df<type_die>, unsigned>, iterator_df<type_die> > as_edge() const
+	iterator_df<type_die> source_vertex() const
+	{ return source_vertex_for(base(), reason()); }
+	iterator_df<program_element_die> edge_label() const { return reason(); }
+	pair< pair<iterator_df<type_die>, iterator_df<program_element_die> >, iterator_df<type_die> > as_incoming_edge() const
 	{
 		return make_pair(
 			make_pair(
@@ -382,17 +430,90 @@ public:
 			*this
 		);
 	}
-	void increment(vector<pair<iterator_df<type_die>, iterator_df<program_element_die> > >& out_back_edges, bool skip_dependencies = false);
-	void increment(bool skip_dependencies = false);
-	void increment_skipping_dependencies();
-	void decrement();
-	type_die& dereference() const
-	{ return dynamic_cast<type_die&>(this->iterator_base::dereference()); }
+	enum edge_kind { TREE, BACK, CROSS };
+	edge_kind incoming_edge_kind() const
+	{
+		if (pos_is_white()) return TREE;
+		if (pos_is_grey()) return BACK;
+		assert(pos_is_black()); return CROSS;
+		// if we're walking an incoming edge to any node, that node is not white
+	}
 
 	/* Since we want to walk "void", which has no representation,
 	 * we're only at the end if we're both "no DIE" and "no reason". */
 	operator bool() const { return !(!this->base() && !this->reason()); }
+	
+	/* Primitive operations that our subclasses will use. */
+	type_die& dereference() const
+	{ return dynamic_cast<type_die&>(this->iterator_base::dereference()); }
+	
+	/* Nobody implements this. */
+	void decrement();
+
+	/* "go deeper" means find a white or black successor of the current node.
+	 -- if it's black, we may or may not want to reexplore */
+	pair<iterator_df<type_die>, iterator_df<program_element_die> >
+	first_outgoing_edge_target() const;
+	
+	/* "go sideways" means find a white or black successor of the grey 
+	 * predecessor of the current node.
+	 * -- there is only one grey predecessor, by construction (depth-first)
+	 * -- the current node become black when we do this.
+	 */
+	pair<iterator_df<type_die>, iterator_df<program_element_die> >
+	predecessor_node_next_outgoing_edge_target() const;
+		/* "backtrack" means find a white or black successor of the next grey predecessor,
+	 *  i.e. iterate the go-sideways thing one grey node up the stack. 
+	 * The client can open-code this. */
+	
+	 /* What about a nice interface to back edges and cross edges?
+	  * Since the edge iterator will follow these -- it just won't
+	  * push them on the stack -- we don't need a separate interface. */
 };
+
+/* The idea of this one is simply to do the same thing as walk_type,
+ * for better or worse. */
+struct type_iterator_df_walk :  public type_iterator_base,
+								public boost::iterator_facade<
+								   type_iterator_df_walk
+								 , type_die
+								 , boost::forward_traversal_tag
+								 , type_die& /* Reference */
+								 , Dwarf_Signed /* difference */
+								>
+{
+	typedef type_iterator_df_walk self;
+	friend class boost::iterator_core_access;
+
+	using type_iterator_base::type_iterator_base;
+	
+	void increment(bool skip_dependencies = false);
+	void increment_skipping_dependencies() { return increment(true); }
+};
+
+struct type_iterator_df_edges : public type_iterator_base,
+						  public boost::iterator_facade<
+							type_iterator_df_edges
+						  , type_die
+						  , boost::forward_traversal_tag
+						  , type_die& /* Reference */
+						  , Dwarf_Signed /* difference */
+						  >
+{
+	typedef type_iterator_df_edges self;
+	friend class boost::iterator_core_access;
+	
+	type_iterator_df_edges(const iterator_base& arg)
+	{ base_reference() = arg; m_reason = END; }
+	type_iterator_df_edges(iterator_base&& arg)
+	{ base_reference() = std::move(arg); m_reason = END; }
+	type_iterator_df_edges(const self& arg)
+	 : type_iterator_base(arg) {}
+	type_iterator_df_edges(self&& arg) : type_iterator_base(std::move(arg)) {}
+
+	void increment();
+};
+
 /* type_set and related utilities. */
 size_t type_hash_fn(iterator_df<type_die> t);
 bool type_eq_fn(iterator_df<type_die> t1, iterator_df<type_die> t2);

@@ -7,6 +7,16 @@ using std::cout;
 using std::endl;
 using namespace dwarf;
 
+struct inner
+{
+	int x;
+} inner1;
+struct blah
+{
+	struct inner i1;
+	struct inner i2;
+} blah1;
+
 int main(int argc, char **argv)
 {
 	using namespace dwarf::core; 
@@ -21,7 +31,7 @@ int main(int argc, char **argv)
 	auto cu = root.begin(); ++cu;
 	auto ns1_die = cu.named_child("dwarf"); assert(ns1_die);
 	auto ns2_die = ns1_die.named_child("core"); assert(ns2_die);
-	auto type_iter_die = ns2_die.named_child("type_iterator_df");
+	auto type_iter_die = ns2_die.named_child("type_iterator_df_walk");
 	assert(type_iter_die);
 	
 	std::vector<pair<Dwarf_Off, Dwarf_Off> > seen_via_walk_type;
@@ -40,7 +50,7 @@ int main(int argc, char **argv)
 	);
 	std::cerr << "==================================================" << std::endl;
 	std::cerr << "Walking the new way." << std::endl;
-	for (dwarf::core::type_iterator_df i = type_iter_die;
+	for (dwarf::core::type_iterator_df_walk i = type_iter_die;
 		i;
 		++i)
 	{
@@ -49,6 +59,26 @@ int main(int argc, char **argv)
 	}
 	std::cerr << "==================================================" << std::endl;
 	assert(seen_via_walk_type == seen_via_type_iterator);
+	
+	/* Now test the type_edge_iterator_df. */
+	auto blah_die = cu.named_child("blah"); assert(blah_die);
+	unsigned saw_inner = 0;
+	unsigned saw_int = 0;
+	dwarf::core::type_iterator_df_edges i = blah_die;
+	assert(i.pos_colour() == type_iterator_base::WHITE);
+	for (;
+		i;
+		++i)
+	{
+		std::cerr << i.summary() 
+			<< ", reason " << i.reason().summary()
+			<< ", source " << i.source_vertex().summary()
+			<< std::endl;
+		if (i.name_here() && *i.name_here() == "int") ++saw_int;
+		if (i.name_here() && *i.name_here() == "inner") ++saw_inner;
+	}
+	assert(saw_inner == 2);
+	assert(saw_int == 1);
 
 	return 0;
 }

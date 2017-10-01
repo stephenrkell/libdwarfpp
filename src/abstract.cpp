@@ -25,8 +25,10 @@ namespace dwarf
 		string abstract_die::summary() const
 		{
 			std::ostringstream s;
-			s << "At 0x" << std::hex << get_offset() << std::dec
-						<< ", tag " << dwarf::spec::DEFAULT_DWARF_SPEC.tag_lookup(get_tag());
+			s << "0x" << std::hex << get_offset() << std::dec
+						<< ", tag " << dwarf::spec::DEFAULT_DWARF_SPEC.tag_lookup(get_tag())
+						<< ", ";
+			if (get_name()) s << "name " << *get_name(); else s << "no name";
 			return s.str();
 		}
 		dwarf_current_factory_t dwarf_current_factory;

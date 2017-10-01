@@ -49,7 +49,7 @@ namespace dwarf
 			 * An iterator can either be a libdwarf handle, or a pointer to some
 			 * refcounted state (including such a handle, and maybe other cached stuff). */
 		public:
-			string summary() const { if (is_end_position()) return "(END)"; return this->abstract_die::summary(); }
+			string summary() const { if (is_end_position()) return "(END)"; return "At " + this->abstract_die::summary(); }
 			abstract_die& get_handle() const
 			{
 				if (!is_real_die_position()) 
