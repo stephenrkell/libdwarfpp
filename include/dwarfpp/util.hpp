@@ -23,6 +23,8 @@ namespace dwarf
 			if (debug_level >= level) return std::cerr;
 			else return null_out;
 		}
+		#define debug_expensive(lvl, args...) \
+			((debug_level >= (lvl)) ? (debug(lvl) args) : (debug(lvl)))
 	}
 }
 

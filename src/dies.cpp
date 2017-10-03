@@ -509,15 +509,15 @@ namespace dwarf
 		void type_iterator_df_edges::increment()
 		{
 			auto print_stack = [=]() {
-				debug(5) << "[";
+				debug_expensive(5, << "[");
 				for (auto i = m_stack.begin(); i != m_stack.end(); ++i)
 				{
-					if (i != m_stack.begin()) debug(5) << ", ";
-					debug(5) << std::hex << 
+					if (i != m_stack.begin()) debug_expensive(5, << ", ");
+					debug_expensive(5, << std::hex << 
 						(i->first.is_end_position() ? (Dwarf_Off)-1 : i->first.offset_here()) 
-							<< std::dec;
+							<< std::dec);
 				}
-				debug(5) << "]" << std::endl;;
+				debug_expensive(5, << "]" << std::endl);
 			};
 			
 			/* To visit edges, basic idea is this.
@@ -579,8 +579,8 @@ namespace dwarf
 					assert(m_stack.size() > 0);
 					// i.e. "we've exhausted our predecessor's outgoing edges"
 					auto predecessor = source_vertex_for(base(), reason());
-					debug(5) << base().summary() << ":" 
-						<< ": exhausted outgoing edges of: " << predecessor.summary() << std::endl;
+					debug_expensive(5, << base().summary() << ":" 
+						<< ": exhausted outgoing edges of: " << predecessor.summary() << std::endl);
 					black_offsets.insert(predecessor);
 					this->base_reference() = std::move(predecessor);
 					this->m_reason = m_stack.back().second;
@@ -773,14 +773,18 @@ namespace dwarf
 				walk_type(self, self,
 					/* pre_f */ [&output_word, offset_here](
 						iterator_df<type_die> t, iterator_df<program_element_die> reason) -> bool {
-						if (t.offset_here() == offset_here) return true;
-						output_word << t->summary_code_using_iterators();
+						if (t && t.offset_here() == offset_here) return true;
+						if (!t) output_word << 0;
+						else output_word << t->summary_code_using_iterators();
 						return false;
 					},
 					/* post_f */ [](iterator_df<type_die> t, iterator_df<program_element_die> reason) -> void
 					{});
-				// distinguish ourselves
-				output_word << get_tag();
+				// distinguish ourselves, unless we're a typedef.
+				if (!self.is_a<qualified_type_die>() && !self.is_a<typedef_die>())
+				{
+					output_word << get_tag();
+				}
 			}
 			else
 			{
@@ -1198,6 +1202,10 @@ namespace dwarf
 		
 		opt<type_scc_t> type_die::get_scc() const
 		{
+			assert(get_root().live_dies.find(get_offset()) != get_root().live_dies.end());
+			assert(get_root().live_dies.find(get_offset())->second
+				== dynamic_cast<const basic_die *>(this));
+			
 			/* In general, to get a representation of the SCC (if any)
 			 * in which a type DIE participates,
 			 * we walk it and look for back edges. 
@@ -1220,30 +1228,31 @@ namespace dwarf
 			vector< type_scc_t > back_edge_cycles;
 			multimap< iterator_df<type_die>, unsigned > cycles_by_participating_node;
 			
-			/* Once we've computed these,
-			 * we elaborate the set of edges in the SCC.
+			/* Once we've computed these, we elaborate the set of edges in the SCC,
 			 * by first enumerating the cycles that the start node participates in,
 			 * then by enumerating the cycles that any participating nodes participate in,
 			 * and so on, until a fixed point. We don't need to traverse any cycle
 			 * more than once. */
-			debug() << "Starting SCC search at: " << start_t.summary() << std::endl;
+			debug_expensive(5, << "Starting SCC search at: " << start_t.summary()
+				<< " (type_die object at " << dynamic_cast<const basic_die *>(&start_t.dereference())
+				<< ", sanity check: " << dynamic_cast<const basic_die *>(this) << ")" << std::endl);
 			for (type_iterator_df_edges i_edge = start_t; i_edge; ++i_edge)
 			{
 				/* REMEMBER: type iterators are allowed to walk the "no DIE" (void) case,
 				 * so we might have END here. */
-				debug() << "Walk reached: " << i_edge.summary()
-					<< "; reason: " << i_edge.reason().summary();
+				debug_expensive(5, << "Walk reached: " << i_edge.summary()
+					<< "; reason: " << i_edge.reason().summary());
 				
 				switch (i_edge.incoming_edge_kind())
 				{
 					case type_iterator_base::TREE:
-						debug() << "; edge TREE" << std::endl;
+						debug_expensive(5, << "; edge TREE" << std::endl);
 						break;
 					case type_iterator_base::CROSS:
-						debug() << "; edge CROSS" << std::endl;
+						debug_expensive(5, << "; edge CROSS" << std::endl);
 						break;
 					case type_iterator_base::BACK:
-						debug() << "; edge BACK" << std::endl;
+						debug_expensive(5, << "; edge BACK" << std::endl);
 						/* If we see back-edges, we're exploring a partially-cyclic type.
 						 * But just because we find back-edges doesn't mean the start node
 						 * is part of a cycle. The cycle might not reach back to the start node.
@@ -1268,15 +1277,15 @@ namespace dwarf
 						iterator_df<type_die>& back_edge_source = edge.first.first;
 						iterator_df<type_die>& back_edge_target = edge.second;
 						iterator_df<program_element_die>& back_edge_reason = edge.first.second;
-						debug() << "Back edge: from " << back_edge_source.summary() << " to "
-							<< back_edge_target.summary() << std::endl;
+						debug_expensive(5, << "Back edge: from " << back_edge_source.summary() << " to "
+							<< back_edge_target.summary() << std::endl);
 						bool this_cycle_includes_start_node = (back_edge_target == start_t);
 						saw_cycle_directly_including_start_node |= this_cycle_includes_start_node;
 						
 						/* Build the cycle we're currently forming, and give it an index. */
 						type_scc_t s;
 						unsigned idx = back_edge_cycles.size();
-						debug() << "Recording a new cycle (may or may not involve start node), idx " << idx << std::endl;
+						debug_expensive(5, << "Recording a new cycle (may or may not involve start node), idx " << idx << std::endl);
 						s.insert(edge);
 						
 						cycles_by_participating_node.insert(make_pair(
@@ -1350,14 +1359,14 @@ namespace dwarf
 							auto& tree_edge_target = i_tree_edge->first;
 							auto& tree_edge_reason = i_tree_edge->second;
 
-							debug() << "Now walking tree edge from " << tree_edge_source.summary()
-								<< " to " << tree_edge_target.summary() << "; is it in the cycle? ";
+							debug_expensive(5, << "Now walking tree edge from " << tree_edge_source.summary()
+								<< " to " << tree_edge_target.summary() << "; is it in the cycle? ");
 
 							seen_back_edge_target |= (tree_edge_source == back_edge_target);
 
 							if (seen_back_edge_target)
 							{
-								debug() << "yes" << std::endl;
+								debug_expensive(5, << "yes" << std::endl);
 								/* This tree edge is in the cycle. */
 								type_edge new_e(
 									make_pair(
@@ -1400,13 +1409,13 @@ namespace dwarf
 					idxs.insert(i_pair->second);
 				}
 				auto print_cycle = [](const type_scc_t& cycle, unsigned n) -> void {
-					debug() << "- cycle " << n << ":" << std::endl;
+					debug_expensive(5, << "- cycle " << n << ":" << std::endl);
 					for (auto i_e = cycle.begin(); i_e != cycle.end(); ++i_e)
 					{
-						debug() << "\t" << std::hex << "0x" << i_e->source().offset_here()
+						debug_expensive(5, << "\t" << std::hex << "0x" << i_e->source().offset_here()
 							<< " ----> 0x" << i_e->target().offset_here()
 							<< " (reason: " << i_e->label().offset_here() << ")"
-							<< std::endl;
+							<< std::endl);
 					}
 				};
 				for (auto i_i = idxs.begin(); i_i != idxs.end(); ++i_i)
@@ -1415,8 +1424,8 @@ namespace dwarf
 					auto& cycle = back_edge_cycles.at(i);
 					print_cycle(cycle, i);
 				}
-				debug() << "While walking, we found the following other cycles:"
-					<< std::endl;
+				debug_expensive(5, << "While walking, we found the following other cycles:"
+					<< std::endl);
 				for (unsigned i = 0; i < back_edge_cycles.size(); ++i)
 				{
 					if (idxs.find(i) != idxs.end()) continue;
@@ -1429,7 +1438,7 @@ namespace dwarf
 			 * Elaborate the SCC by coalecing all cycles. */
 			vector<bool> done(back_edge_cycles.size(), false);
 			shared_ptr<type_scc_t> p_scc = std::make_shared<type_scc_t>();
-			debug() << "Created a shared SCC structure at " << p_scc.get() << std::endl;
+			debug_expensive(5, << "Created a shared SCC structure at " << p_scc.get() << std::endl);
 			type_scc_t& scc = *p_scc;
 			std::function<void(unsigned)> transitively_add_cycle_n;
 			transitively_add_cycle_n = [&done, &transitively_add_cycle_n,
@@ -1440,11 +1449,11 @@ namespace dwarf
 				type_scc_t& cur = back_edge_cycles.at(n);
 				for (auto i_e = cur.begin(); i_e != cur.end(); ++i_e)
 				{
-					debug() << "Adding edge: "
+					debug_expensive(5, << "Adding edge: "
 						<< std::hex << "0x" << i_e->source().offset_here()
 						<< " ----> 0x" << i_e->target().offset_here()
 						<< " (reason: " << i_e->label().offset_here() << ")"
-						<< std::endl;
+						<< std::endl);
 						
 					scc.insert(*i_e);
 					auto source_range = cycles_by_participating_node.equal_range(i_e->source());
@@ -1465,7 +1474,7 @@ namespace dwarf
 			}
 			
 			set<Dwarf_Off> seen_offsets;
-			debug() << "--- begin SCC participant nodes:" << std::endl;
+			debug_expensive(5, << "--- begin SCC participant nodes:" << std::endl);
 			for (auto i_e = scc.begin(); i_e != scc.end(); ++i_e)
 			{
 				/* Use get_offset to force creation of payloads *before*
@@ -1478,38 +1487,42 @@ namespace dwarf
 					/* Make the node sticky... otherwise, some nodes in the cycle
 					 * might go away and later get re-created, without their SCC
 					 * pointer. */
-					root_die::ptr_type p = &*n;
+					root_die::ptr_type p = &n.dereference();
 					n.root().sticky_dies.insert(make_pair(off, p));
 					
 					/* Cache the SCC in all participating nodes. */
 					if (n->opt_cached_scc && n->opt_cached_scc != p_scc)
 					{
-						debug() << "This shouldn't happen: DIE object at " << p.get()
+						debug_expensive(5, << "This shouldn't happen: DIE object at " << p.get()
 							<< ", " << p->summary() << ": "
 							<< "already cached SCC, at " 
-							<< n->opt_cached_scc->get() << std::endl;
+							<< n->opt_cached_scc->get() << std::endl);
 					}
 					assert(!n->opt_cached_scc || n->opt_cached_scc == p_scc);
-					n->opt_cached_scc = p_scc;
+					debug_expensive(5, << "Caching into DIE object at " 
+						<< p.get() << "(" << n.summary()
+						<< ") address of the SCC object " << p_scc.get() << std::endl);
+					(dynamic_cast<type_die *>(p.get()))->opt_cached_scc = p_scc;
 					/* We also compute the edges summary as we go. */
 					p_scc->edges_summary << abstract_name_for_type(n);
 					/* Print the SCC for debugging purposes. */
-					debug() << "DIE object at " << p << ": " << n->summary() << std::endl;
+					debug_expensive(5, << "DIE object at " << p.get()
+						<< ": " << n->summary() << std::endl);
 				};
 				
 				record_node_idem(i_e->source());
 				record_node_idem(i_e->target());
 			}
-			debug() << "--- end SCC participant nodes (" << seen_offsets.size() << ")"
-				<< std::endl;
+			debug_expensive(5, << "--- end SCC participant nodes (" << seen_offsets.size() << ")"
+				<< std::endl);
 			return scc;
 		}
 		bool type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
 			if (!t) return false;
 			
-			debug(2) << "Testing type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
-				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
+			debug_expensive(2, << "Testing type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
+				<< " assuming " << assuming_equal.size() << " pairs equal" << endl);
 			
 			return t.tag_here() == get_tag(); // will be refined in subclasses
 		}
@@ -2542,7 +2555,7 @@ namespace dwarf
 
 			}
 		out:
-			//debug() << "Intervals of " << this->summary() << ": " << retval << endl;
+			debug(6) << "Intervals of " << this->summary() << ": " << retval << endl;
 			return retval;
 		}
 
