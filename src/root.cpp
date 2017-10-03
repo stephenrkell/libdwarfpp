@@ -599,6 +599,13 @@ namespace dwarf
 				// Whenever we construct an iterator, we build sticky payload if necessary.
 				assert(!is_sticky(it.get_handle()));
 				
+				// we might be live. refcount will get bumped if so
+				auto found_live = live_dies.find(it.offset_here());
+				if (found_live != live_dies.end())
+				{
+					return found_live->second;
+				}
+				
 				/* heap-allocate the right kind of basic_die, 
 				 * creating the intrusive ptr, hence bumping the refcount */
 				it.cur_payload = core::factory::for_spec(it.spec_here())
