@@ -593,12 +593,14 @@ namespace dwarf
 		inline basic_die::basic_die(spec& s, Die&& h)
 		 : refcount(0), d(std::move(h))
 		{
+			assert(get_root().live_dies.find(get_offset()) == get_root().live_dies.end());
 			get_root().live_dies.insert(make_pair(get_offset(), this));
 		}
 
 		inline basic_die::~basic_die()
 		{
 			if (!is_dummy()) get_root().live_dies.erase(get_offset());
+			debug(5) << "Destructed basic DIE object at " << this << std::endl;
 		}
 		
 		struct in_memory_root_die : public root_die
