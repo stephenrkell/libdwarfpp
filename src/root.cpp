@@ -522,21 +522,22 @@ namespace dwarf
 
 			Dwarf_Off offset_here = it.offset_here();
 			// check for cached edges 
-			auto found = next_sibling_of.find(offset_here);
-			if (found != next_sibling_of.end())
+			auto found_cached_sibling = next_sibling_of.find(offset_here);
+			if (found_cached_sibling != next_sibling_of.end())
 			{
-				auto found_live = live_dies.find(found->second);
+				auto found_live = live_dies.find(found_cached_sibling->second);
 				if (found_live != live_dies.end())
 				{
+					assert(found_live->second->get_offset() == found_cached_sibling->second);
 					return iterator_base(static_cast<abstract_die&&>(*found_live->second), it.depth(), *this);
 				} // else fall through
 			}
 			
-			auto found_parent = parent_of.find(offset_here);
+			auto found_cached_parent = parent_of.find(offset_here);
 			// if we issued `it', we should have recorded its parent
 			// FIXME: relax this policy perhaps, to allow soft cache?
-			assert(found_parent != parent_of.end());
-			Dwarf_Off common_parent_offset = found_parent->second;
+			assert(found_cached_parent != parent_of.end());
+			Dwarf_Off common_parent_offset = found_cached_parent->second;
 			Die::handle_type maybe_handle(nullptr, Die::deleter(nullptr)); // TODO: reenable deleter default constructor
 			
 			if (it.tag_here() == DW_TAG_compile_unit)
@@ -561,6 +562,9 @@ namespace dwarf
 				auto new_it = iterator_base(Die(std::move(maybe_handle)), it.get_depth(), *this);
 				// install in parent cache
 				parent_of[new_it.offset_here()] = common_parent_offset;
+				// ditto for sibling cache -- but check we agree with what's already there
+				assert(found_cached_sibling == next_sibling_of.end()
+					|| found_cached_sibling->second == new_it.offset_here());
 				next_sibling_of[offset_here] = new_it.offset_here();
 				return new_it;
 			} else return iterator_base::END;
@@ -703,14 +707,19 @@ namespace dwarf
 		Dwarf_Off root_die::fresh_cu_offset()
 		{
 			// what's our biggest CU offset right now? or just use the biggest sticky's enclosing CU
-			if (sticky_dies.rbegin() == sticky_dies.rend())
+			auto cu_seq = children();
+			if (cu_seq.first == cu_seq.second)
 			{
 				first_child_of[0UL] = 1;
 				parent_of[1] = 0UL;
 				return 1;
 			}
 			
-			Dwarf_Off biggest_cu_off = sticky_dies.rbegin()->second->get_offset();
+			unsigned n_cus = srk31::count(cu_seq.first, cu_seq.second);
+			auto last_cu = std::move(cu_seq.first);
+			for (unsigned i = 0; i < n_cus - 1; ++i) ++last_cu;
+			
+			Dwarf_Off biggest_cu_off = last_cu.offset_here();
 			// in general, the biggest offset is the *last* item in depth-first order
 			// FIXME: faster way to do this
 			iterator_df<> i = cu_pos(biggest_cu_off);
@@ -720,6 +729,7 @@ namespace dwarf
 				off = i.offset_here();
 			}
 			assert(off != 0);
+			assert(next_sibling_of.find(biggest_cu_off) == next_sibling_of.end());
 			next_sibling_of[biggest_cu_off] = off + 1;
 
 			parent_of[off + 1] = 0UL;
@@ -798,6 +808,7 @@ namespace dwarf
 				// we're issuing a next sibling of the currently-last sibling
 				auto found_last_sib = last_children_seen.find(pos.offset_here());
 				assert(found_last_sib != last_children_seen.end());
+				assert(next_sibling_of.find(found_last_sib->second) == next_sibling_of.end());
 				next_sibling_of[found_last_sib->second] = offset_to_issue;
 			}
 			
