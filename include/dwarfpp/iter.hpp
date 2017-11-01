@@ -37,7 +37,7 @@ namespace dwarf
 			/* This stuff is the Rep that can be abstracted out. */
 			// union
 			// {
-				/* These guys are mutable because they need to be modifiable 
+				/* These guys are mutable because they need to be modifiable
 				 * even by, e.g., the copy constructor modifying its argument.
 				 * The abstract value of the iterator isn't changed in such
 				 * operations, but its representation must be. */
@@ -45,14 +45,16 @@ namespace dwarf
 				mutable root_die::ptr_type cur_payload; // payload = handle + shared count + extra state
 			// };
 			mutable enum { HANDLE_ONLY, WITH_PAYLOAD } state;
-			/* ^-- this is the absolutely key design point that makes this code fast. 
+			/* ^-- this is the absolutely key design point that makes this code fast.
 			 * An iterator can either be a libdwarf handle, or a pointer to some
 			 * refcounted state (including such a handle, and maybe other cached stuff). */
 		public:
-			string summary() const { if (is_end_position()) return "(END)"; return "At " + this->abstract_die::summary(); }
+			string summary() const { if (is_end_position()) return "(END)";
+				if (is_root_position()) return "(root)";
+				return "At " + this->abstract_die::summary(); }
 			abstract_die& get_handle() const
 			{
-				if (!is_real_die_position()) 
+				if (!is_real_die_position())
 				{ assert(!cur_handle.handle && !cur_payload); return cur_handle; }
 				switch (state)
 				{
