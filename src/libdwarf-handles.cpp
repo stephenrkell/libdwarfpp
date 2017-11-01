@@ -225,7 +225,9 @@ namespace dwarf
 			if (ret == DW_DLV_NO_ENTRY) return nullptr;
 			if (ret == DW_DLV_OK) return unique_ptr<const char, string_deleter>(
 				str, string_deleter(get_dbg()));
-			assert(false);
+			//debug() << "Aborting with " << ret << " from dwarf_diename ("
+			//	<< dwarf_errormsg(current_dwarf_error) << ")" << std::endl; 
+			abort();
 		}
 		bool Die::has_attr_here(Dwarf_Half attr) const
 		{
