@@ -132,16 +132,17 @@ namespace dwarf
 			Dwarf_Off file_relative_start_addr; 
 			Dwarf_Unsigned size;
 		};
+		typedef std::function<sym_binding_t(const std::string&, void *)> sym_resolver_t;
 		virtual encap::loclist get_static_location() const;
 		opt<Dwarf_Off> spans_addr(
 			Dwarf_Addr file_relative_addr,
 			root_die& r,
-			sym_binding_t (*sym_resolve)(const std::string& sym, void *arg) = 0, 
+			sym_resolver_t sym_resolve = sym_resolver_t(),
 			void *arg = 0) const;
 		virtual boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned> 
 		file_relative_intervals(
 			root_die& r, 
-			sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
+			sym_resolver_t sym_resolve /* = sym_resolver_t() */,
 			void *arg /* = 0 */) const;
 	};
 

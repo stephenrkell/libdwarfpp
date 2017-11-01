@@ -2357,7 +2357,7 @@ namespace dwarf
 		
 			root_die& r, 
 		
-			sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
+			sym_resolver_t sym_resolve,
 			void *arg /* = 0 */) const
 		{
 			encap::attribute_map attrs = d.copy_attrs();
@@ -2562,7 +2562,7 @@ namespace dwarf
 		opt<Dwarf_Off> // returns *offset within the element*
 		with_static_location_die::spans_addr(Dwarf_Addr file_relative_address,
 			root_die& r, 
-			sym_binding_t (*sym_resolve)(const std::string& sym, void *arg), 
+			sym_resolver_t sym_resolve /* = sym_resolver_t() */,
 			void *arg /* = 0 */) const
 		{
 			// FIXME: cache intervals

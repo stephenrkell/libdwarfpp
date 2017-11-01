@@ -404,7 +404,7 @@ namespace dwarf
 			root_die() : dbg(), visible_named_grandchildren_is_complete(false), p_fs(nullptr),
 				current_cu_offset(0), returned_elf(nullptr) {}
 			root_die(int fd);
-			virtual ~root_die(); 
+			virtual ~root_die();
 		
 			template <typename Iter = iterator_df<> >
 			inline Iter begin(); 
