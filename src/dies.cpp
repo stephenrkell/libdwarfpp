@@ -421,7 +421,7 @@ namespace dwarf
 		}
 		
 		
-		void type_iterator_df_walk::increment(bool skip_dependencies)
+		void type_iterator_base::increment_edgewise(bool skip_dependencies)
 		{
 			// this should be true for a type_iterator_df_walk -- not for other iterators
 			assert(base() == m_stack.back().first);
@@ -714,7 +714,325 @@ namespace dwarf
 		}
 		opt<uint32_t> type_die::summary_code() const
 		{
-			return this->summary_code_using_walk_type();
+			//return this->summary_code_using_walk_type();
+			using lib::Dwarf_Unsigned;
+			using lib::Dwarf_Half;
+			using namespace dwarf::core;
+
+			opt<uint32_t> code_to_return;
+			summary_code_word_t output_word;
+			/* if we have it cached, return that */
+			auto found_cached = get_root().type_summary_code_cache.find(get_offset());
+			if (found_cached != get_root().type_summary_code_cache.end())
+			{
+				return found_cached->second;
+			}
+		
+			/* FIXME: factor this into the various subclass cases. */
+			// we have to find ourselves. :-(
+			auto t = get_root().find(get_offset()).as_a<type_die>();
+			__typeof(t) concrete_t;
+			
+			auto name_for_type_die = [](core::iterator_df<core::type_die> t) -> opt<string> {
+				if (t.is_a<dwarf::core::subprogram_die>())
+				{
+					/* When interpreted as types, subprograms don't have names. */
+					return opt<string>();
+				}
+				else return *t.name_here();
+			};
+			
+			auto type_summary_code = [](core::iterator_df<core::type_die> t) -> opt<uint32_t> {
+				if (!t) return opt<uint32_t>(0);
+				else return t->summary_code();
+			};
+			
+			/* Here we compute a 4-byte hash-esque summary of a data type's 
+			 * definition. The intentions here are that 
+			 *
+			 * binary-incompatible definitions of two types will always
+			   compare different, even if the incompatibility occurs 
+
+			   - in compiler decisions (e.g. bitfield positions, pointer
+			     encoding, padding, etc..)
+
+			   - in a child (nested) object.
+
+			 * structurally distinct definitions will always compare different, 
+			   even if at the leaf level, they are physically compatible.
+
+			 * binary compatible, structurally compatible definitions will compare 
+			   alike iff they are nominally identical at the top-level. It doesn't
+			   matter if field names differ. HMM: so what about nested structures' 
+			   type names? Answer: not sure yet, but easiest is to require that they
+			   match, so our implementation can just use recursion.
+
+			 * WHAT about prefixes? e.g. I define struct FILE with some padding, 
+			   and you define it with some implementation-private fields? We handle
+			   this at the libcrunch level; here we just want to record that there
+			   are two different definitions out there.
+
+			 *
+			 * Consequences: 
+			 * 
+			 * - encode all base type properties
+			 * - encode pointer encoding
+			 * - encode byte- and bit-offsets of every field
+			 */
+			if (!t) { code_to_return = opt<uint32_t>(0); goto out; }
+
+			concrete_t = t->get_concrete_type();
+			if (!concrete_t)
+			{
+				// we got a typedef of void
+				code_to_return = opt<uint32_t>(0); goto out;
+			}
+
+			/* For declarations, if we can't find their definition, we return opt<>(). */
+			if (concrete_t->get_declaration() && *concrete_t->get_declaration())
+			{
+				iterator_df<> found = concrete_t->find_definition();
+				concrete_t = found.as_a<type_die>();
+				if (!concrete_t) 
+				{
+					code_to_return = opt<uint32_t>();
+					goto out;
+				}
+			}
+
+			assert(output_word.val);
+			{
+				Dwarf_Half tag = concrete_t.tag_here();
+				
+				opt<string> maybe_fq_str = concrete_t->get_decl_file() ? concrete_t.enclosing_cu()->source_file_fq_pathname(
+						*concrete_t->get_decl_file()) : opt<string>();
+				
+				std::ostringstream tmp;
+				
+				string fq_pathname_str = maybe_fq_str 
+					? *maybe_fq_str 
+					: concrete_t->get_decl_file() ? 
+						concrete_t.enclosing_cu()->source_file_name(*concrete_t->get_decl_file())
+						: /* okay, give up and use the offset after all */
+							(tmp << std::hex << concrete_t.offset_here(), tmp.str());
+				
+				if (concrete_t.is_a<base_type_die>())
+				{
+					auto base_t = concrete_t.as_a<core::base_type_die>();
+					unsigned encoding = base_t->get_encoding();
+					assert(base_t->get_byte_size());
+					unsigned byte_size = *base_t->get_byte_size();
+					unsigned bit_size = base_t->get_bit_size() ? *base_t->get_bit_size() : byte_size * 8;
+					unsigned bit_offset = base_t->get_bit_offset() ? *base_t->get_bit_offset() : 0;
+					output_word << DW_TAG_base_type << encoding << byte_size << bit_size << bit_offset;
+				} 
+				else if (concrete_t.is_a<enumeration_type_die>())
+				{
+					// shift in the enumeration name
+					if (concrete_t.name_here())
+					{
+						output_word << *name_for_type_die(concrete_t);
+					} else output_word << std::hash<string>()(fq_pathname_str);
+
+					// shift in the names and values of each enumerator
+					auto enum_t = concrete_t.as_a<enumeration_type_die>();
+					auto enumerators = enum_t.children().subseq_of<enumerator_die>();
+					int last_enum_value = -1;
+					for (auto i_enum = enumerators.first; i_enum != enumerators.second; ++i_enum)
+					{
+						output_word << *i_enum->get_name();
+						if (i_enum->get_const_value())
+						{
+							last_enum_value = *i_enum->get_const_value();
+							output_word << last_enum_value;
+						} else output_word << last_enum_value++;
+					}
+
+					// then shift in the base type's summary code
+					if (!enum_t->get_type())
+					{
+						// debug() << "Warning: saw enum with no type" << endl;
+						auto implicit_t = enum_t.enclosing_cu()->implicit_enum_base_type();
+						if (!implicit_t)
+						{
+							debug() << "Warning: saw enum with no type" << endl;
+						} else output_word << type_summary_code(implicit_t);
+					}
+					else
+					{
+						output_word << type_summary_code(enum_t->get_type());
+					}
+				} 
+				else if (concrete_t.is_a<subrange_type_die>())
+				{
+					auto subrange_t = concrete_t.as_a<subrange_type_die>();
+
+					// shift in the name, if any
+					if (concrete_t.name_here())
+					{
+						output_word << *name_for_type_die(concrete_t);
+					} else output_word << std::hash<string>()(fq_pathname_str);
+
+					// then shift in the base type's summary code
+					if (!subrange_t->get_type())
+					{
+						debug() << "Warning: saw subrange with no type" << endl;
+					}
+					else
+					{
+						output_word << type_summary_code(subrange_t->get_type());
+					}
+
+					/* Then shift in the upper bound and lower bound, if present
+					 * NOTE: this means unnamed boundless subrange types have the 
+					 * same code as their underlying type. This is probably what we want. */
+					if (subrange_t->get_upper_bound())
+					{
+						output_word << *subrange_t->get_upper_bound();
+					}
+					if (subrange_t->get_lower_bound())
+					{
+						output_word << *subrange_t->get_lower_bound();
+					}
+				} 
+				else if (concrete_t.is_a<type_describing_subprogram_die>())
+				{
+					auto subp_t = concrete_t.as_a<type_describing_subprogram_die>();
+
+					// shift in the argument and return types
+					auto return_type = subp_t->get_return_type();
+					output_word << type_summary_code(return_type);
+
+					// shift in something to distinguish void(void) from void
+					output_word << "()";
+
+					auto fps = concrete_t.children().subseq_of<formal_parameter_die>();
+					for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
+					{
+						output_word << type_summary_code(i_fp->find_type());
+					}
+
+					if (subp_t->is_variadic())
+					{
+						output_word << "...";
+					}
+				}
+				else if (concrete_t.is_a<address_holding_type_die>())
+				{
+					/* NOTE: actually, we *do* want to pay attention to what the pointer points to, 
+					 * i.e. its contract. BUT there's a problem: recursive data types! For now, we
+					 * use a giant HACK: if we're a pointer to a with-data-members, use only 
+					 * the name. FIXME: can we form cycles using only subprogram types?
+					 * I don't think so but am not sure. */
+					auto ptr_t = concrete_t.as_a<core::address_holding_type_die>();
+					unsigned ptr_size = *ptr_t->calculate_byte_size();
+					unsigned addr_class = ptr_t->get_address_class() ? *ptr_t->get_address_class() : 0;
+					if (addr_class != 0)
+					{
+						switch(addr_class) 
+						{
+							default:
+								assert(false); // nobody seems to use this feature so far
+							/* NOTE: There is also something called DWARF Pointer-Encoding (PEs).
+							   This is a DWARF representation issue, used in frame info, and is not 
+							   something we care about. */
+						}
+					}
+					auto target_t = ptr_t->get_type();
+					if (target_t.is_real_die_position()) target_t = target_t->get_concrete_type();
+					opt<uint32_t> target_code;
+					if (target_t.is_real_die_position() && target_t.is_a<with_data_members_die>())
+					{
+						summary_code_word_t tmp_output_word;
+						// add in the name only
+						if (target_t.name_here())
+						{
+							tmp_output_word << *name_for_type_die(target_t);
+						} else tmp_output_word << std::hash<string>()(fq_pathname_str);
+
+						target_code = *tmp_output_word.val;
+					} else target_code = type_summary_code(target_t);
+					output_word << tag << ptr_size << addr_class << target_code;
+				}
+				else if (concrete_t.is_a<with_data_members_die>())
+				{
+					// add in the name if we have it
+					if (concrete_t.name_here())
+					{
+						output_word << *name_for_type_die(concrete_t);
+					} else output_word << std::hash<string>()(fq_pathname_str);
+
+					// for each member 
+					auto members = concrete_t.children().subseq_of<core::data_member_die>();
+					for (auto i_member = members.first; i_member != members.second; ++i_member)
+					{
+						// skip members that are mere declarations 
+						if (i_member->get_declaration() && *i_member->get_declaration()) continue;
+
+						// calculate its offset
+						opt<Dwarf_Unsigned> opt_offset = i_member->byte_offset_in_enclosing_type();
+						if (!opt_offset)
+						{
+							debug() << "Warning: saw member " << *i_member << " with no apparent offset." << endl;
+							continue;
+						}
+						auto member_type = i_member->get_type();
+						assert(member_type);
+						assert(member_type.is_a<type_die>());
+
+						output_word << (opt_offset ? *opt_offset : 0);
+						// FIXME: also its bit offset!
+
+						output_word << type_summary_code(member_type);
+					}
+				}
+				else if (concrete_t.is_a<array_type_die>())
+				{
+					// if we're a member of something, we should be bounded in all dimensions
+					auto opt_el_type = concrete_t.as_a<array_type_die>()->ultimate_element_type();
+					auto opt_el_count = concrete_t.as_a<array_type_die>()->ultimate_element_count();
+					output_word << (opt_el_type ? type_summary_code(opt_el_type) : opt<uint32_t>())
+						<< (opt_el_count ? *opt_el_count : 0);
+						// FIXME: also the factoring into dimensions needs to be taken into account
+				}
+				else if (concrete_t.is_a<string_type_die>())
+				{
+					// Fortran strings can be fixed-length or variable-length
+					auto opt_dynamic_length = concrete_t.as_a<string_type_die>()->get_string_length();
+					unsigned byte_len;
+					if (opt_dynamic_length)
+					{
+						// treat it as length 0
+						byte_len = 0;
+					}
+					else
+					{
+						auto opt_byte_size = concrete_t.as_a<string_type_die>()->fixed_length_in_bytes();
+						assert(opt_byte_size);
+						byte_len = *opt_byte_size;
+					}
+					output_word << DW_TAG_string_type << byte_len;
+				}
+				else if (concrete_t.is_a<unspecified_type_die>())
+				{
+					debug() << "Warning: saw unspecified type " << concrete_t;
+					output_word.val = opt<uint32_t>();
+				}
+				else 
+				{
+					debug() << "Warning: didn't understand type " << concrete_t;
+				}
+			}
+
+			// pointer-to-incomplete, etc., will still give us incomplete answer
+			assert (!concrete_t || !(output_word.val) || *output_word.val != 0);
+
+			code_to_return = output_word.val; 
+		out:
+			get_root().type_summary_code_cache.insert(
+				make_pair(get_offset(), code_to_return)
+			);
+			return code_to_return;
 		}
 		
 		opt<uint32_t> type_die::summary_code_using_iterators() const
@@ -1199,6 +1517,87 @@ namespace dwarf
 			return arg1 < arg2; // FIXME
 		}){}
 
+		void get_all_sccs(root_die& r)
+		{
+			/* It's not efficient to calculate SCCs piecewise, because large subgraphs
+			 * get computed repeatedly. So... */
+			struct all_type_edges_df_iterator : public type_iterator_base,
+									  public boost::iterator_facade<
+									    type_iterator_df_edges
+									  , type_die
+									  , boost::forward_traversal_tag
+									  , type_die& /* Reference */
+									  , Dwarf_Signed /* difference */
+									  >
+			{
+				typedef all_type_edges_df_iterator self;
+				friend class boost::iterator_core_access;
+				
+				sequence<
+					typename subseq_t< iterator_sibs<basic_die>, is_a_t<type_die> >::transformed_iterator
+				> top_level_sequence;
+				subseq_t< iterator_sibs<basic_die>, is_a_t<type_die> >::transformed_iterator
+					top_level_pos;
+				multimap< iterator_df<type_die>, 
+					pair<iterator_df<program_element_die>, iterator_df<type_die> > > reverse_edges;
+				
+				all_type_edges_df_iterator(const iterator_sibs<compile_unit_die>& cu)
+				 : top_level_sequence(cu.children().subseq_of<type_die>()),
+				   top_level_pos(top_level_sequence.first, top_level_sequence.second)
+				{
+					base_reference() = top_level_sequence.first;
+					m_reason = END;
+				}
+				all_type_edges_df_iterator(iterator_sibs<compile_unit_die>&& cu)
+				 : top_level_sequence(std::move(cu).children().subseq_of<type_die>()),
+				   top_level_pos(top_level_sequence.first, top_level_sequence.second)
+				{
+					top_level_pos = top_level_sequence.first;
+					base_reference() = top_level_sequence.first;
+					m_reason = END;
+				}
+				all_type_edges_df_iterator(const self& arg)
+				 : type_iterator_base(arg), top_level_sequence(arg.top_level_sequence),
+				 	top_level_pos(arg.top_level_pos)
+				{}
+				all_type_edges_df_iterator(self&& arg)
+				 : type_iterator_base(std::move(static_cast<type_iterator_base&&>(arg))),
+				   top_level_sequence(arg.top_level_sequence),
+				   top_level_pos(arg.top_level_pos)
+				{}
+
+				void increment()
+				{
+					/* We also want to maintain a reverse adjacency list representation
+					 * of the entire type graph. We can then use this to compute
+					 * strongly connected components. */
+				
+					this->increment_edgewise(false);
+					if (base() == END)
+					{
+						// move on to the next
+						++top_level_pos;
+						if (top_level_pos)
+						{
+							base_reference() = top_level_pos;
+							m_reason = END;
+						}
+						else
+						{
+							/* We've hit the end. Use the reverse-reachability info to
+							 * compute all the SCCs. */
+						}
+					}
+				}
+			};
+			
+			auto cu_seq = r.children();
+			for (auto i_cu = cu_seq.first; i_cu != cu_seq.second; ++i_cu)
+			{
+				all_type_edges_df_iterator i_cu_edges(std::move(i_cu));
+				while (i_cu_edges) ++i_cu_edges;
+			}
+		}
 		
 		opt<type_scc_t> type_die::get_scc() const
 		{
@@ -1221,11 +1620,29 @@ namespace dwarf
 			// cheque the cache. we might have a null pointer cached, meaning "not cyclic"
 			if (opt_cached_scc) return *opt_cached_scc ? **opt_cached_scc : opt<type_scc_t>();
 			
-			bool saw_cycle_directly_including_start_node = false;
-			auto start_t = find_self();
-			vector<pair<iterator_df<type_die>, iterator_df<program_element_die> > > last_move_back_edges;
+			assert(opt_cached_scc);
+			return *opt_cached_scc ? **opt_cached_scc : opt<type_scc_t>();
 			
-			vector< type_scc_t > back_edge_cycles;
+			auto start_t = find_self();
+			get_all_sccs(start_t.root());
+			
+			/* Since we are committed to doing a full depth-first exploration of the type graph
+			 * from our current position, the efficient thing is to compute *all* SCCs that
+			 * are reachable from the start position. Then, even if we find that *we* are
+			 * not part of any cycle/SCC, we might cache some SCCs in other type_dies that
+			 * we find that *are* in cycles.
+			 *
+			 * We collect a bunch of cycles,
+			 * then
+			 * for each node that participates in any cycle,
+			 * we compute its SCC
+			 * by recursively combining cycles until a fixed point. */
+			
+			typedef type_scc_t::value_type edge_t;
+			/* We store cycles as vectors
+			 * where the first edge's source is the last edge's target. */
+			typedef vector<edge_t> cycle_t;
+			vector< cycle_t > reached_cycles;
 			multimap< iterator_df<type_die>, unsigned > cycles_by_participating_node;
 			
 			/* Once we've computed these, we elaborate the set of edges in the SCC,
@@ -1236,12 +1653,35 @@ namespace dwarf
 			debug_expensive(5, << "Starting SCC search at: " << start_t.summary()
 				<< " (type_die object at " << dynamic_cast<const basic_die *>(&start_t.dereference())
 				<< ", sanity check: " << dynamic_cast<const basic_die *>(this) << ")" << std::endl);
+			
+			auto add_edge = [&cycles_by_participating_node](cycle_t& cycle, unsigned idx, const edge_t& edge) {
+				cycle.push_back(edge);
+
+				cycles_by_participating_node.insert(make_pair(
+					edge.first.first, idx
+				));
+				cycles_by_participating_node.insert(make_pair(
+					edge.second, idx
+				));
+			};
+			
+			/* HMM. We might be better off defining a new iterator that is like
+			 * DFS but expands the dag into a tree, i.e. visits non-back edges
+			 * multiple times, once for every path from the start node.
+			 * That seems to blow up the exploration unnecessarily... but
+			 * without that, we need a reliable way of adding all cycles when
+			 * we see a cross-edge.
+			 *
+			 * If we see a cross-edge, we can reach any cycle that is reachable
+			 * from its target. Hmm. */
+			
 			for (type_iterator_df_edges i_edge = start_t; i_edge; ++i_edge)
 			{
 				/* REMEMBER: type iterators are allowed to walk the "no DIE" (void) case,
 				 * so we might have END here. */
 				debug_expensive(5, << "Walk reached: " << i_edge.summary()
 					<< "; reason: " << i_edge.reason().summary());
+				auto edge = i_edge.as_incoming_edge();
 				
 				switch (i_edge.incoming_edge_kind())
 				{
@@ -1250,6 +1690,221 @@ namespace dwarf
 						break;
 					case type_iterator_base::CROSS:
 						debug_expensive(5, << "; edge CROSS" << std::endl);
+						/* When we hit a cross edge A -> B, it means
+						 *
+						 * For any cycle involving the target T of the cross edge
+						 * *and* any vertex V on the current tree path,
+						 * there is a cycle that includes
+						 * the current tree path from V onwards
+						 * the cycle's nodes, from T to V.
+						 * We choose the *earliest* such vertex on the tree path
+						 * to get the biggest cycle.
+						 */
+						{
+							iterator_df<type_die>& cross_edge_source = edge.first.first;
+							iterator_df<type_die>& cross_edge_target = edge.second;
+							iterator_df<program_element_die>& cross_edge_reason = edge.first.second;
+							auto cycles_involving_target = cycles_by_participating_node.equal_range(cross_edge_target);
+							std::set<unsigned> cycle_idxs_involving_target;
+							for (auto i_cyc = cycles_involving_target.first;
+								i_cyc != cycles_involving_target.second; ++i_cyc)
+							{
+								debug(5) << "Cycle involving cross-edge target: " << i_cyc->second
+									<< std::endl;
+								cycle_idxs_involving_target.insert(i_cyc->second);
+							}
+							
+							/* Go along the tree-edge nodes. If any of the cycles involves
+							 * that node, we have a new cycle to add.
+							 
+							 * Might we get an infinite loop here? If we add a cycle
+							 * that also shows up in later tree-edges' intersections,
+							 * i.e. if we have two cross-edges to the same subtree...
+							 
+                                         o
+                                        / \
+                                       o   o
+                                     ...    \
+                                             o
+                                      cross-' \
+                                               o
+                                        cross-'
+							
+							 * ... where the target of the cross-edge is the same in both cases,
+							 * then the first one of these will add a bunch of cycles
+							 * that also get picked up second time around, because they involve
+							 * the same cross-edge node and hit the current tree edges.
+							 * Can we skip any of these?
+							 */
+							
+							/* We want to remember only the cycles involving *any* 
+							 * of our tree nodes, and the highest one they reach. */
+							map<unsigned, decltype(i_edge.m_stack)::const_iterator > cycles_and_tree_edges;
+							set<unsigned> cycles_involved;
+							for (auto i_tree_edge = i_edge.m_stack.begin();
+								i_tree_edge != i_edge.m_stack.end();
+								++i_tree_edge)
+							{
+								auto tree_edge_source = i_edge.source_vertex_for(
+									i_tree_edge->first, i_tree_edge->second
+								);
+								if (!tree_edge_source) continue; // it's the fake initial edge
+								auto& tree_edge_target = i_tree_edge->first;
+								auto& tree_edge_reason = i_tree_edge->second;
+
+								auto cycles_involving_tree_source = cycles_by_participating_node.equal_range(tree_edge_source);
+								for (auto i_cyc = cycles_involving_tree_source.first;
+									i_cyc != cycles_involving_tree_source.second; ++i_cyc)
+								{
+									debug(5) << "Cycle involving a tree-edge source: " << i_cyc->second
+										<< std::endl;
+									if (cycle_idxs_involving_target.find(i_cyc->second)
+										!= cycle_idxs_involving_target.end())
+									{
+										auto iter_and_inserted = cycles_involved.insert(i_cyc->second);
+										auto& inserted = iter_and_inserted.second;
+										if (inserted)
+										{
+											cycles_and_tree_edges.insert(make_pair(i_cyc->second,
+												i_tree_edge));
+// 												edge_t(
+// 													make_pair(
+// 														i_edge.source_vertex_for(
+// 															i_tree_edge->first
+// 														),
+// 														i_tree_edge->second
+// 													),
+// 													i_tree_edge->first
+// 												)
+// 											));
+										}
+									}
+								}
+							}
+							
+							/* Now we know which cycles matter. We remembered the highest
+							 * tree node in each case. */
+							if (cycles_involved.size() > 0 )
+							{
+								debug_expensive(5, << "We think this cross edge forms " 
+									<< cycles_involved.size()
+									<< " new cycles, based on idxs {");
+								for (auto i_idx = cycles_involved.begin();
+									i_idx != cycles_involved.end(); ++i_idx)
+								{
+									if (i_idx != cycles_involved.begin()) debug_expensive(5, << ",");
+									debug_expensive(5, << *i_idx);
+								}
+								debug_expensive(5, << "}" << std::endl);
+							}
+								
+							for (auto i_cyc_pair = cycles_and_tree_edges.begin();
+								i_cyc_pair != cycles_and_tree_edges.end();
+								++i_cyc_pair)
+							{
+								debug_expensive(5, << "New cycle " << reached_cycles.size()
+									<< " based on cycle " << i_cyc_pair->first << std::endl);
+
+								/* We have a new cycle that involves 
+								 * - the current tree path from V onwards;
+								 * - the cycle's nodes, from T to V.
+								 */
+								cycle_t& existing_cycle = reached_cycles.at(i_cyc_pair->first);
+								cycle_t new_cycle;
+								unsigned new_idx = reached_cycles.size();
+								auto tree_edge_source = i_edge.source_vertex_for(i_cyc_pair->second->first,
+									i_cyc_pair->second->second);
+								for (auto i_tree_edge_to_add = i_cyc_pair->second;
+									i_tree_edge_to_add != i_edge.m_stack.end();
+									++i_tree_edge_to_add)
+								{
+									auto tree_edge_to_add_source = i_edge.source_vertex_for(
+										i_tree_edge_to_add->first, i_tree_edge_to_add->second
+									);
+									if (!tree_edge_to_add_source) continue; // it's the fake initial edge
+									auto& tree_edge_to_add_target = i_tree_edge_to_add->first;
+									auto& tree_edge_to_add_reason = i_tree_edge_to_add->second;
+									debug_expensive(5, << "Tree edge "
+										<< tree_edge_to_add_source.summary()
+										<< " --> "
+										<< tree_edge_to_add_target.summary()
+										<< std::endl
+									);
+									type_edge new_e(
+										make_pair(
+											/* source */ iterator_df<type_die>(
+												tree_edge_to_add_source
+											),
+											/* reason */ iterator_df<program_element_die>(
+												tree_edge_to_add_reason
+											)
+										),
+										/* target */ iterator_df<type_die>(
+											tree_edge_to_add_target
+										)
+									);
+									add_edge(new_cycle, new_idx, new_e);
+								}
+								/* Add the cross edge. */
+								debug_expensive(5, << "Cross edge "
+									<< cross_edge_source.summary()
+									<< " --> "
+									<< cross_edge_target.summary()
+									<< std::endl
+								);
+								type_edge c_e(
+									make_pair(
+										/* source */ iterator_df<type_die>(cross_edge_source),
+										/* reason */ iterator_df<program_element_die>(cross_edge_reason)
+									),
+									/* target */ iterator_df<type_die>(cross_edge_target)
+								);
+								add_edge(new_cycle, new_idx, c_e);
+								/* Add the existing cycle's edges from the cross-edge target...
+								 * We start with the edge whose source is the cross-edge
+								 * target. */
+								auto found = std::find_if(existing_cycle.begin(),
+									existing_cycle.end(),
+									[cross_edge_target](const edge_t & e) -> bool {
+										return e.source() == cross_edge_target;
+									});
+								for (auto i_cyc_edge = std::move(found);
+										/* The last one we do should have a *target*
+										 * of the tree edge source. So stop if our source
+										 * is the tree edge source. */
+										i_cyc_edge->source() != i_edge.source_vertex_for(
+										i_cyc_pair->second->first, i_cyc_pair->second->second
+										);
+										/* increment with wraparoud */
+										((unsigned)(i_cyc_edge - existing_cycle.begin()) < existing_cycle.size() - 1u)
+											? ++i_cyc_edge
+											: (i_cyc_edge = existing_cycle.begin()))
+								{
+									debug_expensive(5, << "Existing cycle edge "
+										<< i_cyc_edge->source().summary()
+										<< " --> "
+										<< i_cyc_edge->target().summary()
+										<< std::endl
+									);
+									type_edge new_e(
+										make_pair(
+											/* source */ iterator_df<type_die>(i_cyc_edge->source()),
+											/* reason */ iterator_df<program_element_die>(
+												i_cyc_edge->label()
+											)
+										),
+										/* target */ iterator_df<type_die>(i_cyc_edge->target())
+									);
+									add_edge(new_cycle, new_idx, new_e);
+								}
+								// check the vector invariant on edges
+								assert(new_cycle.size() > 0);
+								assert(new_cycle.begin()->source() == new_cycle.rbegin()->target());
+								// give this cycle its identity
+								reached_cycles.push_back(new_cycle);
+								assert(reached_cycles.size() == new_idx + 1);
+							} // end for each cycle in common
+						} // end case block
 						break;
 					case type_iterator_base::BACK:
 						debug_expensive(5, << "; edge BACK" << std::endl);
@@ -1272,28 +1927,17 @@ namespace dwarf
 						 * we're not cyclic and can skip the remaining SCC calculation stuff. */
 						// is this a back-edge reaching back to the root?
 						/* back edges are (target, reason) */
-						auto edge = i_edge.as_incoming_edge();
 						/* general edges are ((source, reason), target). */
 						iterator_df<type_die>& back_edge_source = edge.first.first;
 						iterator_df<type_die>& back_edge_target = edge.second;
 						iterator_df<program_element_die>& back_edge_reason = edge.first.second;
 						debug_expensive(5, << "Back edge: from " << back_edge_source.summary() << " to "
 							<< back_edge_target.summary() << std::endl);
-						bool this_cycle_includes_start_node = (back_edge_target == start_t);
-						saw_cycle_directly_including_start_node |= this_cycle_includes_start_node;
 						
 						/* Build the cycle we're currently forming, and give it an index. */
-						type_scc_t s;
-						unsigned idx = back_edge_cycles.size();
+						cycle_t cycle;
+						unsigned idx = reached_cycles.size();
 						debug_expensive(5, << "Recording a new cycle (may or may not involve start node), idx " << idx << std::endl);
-						s.insert(edge);
-						
-						cycles_by_participating_node.insert(make_pair(
-							back_edge_source, idx
-						));
-						cycles_by_participating_node.insert(make_pair(
-							back_edge_target, idx
-						));
 						/* Stacks are (target, reason). 
 						 * All the tree edges are also in the cycle. Or are they?
 						 * Only if we've seen the back-edge's target node
@@ -1368,24 +2012,23 @@ namespace dwarf
 							{
 								debug_expensive(5, << "yes" << std::endl);
 								/* This tree edge is in the cycle. */
-								type_edge new_e(
+								edge_t new_e(
 									make_pair(
 										/* source */ iterator_df<type_die>(tree_edge_source),
 										/* reason */ iterator_df<program_element_die>(tree_edge_reason)
 									),
 									/* target */ iterator_df<type_die>(tree_edge_target)
 								);
-								s.insert(new_e);
-								cycles_by_participating_node.insert(make_pair(
-									tree_edge_source, idx
-								));
-								cycles_by_participating_node.insert(make_pair(
-									tree_edge_target, idx
-								));
-							} else debug() << "no" << std::endl;
+								add_edge(cycle, idx, new_e);
+							} else { debug_expensive(5, << "no" << std::endl); }
 						}
+						add_edge(cycle, idx, edge); // add the back edge
+						// check the vector invariant on edges
+						assert(cycle.size() > 0);
+						assert(cycle.begin()->source() == cycle.rbegin()->target());
 						// give this cycle its identity
-						back_edge_cycles.push_back(s);
+						reached_cycles.push_back(cycle);
+						assert(reached_cycles.size() == idx + 1);
 						break;
 				}
 			} // end while i_t
@@ -1408,7 +2051,7 @@ namespace dwarf
 				{
 					idxs.insert(i_pair->second);
 				}
-				auto print_cycle = [](const type_scc_t& cycle, unsigned n) -> void {
+				auto print_cycle = [](const cycle_t& cycle, unsigned n) -> void {
 					debug_expensive(5, << "- cycle " << n << ":" << std::endl);
 					for (auto i_e = cycle.begin(); i_e != cycle.end(); ++i_e)
 					{
@@ -1421,32 +2064,32 @@ namespace dwarf
 				for (auto i_i = idxs.begin(); i_i != idxs.end(); ++i_i)
 				{
 					unsigned i = *i_i;
-					auto& cycle = back_edge_cycles.at(i);
+					auto& cycle = reached_cycles.at(i);
 					print_cycle(cycle, i);
 				}
 				debug_expensive(5, << "While walking, we found the following other cycles:"
 					<< std::endl);
-				for (unsigned i = 0; i < back_edge_cycles.size(); ++i)
+				for (unsigned i = 0; i < reached_cycles.size(); ++i)
 				{
 					if (idxs.find(i) != idxs.end()) continue;
 					
-					auto& cycle = back_edge_cycles.at(i);
+					auto& cycle = reached_cycles.at(i);
 					print_cycle(cycle, i);
 				}
 			}
 			/* Okay, so we did see a cycle including the start node.
 			 * Elaborate the SCC by coalecing all cycles. */
-			vector<bool> done(back_edge_cycles.size(), false);
+			vector<bool> done(reached_cycles.size(), false);
 			shared_ptr<type_scc_t> p_scc = std::make_shared<type_scc_t>();
 			debug_expensive(5, << "Created a shared SCC structure at " << p_scc.get() << std::endl);
 			type_scc_t& scc = *p_scc;
 			std::function<void(unsigned)> transitively_add_cycle_n;
 			transitively_add_cycle_n = [&done, &transitively_add_cycle_n,
-				cycles_by_participating_node, &back_edge_cycles, &scc]
+				cycles_by_participating_node, &reached_cycles, &scc]
 			(unsigned n) -> void {
 				if (done[n]) return;
 				done[n] = true;
-				type_scc_t& cur = back_edge_cycles.at(n);
+				cycle_t& cur = reached_cycles.at(n);
 				for (auto i_e = cur.begin(); i_e != cur.end(); ++i_e)
 				{
 					debug_expensive(5, << "Adding edge: "

@@ -76,7 +76,7 @@ namespace dwarf
 		template <typename Iter> 
 		struct sequence : public pair<Iter, Iter>
 		{
-			typedef pair<Iter, Iter> base; 
+			typedef pair<Iter, Iter> base;
 			sequence(pair<Iter, Iter>&& arg) : base(std::move(arg)) {}
 			sequence(const pair<Iter, Iter>& arg) : base(arg) {}
 
@@ -372,7 +372,7 @@ namespace dwarf
 			
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
 			map<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
-			
+			map<Dwarf_Off, opt<uint32_t> > type_summary_code_cache; // FIXME: delete this after summary_code() uses SCCs
 			opt<Dwarf_Off> synthetic_cu;
 
 			multimap<string, Dwarf_Off> visible_named_grandchildren_cache;

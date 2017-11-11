@@ -295,6 +295,8 @@ struct type_edge : public pair< pair<iterator_df<type_die>, iterator_df<program_
 	iterator_df<type_die>& source() { return first.first; }
 	const iterator_df<program_element_die>& label() const { return first.second; }
 	iterator_df<program_element_die>& label() { return first.second; }
+	const iterator_df<program_element_die>& reason() const { return first.second; }
+	iterator_df<program_element_die>& reason() { return first.second; }
 	const iterator_df<type_die>& target() const { return second; }
 	iterator_df<type_die>& target() { return second; }
 };
@@ -470,6 +472,8 @@ public:
 	 /* What about a nice interface to back edges and cross edges?
 	  * Since the edge iterator will follow these -- it just won't
 	  * push them on the stack -- we don't need a separate interface. */
+	
+	void increment_edgewise(bool skip_dependencies = false);
 };
 
 /* The idea of this one is simply to do the same thing as walk_type,
@@ -488,8 +492,8 @@ struct type_iterator_df_walk :  public type_iterator_base,
 
 	using type_iterator_base::type_iterator_base;
 	
-	void increment(bool skip_dependencies = false);
-	void increment_skipping_dependencies() { return increment(true); }
+	void increment(bool skip_dependencies = false) { increment_edgewise(skip_dependencies); }
+	void increment_skipping_dependencies() { increment(true); }
 };
 
 struct type_iterator_df_edges : public type_iterator_base,
