@@ -15,7 +15,7 @@ int main(int argc, char **argv)
 	using std::cerr;
 	using std::endl;
 	
-	std::ifstream in(argv[0]);
+	std::ifstream in(argv[1]);
 	root_die root(fileno(in));
 	
 	/* Compute all SCCs for all type DIEs */
