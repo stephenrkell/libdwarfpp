@@ -6,7 +6,7 @@ CONTRIB_ROOT := $(realpath $(dir $(THIS_MAKEFILE)))
 # - libsrk31c++
 
 default: env.sh config.mk \
-build-libsrk31c++ build-libc++fileno
+build-libsrk31c++ build-libc++fileno build-libdwarf
 
 .PHONY: clean default
 
@@ -48,12 +48,32 @@ clean::
 CONFIG_MK += \nLIBSRK31CXX_CXXFLAGS += -I$(CONTRIB_ROOT)/libsrk31c++/include\n
 CONFIG_MK += \nLIBSRK31CXX_LIBS += -L$(CONTRIB_ROOT)/libsrk31c++/lib -Wl,-rpath,$(CONTRIB_ROOT)/libsrk31c++/lib -lsrk31c++\n
 
+# ----------------------------libdwarf
+.PHONY: build-libdwarf
+build-libdwarf: libdwarf/config.status
+	$(MAKE) -C libdwarf
+	cd libdwarf/prefix && mkdir lib && cd lib && ln -s ../../libdwarf/libdwarf.a .
+	cd libdwarf/prefix && mkdir bin && cd bin && ln -s ../../dwarfdump/dwarfdump .
+	cd libdwarf/prefix && mkdir include && cd include && ln -s ../../libdwarf/libdwarf.h ../../libdwarf/dwarf.h .
+
+libdwarf/config.status:
+	cd libdwarf && mkdir -p prefix && CFLAGS=-g ./configure --prefix=`pwd`/prefix
+
+# if we clean in libdwarf, we become unbuildable, so also rm config.status
+clean::
+	rm -rf libdwarf/prefix/*
+	$(MAKE) -C libdwarf clean
+	rm -f libdwarf/config.status
+
+CONFIG_MK += \nLIBDWARF_CFLAGS += -I$(CONTRIB_ROOT)/libdwarf/prefix/include\n
+CONFIG_MK += \nLIBDWARF_LIBS += -L$(CONTRIB_ROOT)/libdwarf/prefix/lib -ldwarf\n
 
 # ----------------------------config.mk
 
 varlist := CXXFLAGS CPPFLAGS CFLAGS LDFLAGS \
 LIBCXXFILENO_CXXFLAGS LIBCXXFILENO_LIBS \
-LIBSRK31CXX_CXXFLAGS LIBSRK31CXX_LIBS
+LIBSRK31CXX_CXXFLAGS LIBSRK31CXX_LIBS \
+LIBDWARF_CFLAGS LIBDWARF_LIBS
 
 CONFIG_MK += \n\nenv.sh:\n\tprintf '"'"'$(foreach var,$(varlist),export $(var)="$$($(var))"; )'"'"' >"$$@" || (rm -f "$$@"; false)
 
@@ -62,3 +82,6 @@ config.mk:
 
 env.sh: config.mk
 	$(MAKE) -f "$<" "$@"
+
+clean::
+	rm -f config.mk env.sh

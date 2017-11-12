@@ -39,8 +39,21 @@ AC_ARG_WITH([libdwarf-includes],
                         AC_MSG_ERROR(--with-libdwarf-includes expected directory name)
                 fi
             ],
-            [ac_libdwarf_includes=/usr/include])
+            [ac_libdwarf_includes=$(realpath $srcdir)/contrib/libdwarf/prefix/include])
+AC_ARG_WITH([libdwarf-libs],
+            [AS_HELP_STRING([--with-libdwarf-libs=DIR],
+              [where to find libdwarf.a])],
+            [
+                if test -d "$withval"
+                then
+                        ac_libdwarf_libs="$withval"
+                else
+                        AC_MSG_ERROR(--with-libdwarf-libs expected directory name)
+                fi
+            ],
+            [ac_libdwarf_libs=$(realpath $srcdir)/contrib/libdwarf/prefix/lib])
 
+AC_SUBST([libdwarf_libs], [$ac_libdwarf_libs])
 AC_SUBST([libdwarf_includes], [$ac_libdwarf_includes])
 AC_CHECK_HEADERS([$ac_libdwarf_includes/dwarf.h $ac_libdwarf_includes/libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h (looked in $ac_libdwarf_includes)])])
 CFLAGS="-I$libdwarf_includes $CFLAGS"

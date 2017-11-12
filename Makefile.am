@@ -64,6 +64,10 @@ include/dwarfpp/dwarf-current-factory.h: spec/gen-factory-cpp.py spec/dwarf_curr
 include/libdwarf.h: $(libdwarf_includes)/libdwarf.h
 	(cd $(dir $@) && ln -s "$(realpath $<)" "$(notdir $@)" )
 
+# ditto for libdwarf.a
+lib/libdwarf.a: $(libdwarf_libs)/libdwarf.a
+	(cd $(dir $@) && ln -s "$(realpath $<)" "$(notdir $@)" )
+
 lib/libdwarfpp.so: $(lib_LTLIBRARIES)
 	mkdir -p lib && cd lib && ln -sf ../src/.libs/libdwarfpp.so .
 

@@ -4,4 +4,6 @@
 [submodule "contrib/libsrk31c++"]
     path = contrib/libsrk31c++
     url = git://github.com/stephenrkell/libsrk31cxx.git
-
+[submodule "contrib/libdwarf"]
+    path = contrib/libdwarf
+    url = git://github.com/stephenrkell/libdwarf.git
