@@ -26,7 +26,16 @@ namespace dwarf
 		
 		opt<std::string> compile_unit_die::source_file_fq_pathname(unsigned o) const
 		{
-			string filepath = source_file_name(o);
+			string filepath;
+			try
+			{
+				filepath = source_file_name(o);
+			} catch (dwarf::lib::Error e)
+			{
+				debug() << "Warning: source_file_name threw libdwarf error: "
+					<< dwarf_errmsg(current_dwarf_error) << std::endl;
+				return opt<string>();
+			}
 			opt<string> maybe_dir = this->get_comp_dir();
 			if (filepath.length() > 0 && filepath.at(0) == '/') return opt<string>(filepath);
 			else if (!maybe_dir) return opt<string>();
