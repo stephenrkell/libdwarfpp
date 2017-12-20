@@ -651,12 +651,18 @@ namespace dwarf
 				 * - move to the next sibling if there is one, 
 				 *   enqueueing first child (if there is one);
 				 * - else take from the queue, if non empty
-				 * - else fail (terminated)
+				 * - else fail (terminated).
+				 * PROBLEM: this model of breadth-first traversal
+				 * has counterintuitive behaviour when we start BFS
+				 * at a non-root node that has siblings.
+				 * We won't bfs-explore its subtree (initially);
+				 * we'll go straight towards its siblings.
+				 * We define increment_skipping_siblings() for this.
 				 */
 				auto first_child = get_root().first_child(this->base_reference()); 
 				//   ^-- might be END
 				
-				// we ALWAYS enqueue the first child
+				// we ALWAYS enqueue the first child if there is one
 				if (first_child != iterator_base::END) m_queue.push_back(first_child);
 				
 				if (get_root().move_to_next_sibling(this->base_reference()))
@@ -675,6 +681,23 @@ namespace dwarf
 					{
 						this->base_reference() = iterator_base::END;
 					}
+				}
+			}
+			void increment_skipping_siblings()
+			{
+				auto first_child = get_root().first_child(this->base_reference()); 
+				//   ^-- might be END
+				// we ALWAYS enqueue the first child if there is one
+				if (first_child != iterator_base::END) m_queue.push_back(first_child);
+				// no more siblings; use the queue
+				if (m_queue.size() > 0)
+				{
+					this->base_reference() = m_queue.front();
+					m_queue.pop_front();
+				}
+				else
+				{
+					this->base_reference() = iterator_base::END;
 				}
 			}
 			
