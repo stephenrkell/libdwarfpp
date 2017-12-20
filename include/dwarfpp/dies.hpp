@@ -806,6 +806,7 @@ iterator_df<type_die> implicit_enum_base_type() const; \
 mutable iterator_df<type_die> cached_implicit_subrange_base_type; \
 iterator_df<type_die> implicit_subrange_base_type() const; \
 encap::rangelist normalize_rangelist(const encap::rangelist& rangelist) const; \
+bool is_generic_pointee_type(iterator_df<type_die> t) const; \
 friend class iterator_base; \
 friend class factory; 
 

@@ -185,8 +185,6 @@ namespace dwarf
 			return t.is_a<string_type_die>()
 				&& t.as_a<string_type_die>()->fixed_length_in_bytes() == fixed_length_in_bytes()
 				/* FIXME: element size/count */;
-					unsigned element_size = 1; /* FIXME: always 1? */
-					auto opt_byte_size = fixed_length_in_bytes();
 		}
 		bool set_type_die::abstractly_equals(iterator_df<type_die> t) const
 		{
@@ -2329,9 +2327,12 @@ namespace dwarf
 		string
 		base_type_die::get_canonical_name() const
 		{
-			return canonical_name_for(find_self().enclosing_cu().spec_here(),
+			if (get_encoding()) return canonical_name_for(find_self().enclosing_cu().spec_here(),
 				get_encoding(), *get_byte_size(),
 				bit_size_and_offset().first, bit_size_and_offset().second);
+			// FIXME: this is a liballocs-ism that shouldn't be in here -- push it to our
+			// caller
+			else return "__uninterpreted_byte";
 		}
 /* from ptr_to_member_type_die */
 		bool ptr_to_member_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
@@ -3857,6 +3858,26 @@ namespace dwarf
 				}
 			}
 			return retval;
+		}
+
+		bool compile_unit_die::is_generic_pointee_type(iterator_df<type_die> t) const
+		{
+			switch(get_language())
+			{
+				/* See DWARF 3 sec. 5.12! */
+				case DW_LANG_C:
+				case DW_LANG_C89:
+				case DW_LANG_C_plus_plus:
+				case DW_LANG_C99:
+					return (!t || (t.is_a<unspecified_type_die>() && 
+								(!t.name_here() || *t.name_here() == "void")))
+						|| (t.is_a<base_type_die>() &&
+							t.as_a<base_type_die>()->get_byte_size() == 1 &&
+							(t.as_a<base_type_die>()->get_encoding() == DW_ATE_signed_char
+							|| t.as_a<base_type_die>()->get_encoding() == DW_ATE_unsigned_char));
+				default:
+					return opt<Dwarf_Unsigned>();
+			}
 		}
 
 		opt<Dwarf_Unsigned> compile_unit_die::implicit_array_base() const
