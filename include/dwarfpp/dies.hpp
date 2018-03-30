@@ -317,10 +317,9 @@ struct type_edge : public pair< pair<iterator_df<type_die>, iterator_df<program_
  * to any node; and we have type_iterator_edge_df which will visit
  * the same node as many times as there are distinct-labelled incoming
  * edges to it. */
-
-struct type_iterator_base : public iterator_base
+struct type_iterator_df_base : public iterator_base
 {
-	typedef type_iterator_base self;
+	typedef type_iterator_df_base self;
 	friend class boost::iterator_core_access;
 
 	/* The stack records the grey nodes. The back of the stack
@@ -346,15 +345,15 @@ struct type_iterator_base : public iterator_base
 	const iterator_base& base() const
 	{ return static_cast<const iterator_base&>(*this); }
 
-	type_iterator_base() : iterator_base() {}
-	type_iterator_base(const iterator_base& arg)
-	 : iterator_base(arg)   { m_stack.push_back(make_pair(base(), END)); }// this COPIES so avoid
-	type_iterator_base(iterator_base&& arg)
-	 : iterator_base(arg)   { m_stack.push_back(make_pair(base(), END)); } // FIXME: use std::move here, and test
-	type_iterator_base(const self& arg)
+	type_iterator_df_base() : iterator_base() {}
+	type_iterator_df_base(const iterator_base& arg)
+	 : iterator_base(arg)   {}// this COPIES so avoid
+	type_iterator_df_base(iterator_base&& arg)
+	 : iterator_base(std::move(arg)) {} // FIXME: use std::move here, and test
+	type_iterator_df_base(const self& arg)
 	 : iterator_base(arg), m_stack(arg.m_stack),
 	   black_offsets(arg.black_offsets), m_reason(arg.m_reason) {}
-	type_iterator_base(self&& arg)
+	type_iterator_df_base(self&& arg)
 	 : iterator_base(arg), m_stack(std::move(arg.m_stack)),
 	   black_offsets(std::move(arg.black_offsets)), m_reason(std::move(arg.m_reason)) {}
 
@@ -386,19 +385,17 @@ struct type_iterator_base : public iterator_base
 	{ return is_black(i) ? BLACK : is_grey(i) ? GREY : WHITE; }
 	colour pos_colour() const { return colour_of(base()); }
 
-	self& operator=(const iterator_base& arg) // assign fresh from an iterator
+	self& operator=(const iterator_base& arg) // assign fresh from an iterator; starts white
 	{ this->base_reference() = arg; 
-	  while (!this->m_stack.empty()) this->m_stack.pop_back(); // clear the stack
+	  m_stack.clear();
 	  this->black_offsets.clear(); // = std::move(std::set<Dwarf_Off>());
 	  this->m_reason = END;
-	  this->m_stack.push_back(make_pair(base(), END));
 	  return *this; }
 	self& operator=(iterator_base&& arg)
 	{ this->base_reference() = std::move(arg); 
-	  while (!this->m_stack.empty()) this->m_stack.pop_back();
+	  m_stack.clear();
 	  black_offsets.clear(); // = std::move(std::set<Dwarf_Off>());
 	  this->m_reason = END;
-	  this->m_stack.push_back(make_pair(base(), END));
 	  return *this; }
 	self& operator=(const self& arg)
 	{ self tmp(arg); 
@@ -473,12 +470,15 @@ public:
 	  * Since the edge iterator will follow these -- it just won't
 	  * push them on the stack -- we don't need a separate interface. */
 	
-	void increment_edgewise(bool skip_dependencies = false);
+	void increment_not_back(bool skip_dependencies = false);
+	
+	void increment_to_unseen_edge();
+	void increment_to_unseen_node();
 };
 
 /* The idea of this one is simply to do the same thing as walk_type,
  * for better or worse. */
-struct type_iterator_df_walk :  public type_iterator_base,
+struct type_iterator_df_walk :  public type_iterator_df_base,
 								public boost::iterator_facade<
 								   type_iterator_df_walk
 								 , type_die
@@ -490,13 +490,13 @@ struct type_iterator_df_walk :  public type_iterator_base,
 	typedef type_iterator_df_walk self;
 	friend class boost::iterator_core_access;
 
-	using type_iterator_base::type_iterator_base;
+	using type_iterator_df_base::type_iterator_df_base;
 	
-	void increment(bool skip_dependencies = false) { increment_edgewise(skip_dependencies); }
+	void increment(bool skip_dependencies = false) { increment_not_back(skip_dependencies); }
 	void increment_skipping_dependencies() { increment(true); }
 };
 
-struct type_iterator_df_edges : public type_iterator_base,
+struct type_iterator_df_edges : public type_iterator_df_base,
 						  public boost::iterator_facade<
 							type_iterator_df_edges
 						  , type_die
@@ -513,10 +513,108 @@ struct type_iterator_df_edges : public type_iterator_base,
 	type_iterator_df_edges(iterator_base&& arg)
 	{ base_reference() = std::move(arg); m_reason = END; }
 	type_iterator_df_edges(const self& arg)
-	 : type_iterator_base(arg) {}
-	type_iterator_df_edges(self&& arg) : type_iterator_base(std::move(arg)) {}
+	 : type_iterator_df_base(arg) {}
+	type_iterator_df_edges(self&& arg) : type_iterator_df_base(std::move(arg)) {}
 
 	void increment();
+};
+
+struct type_iterator_outgoing_edges : public type_iterator_df_base,
+				  public boost::iterator_facade<
+					type_iterator_outgoing_edges
+				  , type_die
+				  , boost::forward_traversal_tag
+				  , type_die& /* Reference */
+				  , Dwarf_Signed /* difference */
+				  >
+{
+	typedef type_iterator_outgoing_edges self;
+	typedef type_iterator_df_edges super;
+private:
+	void init()
+	{
+		m_stack.clear();
+		black_offsets.clear();
+		// we have nowhere to pop to, so if no outgoing edges, will hit END
+		if (this->operator bool()) this->increment_to_unseen_edge();
+	}
+public:
+	type_iterator_outgoing_edges()
+	: type_iterator_df_base() {}
+	explicit type_iterator_outgoing_edges(const type_iterator_df_base& arg)
+	: type_iterator_df_base(arg) { init(); }
+	explicit type_iterator_outgoing_edges(type_iterator_df_base&& arg)
+	: type_iterator_df_base(std::move(arg)) { init(); }
+	type_iterator_outgoing_edges(const self& arg)
+	 : type_iterator_df_base(arg) { /* don't init */ }
+	type_iterator_outgoing_edges(self&& arg) : type_iterator_df_base(std::move(arg))
+	{ /* don't init */ }
+	explicit type_iterator_outgoing_edges(
+		const deque< pair<iterator_df<type_die>, iterator_df<program_element_die> > >& stack)
+	{ /* This constructor means 
+	   * "the stack position is black; start from the predecessor's next outgoing edge". */
+		this->base_reference() = stack.back().first;
+		this->m_reason = stack.back().second;
+		this->m_stack.clear();
+		// don't need stack for next outgoing edge
+		auto found_next = predecessor_node_next_outgoing_edge_target();
+		if (found_next.first || found_next.second)
+		{
+			this->base_reference() = std::move(found_next.first);
+			this->m_reason = std::move(found_next.second);
+		}
+		else
+		{
+			this->base_reference() = END;
+			this->m_reason = END;
+		}
+	}
+	
+	// assigning from any DF iterator will walk its children?
+	// NO; this would be confusing (changes position)
+	// we made the constructors above "explicit" for the same reason
+// 	self& operator=(const type_iterator_df_base& arg)
+// 	{ static_cast<type_iterator_df_base&>(*this)
+// 	  = static_cast<const type_iterator_df_base&>(arg);
+// 	  init();
+// 	  return *this; }
+// 	self& operator=(type_iterator_df_base&& arg)
+// 	{ static_cast<type_iterator_df_base&&>(*this)
+// 	  = static_cast<type_iterator_df_base&&>(arg);
+// 	  init();
+// 	  return *this; }
+	// assigning from ourselves will just copy-assign -- OK
+	self& operator=(const self& arg)
+	{ static_cast<type_iterator_df_base&>(*this)
+	  = static_cast<const type_iterator_df_base&>(arg);
+	  return *this; }
+	self& operator=(self&& arg)
+	{ static_cast<type_iterator_df_base&&>(*this)
+	  = static_cast<type_iterator_df_base&&>(arg);
+	  return *this; }
+
+
+	//type_iterator_outgoing_edges() : type_iterator_df_edges() { init(); }
+	//type_iterator_outgoing_edges(const type_iterator_df_base& arg)
+	// : type_iterator_df_edges(arg)  { init(); }// this COPIES so avoid
+	//type_iterator_outgoing_edges(type_iterator_df_edges&& arg)
+	// : type_iterator_df_edges(std::move(arg)) { init(); }
+	//type_iterator_outgoing_edges(const self& arg)
+	// : type_iterator_df_edges(arg) { /* don't init */ }
+	//type_iterator_outgoing_edges(self&& arg)
+	// : type_iterator_df_edges(std::move(arg)) { /* don't init */ }
+
+	/* Basic idea: we're an iterator that yields each immediate successor
+	 * of the start type_die. Our initial stack consists of that DIE
+	 * and the null reason. The first thing we do is increment our position,
+	 * moving us to the first outgoing edge's target, if any. */
+
+	void increment()
+	{
+		auto found_next = predecessor_node_next_outgoing_edge_target();
+		this->base_reference() = std::move(found_next.first);
+		this->m_reason = std::move(found_next.second);
+	}
 };
 
 /* type_set and related utilities. */

@@ -65,7 +65,7 @@ int main(int argc, char **argv)
 	unsigned saw_inner = 0;
 	unsigned saw_int = 0;
 	dwarf::core::type_iterator_df_edges i = blah_die;
-	assert(i.pos_colour() == type_iterator_base::WHITE);
+	assert(i.pos_colour() == type_iterator_df_base::WHITE);
 	for (;
 		i;
 		++i)
@@ -79,6 +79,14 @@ int main(int argc, char **argv)
 	}
 	assert(saw_inner == 2);
 	assert(saw_int == 1);
+	
+	/* Now test the type_iterator_outgoing_edges. */
+	type_iterator_outgoing_edges i_outgoing(cu.named_child("int").as_a<type_die>());
+	unsigned i_count = 0;
+	for (;
+		i_outgoing;
+		++i_outgoing, ++i_count);
+	assert(i_count == 0);
 
 	return 0;
 }
