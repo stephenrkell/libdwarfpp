@@ -333,7 +333,7 @@ namespace dwarf
 		}
 
 		pair<iterator_df<type_die>, iterator_df<program_element_die> >
-		type_iterator_base::first_outgoing_edge_target() const
+		type_iterator_df_base::first_outgoing_edge_target() const
 		{
 			auto NO_DEEPER = make_pair(iterator_base::END, iterator_base::END);
 			if (!base() && reason()) { /* void case */ return NO_DEEPER; }
@@ -398,7 +398,7 @@ namespace dwarf
 		}
 		
 		pair<iterator_df<type_die>, iterator_df<program_element_die> >
-		type_iterator_base::predecessor_node_next_outgoing_edge_target() const
+		type_iterator_df_base::predecessor_node_next_outgoing_edge_target() const
 		{
 			auto NO_MORE = make_pair(iterator_base::END, iterator_base::END);
 			auto to_return = NO_MORE;
@@ -450,10 +450,13 @@ namespace dwarf
 			return to_return;
 		}
 		
-		
-		void type_iterator_base::increment_edgewise(bool skip_dependencies)
+		// FIXME: add an actually sensible basic increment operation that visits nodes
+		// when they are white and continues otherwise. Could do pre- or post-order.
+		void type_iterator_df_base::increment_not_back(bool skip_dependencies)
 		{
-			// this should be true for a type_iterator_df_walk -- not for other iterators
+			if (pos_colour() == WHITE) m_stack.push_back(make_pair(base(), reason()));
+			
+			// FIXME: this should be true for a type_iterator_df_walk -- not for other iterators (i.e. we assume they override us)
 			assert(base() == m_stack.back().first);
 			assert(m_reason == m_stack.back().second);
 			
@@ -532,11 +535,15 @@ namespace dwarf
 			*this = iterator_base::END;
 			assert(!reason());
 		}
-		void type_iterator_base::decrement()
+		void type_iterator_df_base::decrement()
 		{
 			assert(false); // FIXME
 		}
 		void type_iterator_df_edges::increment()
+		{
+			this->increment_to_unseen_edge();
+		}
+		void type_iterator_df_base::increment_to_unseen_edge()
 		{
 			auto print_stack = [=]() {
 				debug_expensive(5, << "[");
@@ -560,7 +567,7 @@ namespace dwarf
 			 *    that predecessor (which is grey) must be marked black.
 			 * If we're grey, it's a back-edge; ditto.
 			 * If we're white, it's a tree edge. We push ourselves onto the stack,
-			 *   make ourselves grey, and try to follow an outgoing edge.
+			 *   (making ourselves grey) and try to follow an outgoing edge.
 			 *   If we have no outgoing edge, we make ourselves black
 			 *      and continue.
 			 */
@@ -1108,6 +1115,7 @@ namespace dwarf
 			
 			auto maybe_scc = get_scc();
 			auto self = find_self();
+			auto t = self.as_a<type_die>();
 			summary_code_word_t output_word;
 			if (!maybe_scc)
 			{
@@ -1135,9 +1143,146 @@ namespace dwarf
 					/* post_f */ [](iterator_df<type_die> t, iterator_df<program_element_die> reason) -> void
 					{});
 				// distinguish ourselves, unless we're a typedef.
-				if (!self.is_a<qualified_type_die>() && !self.is_a<typedef_die>())
+				
+				// 
 				{
-					output_word << get_tag();
+					auto concrete_t = t ? t->get_concrete_type() : t;
+					// non-concrete? ignore but keep going -- walk_type will go down the chain
+					// ACTUALLY: when we hit another type, 
+					// FIXME: don't continue the walk -- use summary_code() on it, to benefit from caching
+					// + ditto on other cases.
+					// AH, but "stopping the walk" needs to distinguish skipping a subtree from stopping completely;
+					// incrementalise "walk_type" as another kind of iterator? model on iterator_bf.
+					// what about getting both pre- and post-order in one? we seem to get that here; use currently_walking?
+					if (t != concrete_t) return output_word.val;
+				}
+				// void? our code is 0; keep going
+				if (!t) { output_word << 0; return output_word.val; }
+				// just a decl, no def? try to replace ourselves with the definition, and if not, null out. */
+				if (t->get_declaration() && *t->get_declaration())
+				{
+					iterator_df<> found = t->find_definition();
+					t = found.as_a<type_die>();
+					if (!t)
+					{
+						debug(2) << "Detected that we have a declaration with no definition; returning no code" << std::endl;
+						// NOTE that we will still get a post-visit, just no recursion
+						// so we explicitly clear the output word (HACK)
+						output_word.invalidate();
+						return output_word.val;
+					}
+				}
+// 				/* If we have a "reason" that is a member_die or inheritance_die, 
+// 				 * */
+// 				if (reason && (reason.is_a<data_member_die>()))
+// 				{
+// 					debug(2) << "This type is walked for reason of a member: ";
+// 					reason.print(debug(2), 0);
+// 					debug(2) << std::endl;
+// 					// skip members that are mere declarations 
+// 					if (reason->get_declaration() && *reason->get_declaration()) return false;
+// 
+// 					// calculate its offset
+// 					opt<Dwarf_Unsigned> opt_offset = reason.as_a<data_member_die>()
+// 						->byte_offset_in_enclosing_type();
+// 					if (!opt_offset)
+// 					{
+// 						debug(2) << "Warning: saw member " << *reason << " with no apparent offset." << endl;
+// 						return false;
+// 					}
+// 					auto member_type = reason.as_a<with_dynamic_location_die>()->get_type();
+// 					assert(member_type);
+// 					assert(member_type.is_a<type_die>());
+// 
+// 					output_word << (opt_offset ? *opt_offset : 0);
+// 					// FIXME: also its bit offset!
+// 
+// 					// type-visiting logic will do the member type
+// 				}
+
+				if (t.is_a<base_type_die>())
+				{
+					auto base_t = t.as_a<core::base_type_die>();
+					unsigned encoding = base_t->get_encoding();
+					assert(base_t->get_byte_size());
+					unsigned byte_size = *base_t->get_byte_size();
+					unsigned bit_size = base_t->get_bit_size() ? *base_t->get_bit_size() : byte_size * 8;
+					unsigned bit_offset = base_t->get_bit_offset() ? *base_t->get_bit_offset() : 0;
+					output_word << DW_TAG_base_type << encoding << byte_size << bit_size << bit_offset;
+				} 
+				else if (t.is_a<enumeration_type_die>())
+				{
+					// shift in the enumeration name
+					output_word << t->arbitrary_name();
+
+					// shift in the names and values of each enumerator
+					auto enum_t = t.as_a<enumeration_type_die>();
+					auto enumerators = enum_t.children().subseq_of<enumerator_die>();
+					int last_enum_value = -1;
+					for (auto i_enum = enumerators.first; i_enum != enumerators.second; ++i_enum)
+					{
+						output_word << *i_enum->get_name();
+						if (i_enum->get_const_value())
+						{
+							last_enum_value = *i_enum->get_const_value();
+							output_word << last_enum_value;
+						} else output_word << last_enum_value++;
+					}
+				}
+				else if (t.is_a<subrange_type_die>())
+				{
+					auto subrange_t = t.as_a<subrange_type_die>();
+					output_word << t->arbitrary_name();
+				} 
+				else if (t.is_a<type_describing_subprogram_die>())
+				{
+					auto subp_t = t.as_a<type_describing_subprogram_die>();
+
+					// first, shift in something to distinguish void(void) from void
+					output_word << "()";
+					if (t.as_a<type_describing_subprogram_die>()->is_variadic())
+					{ output_word << "..."; }
+				}
+				else if (t.is_a<address_holding_type_die>())
+				{
+					/* Danger: recursive data types! But walk_type deals with this. */
+					auto ptr_t = t.as_a<core::address_holding_type_die>();
+					unsigned ptr_size = *ptr_t->calculate_byte_size();
+					unsigned addr_class = ptr_t->get_address_class() ? *ptr_t->get_address_class() : 0;
+					if (addr_class != 0)
+					{
+						switch(addr_class) 
+						{
+							default:
+								assert(false); // nobody seems to use this feature so far
+							/* NOTE: There is also something called DWARF Pointer-Encoding (PEs).
+							   This is a DWARF representation issue, used in frame info, and is not 
+							   something we care about. */
+						}
+					}
+					output_word << t.tag_here() << ptr_size << addr_class;
+				}
+				else if (t.is_a<with_data_members_die>())
+				{
+					output_word << t->arbitrary_name();
+				}
+				else if (t.is_a<array_type_die>())
+				{
+					// nothing here -- it's in post_f
+				}
+				else if (t.is_a<string_type_die>())
+				{
+					// Fortran strings can be fixed-length or variable-length
+					auto opt_dynamic_length = t.as_a<string_type_die>()->get_string_length();
+					unsigned byte_len;
+					if (opt_dynamic_length) byte_len = 0; /* treat as length 0 */ 
+					else
+					{
+						auto opt_byte_size = t.as_a<string_type_die>()->fixed_length_in_bytes();
+						assert(opt_byte_size);
+						byte_len = *opt_byte_size;
+					}
+					output_word << DW_TAG_string_type << byte_len;
 				}
 			}
 			else
@@ -1149,10 +1294,12 @@ namespace dwarf
 				output_word << maybe_scc->edges_summary.val;
 				output_word << abstract_name_for_type(self);
 			}
+
 			this->cached_summary_code = output_word.val;
 			//get_root().type_summary_code_cache.insert(
 			//	make_pair(get_offset(), output_word.val)
 			//);
+
 			return output_word.val;
 		}
 
@@ -1462,7 +1609,7 @@ namespace dwarf
 		}
 		
 		/* reverse-engineering helper. */
-		iterator_df<type_die> type_iterator_base::source_vertex_for(
+		iterator_df<type_die> type_iterator_df_base::source_vertex_for(
 			const iterator_df<type_die>& target,
 			const iterator_df<program_element_die>& reason
 		) const
@@ -1558,99 +1705,14 @@ namespace dwarf
 
 		void get_all_sccs(root_die& r)
 		{
-			/* It's not efficient to calculate SCCs piecewise, because large subgraphs
-			 * get computed repeatedly. So... */
-			struct all_type_edges_df_iterator : public type_iterator_base,
-									  public boost::iterator_facade<
-									    type_iterator_df_edges
-									  , type_die
-									  , boost::forward_traversal_tag
-									  , type_die& /* Reference */
-									  , Dwarf_Signed /* difference */
-									  >
-			{
-				typedef all_type_edges_df_iterator self;
-				friend class boost::iterator_core_access;
-				
-				sequence<
-					typename subseq_t< iterator_sibs<basic_die>, is_a_t<type_die> >::transformed_iterator
-				> top_level_sequence;
-				subseq_t< iterator_sibs<basic_die>, is_a_t<type_die> >::transformed_iterator
-					top_level_pos;
-				multimap< iterator_df<type_die>, 
-					pair<iterator_df<program_element_die>, iterator_df<type_die> > > reverse_edges;
-				
-				all_type_edges_df_iterator(const iterator_sibs<compile_unit_die>& cu)
-				 : top_level_sequence(cu.children().subseq_of<type_die>()),
-				   top_level_pos(top_level_sequence.first, top_level_sequence.second)
-				{
-					base_reference() = top_level_sequence.first;
-					m_reason = END;
-				}
-				all_type_edges_df_iterator(iterator_sibs<compile_unit_die>&& cu)
-				 : top_level_sequence(std::move(cu).children().subseq_of<type_die>()),
-				   top_level_pos(top_level_sequence.first, top_level_sequence.second)
-				{
-					top_level_pos = top_level_sequence.first;
-					base_reference() = top_level_sequence.first;
-					m_reason = END;
-				}
-				all_type_edges_df_iterator(const self& arg)
-				 : type_iterator_base(arg), top_level_sequence(arg.top_level_sequence),
-				 	top_level_pos(arg.top_level_pos)
-				{}
-				all_type_edges_df_iterator(self&& arg)
-				 : type_iterator_base(std::move(static_cast<type_iterator_base&&>(arg))),
-				   top_level_sequence(arg.top_level_sequence),
-				   top_level_pos(arg.top_level_pos)
-				{}
-
-				void increment()
-				{
-					/* We also want to maintain a reverse adjacency list representation
-					 * of the entire type graph. We can then use this to compute
-					 * strongly connected components. */
-				
-					this->increment_edgewise(false);
-					if (base() == END)
-					{
-						// move on to the next
-						++top_level_pos;
-						if (top_level_pos)
-						{
-							base_reference() = top_level_pos;
-							m_reason = END;
-						}
-						else
-						{
-							/* We've hit the end. Use the reverse-reachability info to
-							 * compute all the SCCs. */
-						}
-					}
-				}
-			};
-			
-			auto cu_seq = r.children();
-			for (auto i_cu = cu_seq.first; i_cu != cu_seq.second; ++i_cu)
-			{
-				all_type_edges_df_iterator i_cu_edges(std::move(i_cu));
-				while (i_cu_edges) ++i_cu_edges;
-			}
 		}
-		
+
 		opt<type_scc_t> type_die::get_scc() const
 		{
 			assert(get_root().live_dies.find(get_offset()) != get_root().live_dies.end());
 			assert(get_root().live_dies.find(get_offset())->second
 				== dynamic_cast<const basic_die *>(this));
 			
-			/* In general, to get a representation of the SCC (if any)
-			 * in which a type DIE participates,
-			 * we walk it and look for back edges. 
-			 * We remember all the edges we see.
-			 * If we have seen no back edges, it's not in a cycle
-			 * and hence not in an SCC. */
-
 			/* This is a generic implementation. If subclasses know that they can 
 			 * never be part of a cycle, they're allowed to override to just the following.
 				return opt<type_scc_t>();
@@ -1659,545 +1721,409 @@ namespace dwarf
 			// cheque the cache. we might have a null pointer cached, meaning "not cyclic"
 			if (opt_cached_scc) return *opt_cached_scc ? **opt_cached_scc : opt<type_scc_t>();
 			
-			assert(opt_cached_scc);
-			return *opt_cached_scc ? **opt_cached_scc : opt<type_scc_t>();
-			
 			auto start_t = find_self();
-			get_all_sccs(start_t.root());
 			
-			/* Since we are committed to doing a full depth-first exploration of the type graph
-			 * from our current position, the efficient thing is to compute *all* SCCs that
+			//get_all_sccs(start_t.root());
+			/* We could run DFS on the whole graph. However,
+			 * it's no better value than what we really do.
+			 * We are committed to doing a depth-first exploration of the type graph *reachable
+			 * from our current position*. So the efficient thing is to compute *all* SCCs that
 			 * are reachable from the start position. Then, even if we find that *we* are
 			 * not part of any cycle/SCC, we might cache some SCCs in other type_dies that
 			 * we find that *are* in cycles.
 			 *
-			 * We collect a bunch of cycles,
-			 * then
-			 * for each node that participates in any cycle,
-			 * we compute its SCC
-			 * by recursively combining cycles until a fixed point. */
+			 * Note that from many positions we can reach a cycle, but 
+			 * we are not part of that cycle.
+			 * If we are not part of *any* cycle, we will come out as a singleton SCC.
+			 * We do not cache singleton SCCs as such, because they are not cyclic.
+			 * Recall: we're interested in summary codes; we can use the simpler
+			 * recursive summary code algorithm for acyclic cases.
+			 */
 			
-			typedef type_scc_t::value_type edge_t;
-			/* We store cycles as vectors
-			 * where the first edge's source is the last edge's target. */
-			typedef vector<edge_t> cycle_t;
-			vector< cycle_t > reached_cycles;
-			multimap< iterator_df<type_die>, unsigned > cycles_by_participating_node;
-			
-			/* Once we've computed these, we elaborate the set of edges in the SCC,
-			 * by first enumerating the cycles that the start node participates in,
-			 * then by enumerating the cycles that any participating nodes participate in,
-			 * and so on, until a fixed point. We don't need to traverse any cycle
-			 * more than once. */
-			debug_expensive(5, << "Starting SCC search at: " << start_t.summary()
-				<< " (type_die object at " << dynamic_cast<const basic_die *>(&start_t.dereference())
-				<< ", sanity check: " << dynamic_cast<const basic_die *>(this) << ")" << std::endl);
-			
-			auto add_edge = [&cycles_by_participating_node](cycle_t& cycle, unsigned idx, const edge_t& edge) {
-				cycle.push_back(edge);
+			struct type_edges_df_scc_builder_iterator : public type_iterator_df_base,
+						  public boost::iterator_facade<
+							type_edges_df_scc_builder_iterator
+						  , type_die
+						  , boost::forward_traversal_tag
+						  , type_die& /* Reference */
+						  , Dwarf_Signed /* difference */
+						  >
+			{
+				typedef type_edges_df_scc_builder_iterator self;
+				typedef type_iterator_df_base super;
+				friend class boost::iterator_core_access;
 
-				cycles_by_participating_node.insert(make_pair(
-					edge.first.first, idx
-				));
-				cycles_by_participating_node.insert(make_pair(
-					edge.second, idx
-				));
+				deque< iterator_df<type_die> > seen_but_not_assigned;
+				deque< iterator_df<type_die> > perhaps_same_scc;
+				unsigned seen_count;
+				map< iterator_df<type_die>, unsigned > preorder_numbers;
+				unsigned component_count;
+				map< iterator_df<type_die>, unsigned > component_numbers;
+				multimap< unsigned, iterator_df<type_die> > component_members;
+
+				type_edges_df_scc_builder_iterator(const iterator_df<type_die>& t)
+				 : type_iterator_df_base(t),
+				   seen_but_not_assigned(), perhaps_same_scc(), seen_count(0), preorder_numbers(),
+				   component_count(0), component_numbers(), component_members()
+				{
+					base_reference() = t.base();
+					this->m_reason = END;
+					assert(pos_colour() == WHITE);
+				}
+				
+				type_edges_df_scc_builder_iterator(const self& arg)
+				 : type_iterator_df_base(arg),
+				   seen_but_not_assigned(arg.seen_but_not_assigned),
+				   perhaps_same_scc(arg.perhaps_same_scc),
+				   seen_count(arg.seen_count),
+				   preorder_numbers(arg.preorder_numbers),
+				   component_count(arg.component_count), component_numbers(arg.component_numbers),
+				   component_members(arg.component_members)
+				{
+					// we should not copy ourselves
+					assert(false);
+				}
+				
+				/* According to Wikipedia
+				 * https://en.wikipedia.org/wiki/Path-based_strong_component_algorithm
+				 * we can build SCCs like this.
+				 
+				 * "Stack S contains all the vertices that have not yet been assigned
+				 * to a strongly connected component,
+				 * in the order in which the depth-first search reaches the vertices.
+				 *
+				 * "Stack P contains vertices that have not yet been determined
+				 * to belong to different strongly connected components from each other.
+				 *
+				 * "It also uses a counter C of the number of vertices reached so far,
+				 * which it uses to compute the preorder numbers of the vertices.
+				 
+				 * "The overall algorithm consists of a loop through the vertices of the graph,
+				 * calling [the following] recursive search on each vertex
+				 * that does not yet have a preorder number assigned to it.
+				 
+				 * "When the depth-first search reaches a vertex v, 
+				 * the algorithm performs the following steps:
+
+				 * 1. Set the preorder number of v to C, and increment C.
+				 * 2. Push v onto S and also onto P.
+				 * 3. For each edge from v to a neighboring vertex w:
+				 * 3a. If the preorder number of w has not yet been assigned, recursively search w;
+				 * 3b: Otherwise, if w has not yet been assigned to a strongly connected component:
+				 * 3b(i)  Repeatedly pop vertices from P 
+				 *        until the top element of P has a preorder number
+				 *        less than or equal to the preorder number of w.
+				 * 4. If v is the top element of P:
+				 * 4a. Pop vertices from S until v has been popped,
+				 *       and assign the popped vertices to a new component.
+				 * 4b. Pop v from P.
+				 *
+				 * The first non-obvious thing is step 3a. But this just means that
+				 * when we turn a node from white to grey, we assign it a preorder number.
+				 * Similarly, step 3b happens when we're at a white node
+				 * and see an outgoing edge to a grey or black node.
+				 * Step 4 is trickier.
+				 * It happens when we've explored all outgoing edges *to white nodes*.
+				 * In other words, it happens after the last such edge.
+				 * So just test whether we're the last such edge.
+				 * If we are, we need to schedule step 4 for *after*
+				 * we're recursively finished exploring that edge.
+				 * How to do that?
+				 * We can overload increment().
+				 *
+				 * We also need to short-circuit the algorithm in the case where
+				 * we reach a node that already has an SCC cached.
+				 * If we can reach an SCC,
+				 * and we're not in *that* SCC,
+				 * we know we're not reachable from that SCC.
+				 * Does it follow that we're not in *any* SCC?
+				 * NO! Imagine two loops joined by a single directed arc.
+				 * If we want to short-circuit the algorithm in such cases,
+				 * what do we do?
+				 * We could "collapse those SCCs to a point". That means remembering their
+				 * outgoing edges.
+				 * Alternatively we could just pretend that the edge does not exist.
+				 * I don't think this affects our SCC calculation.
+				 * It also doesn't cut us off from finding other SCCs reachable from there,
+				 * because they were explored when the reached SCC was formed.
+				 *
+				 * This sounds too complicated for now; maybe better just to re-explore?
+				 * Or, hmm, we can factor this optimisation into our increment() overload
+				 * quite easily.
+				 */
+
+				//iterator_df<type_die> target() const { return *this; }
+
+				void print_stack() const
+				{
+					debug_expensive(5, << "[");
+					for (auto i = m_stack.begin(); i != m_stack.end(); ++i)
+					{
+						if (i != m_stack.begin()) debug_expensive(5, << ", ");
+						debug_expensive(5, << std::hex << 
+							(i->first.is_end_position() ? (Dwarf_Off)-1 : i->first.offset_here()) 
+								<< std::dec);
+					}
+					debug_expensive(5, << "]" << std::endl);
+				}
+				
+				void increment()
+				{
+					debug_expensive(5, << "Incrementing SCC progress from "
+						<< base().summary() << "; reason is " << reason().summary()
+						<< "; stack has " << this->m_stack.size() << " elements." << std::endl);
+					// FIXME: this is pasted from type_iterator_df_edges::increment
+					pair<iterator_df<type_die>, iterator_df<program_element_die> > found_next;
+					while ((base() || reason()) && (!m_stack.empty() || pos_colour() == WHITE))
+					{
+						type_iterator_outgoing_edges i_succ;
+						switch (pos_colour())
+						{
+						case GREY:
+							assert(false); abort();
+							// we walk through all outgoing edges below, so we're either
+							// white or we're black
+						case BLACK:
+							debug_expensive(5, << "Backtracking from now-black node  "
+								<< base().summary() << std::endl);
+							// re-construct i_succ; if from a blackened position, and it backtracks
+							i_succ = type_iterator_outgoing_edges(m_stack);
+							m_stack.pop_back();
+							// if our stack is empty, it means we just blackened the start node
+							if (m_stack.empty()) { assert(!i_succ); goto hit_end; } // will break
+							// our position is whatever the stack says we've backtracked to
+							this->base_reference() = m_stack.back().first;
+							this->m_reason = m_stack.back().second;
+							// ... but it might still be effectively black,
+							// i.e. it might have no more outgoing edges.
+							// If so, then i_succ will be null, and we'll skip the loop.
+							// Else we're at a grey node i.e. one which we've partially explored
+							// (i.e. at least the first outgoing edge)
+							// and i_succ is iterating through the remaining outgoing edges
+							goto resume_grey;
+						case WHITE:
+							// give it a preorder number; push v onto S and onto P
+							preorder_numbers.insert(make_pair(base(), seen_count++));
+							debug_expensive(5, << "Preorder number of "
+								<< base().summary() << " assigned: " << seen_count - 1
+								<< std::endl);
+
+							seen_but_not_assigned.push_back(base());
+							perhaps_same_scc.push_back(base());
+
+							// make ourselves grey now -- pushing ourselves onto stack is a "silent transition"
+							m_stack.push_back(make_pair(base(), reason()));
+							assert(pos_colour() == GREY);
+							// look at our outgoing edges. we will follow any to white nodes.
+							i_succ = type_iterator_outgoing_edges(*this);
+							// now i_succ points at the first outgoing edge (successor) of *this,
+							// and our stack's back position is *this (effectively)
+						resume_grey:
+							while (i_succ.base() || i_succ.reason())
+							{
+								debug_expensive(5, << "Saw outgoing edge from originally-white node: "
+									<< base().summary() << " -----> " << i_succ.summary() << std::endl);
+								
+								// if this node already has an SCC, then by construction it
+								// doesn't reach back to us, and isn't in our SCC. So we
+								// cut off our exploration here.
+								if (i_succ.base() && i_succ->opt_cached_scc)
+								{
+									debug_expensive(5, << "Pretending edge doesn't exist "
+										<< "because target already has a cached SCC result: "
+										<< base().summary() << " -----> " << i_succ.summary() << std::endl);
+									goto next_edge;
+								}
+
+								// if we're pointing at the null DIE (void type)... what?
+								// I think we can treat it like any node.
+
+								// i_succ does *not* know our node colours
+								switch (colour_of(i_succ))
+								{
+									case WHITE:
+										debug(5) << "Edge target is white" << std::endl;
+										// okay -- we move here
+										// next increment() will recursively search
+										this->base_reference() = std::move(i_succ);
+										this->m_reason = i_succ.reason();
+										// now we are white again
+										assert(pos_colour() == WHITE);
+										return;
+									case GREY:
+									case BLACK:
+										debug(5) << "Edge target is grey or black" << std::endl;
+										// we got some other node w
+										// "if w has not yet been assigned..."
+										if (component_numbers.find(i_succ)
+											== component_numbers.end())
+										{
+											auto found = preorder_numbers.find(i_succ);
+											assert(found != preorder_numbers.end());
+											unsigned this_preorder_number = found->second;
+											while (preorder_numbers[perhaps_same_scc.back()]
+													> this_preorder_number)
+											{
+												perhaps_same_scc.pop_back();
+											}
+										}
+										break;
+								}
+							next_edge:
+								++i_succ;
+							}
+
+							debug_expensive(5, << "Exhausted children of "
+									<< base().summary() << "; stack is: ");
+							print_stack();
+							debug(5) << std::endl;
+							// if we got here, we exhausted the children so we're onto step 4
+							if (perhaps_same_scc.back() == base())
+							{
+								iterator_df<type_die> popped;
+								unsigned new_component = component_count++;
+								debug_expensive(5, << "Created component number " << new_component
+									<< std::endl);
+								do
+								{
+									popped = seen_but_not_assigned.back();
+									seen_but_not_assigned.pop_back();
+									component_numbers.insert(make_pair(popped, new_component));
+									component_members.insert(make_pair(new_component, popped));
+									debug_expensive(5, << "Component number " << new_component
+										<< " contains seen-but-not-assigned " << popped.summary() << std::endl);
+								} while (popped != base());
+
+								perhaps_same_scc.pop_back();
+							}
+
+							// exhausted children means we're blackened
+							black_offsets.insert(base());
+							// we're still pointing at the black pos;
+							// if we have anything left on the stack, we'll go round the
+							// while loop again
+							break;
+						} // end switch
+					} // end while
+				hit_end:
+					this->base_reference() = END;
+					this->m_reason = END;
+				}
 			};
-			
-			/* HMM. We might be better off defining a new iterator that is like
-			 * DFS but expands the dag into a tree, i.e. visits non-back edges
-			 * multiple times, once for every path from the start node.
-			 * That seems to blow up the exploration unnecessarily... but
-			 * without that, we need a reliable way of adding all cycles when
-			 * we see a cross-edge.
-			 *
-			 * If we see a cross-edge, we can reach any cycle that is reachable
-			 * from its target. Hmm. */
-			
-			for (type_iterator_df_edges i_edge = start_t; i_edge; ++i_edge)
+
+			/* We will visit all reachable edges.... */
+			type_edges_df_scc_builder_iterator i_white(start_t.as_a<type_die>());
+			assert(i_white.component_count == 0);
+			assert(!start_t || i_white);
+			for (; i_white; ++i_white)
 			{
 				/* REMEMBER: type iterators are allowed to walk the "no DIE" (void) case,
 				 * so we might have END here. */
-				debug_expensive(5, << "Walk reached: " << i_edge.summary()
-					<< "; reason: " << i_edge.reason().summary());
-				auto edge = i_edge.as_incoming_edge();
-				
-				switch (i_edge.incoming_edge_kind())
-				{
-					case type_iterator_base::TREE:
-						debug_expensive(5, << "; edge TREE" << std::endl);
-						break;
-					case type_iterator_base::CROSS:
-						debug_expensive(5, << "; edge CROSS" << std::endl);
-						/* When we hit a cross edge A -> B, it means
-						 *
-						 * For any cycle involving the target T of the cross edge
-						 * *and* any vertex V on the current tree path,
-						 * there is a cycle that includes
-						 * the current tree path from V onwards
-						 * the cycle's nodes, from T to V.
-						 * We choose the *earliest* such vertex on the tree path
-						 * to get the biggest cycle.
-						 */
-						{
-							iterator_df<type_die>& cross_edge_source = edge.first.first;
-							iterator_df<type_die>& cross_edge_target = edge.second;
-							iterator_df<program_element_die>& cross_edge_reason = edge.first.second;
-							auto cycles_involving_target = cycles_by_participating_node.equal_range(cross_edge_target);
-							std::set<unsigned> cycle_idxs_involving_target;
-							for (auto i_cyc = cycles_involving_target.first;
-								i_cyc != cycles_involving_target.second; ++i_cyc)
-							{
-								debug(5) << "Cycle involving cross-edge target: " << i_cyc->second
-									<< std::endl;
-								cycle_idxs_involving_target.insert(i_cyc->second);
-							}
-							
-							/* Go along the tree-edge nodes. If any of the cycles involves
-							 * that node, we have a new cycle to add.
-							 
-							 * Might we get an infinite loop here? If we add a cycle
-							 * that also shows up in later tree-edges' intersections,
-							 * i.e. if we have two cross-edges to the same subtree...
-							 
-                                         o
-                                        / \
-                                       o   o
-                                     ...    \
-                                             o
-                                      cross-' \
-                                               o
-                                        cross-'
-							
-							 * ... where the target of the cross-edge is the same in both cases,
-							 * then the first one of these will add a bunch of cycles
-							 * that also get picked up second time around, because they involve
-							 * the same cross-edge node and hit the current tree edges.
-							 * Can we skip any of these?
-							 */
-							
-							/* We want to remember only the cycles involving *any* 
-							 * of our tree nodes, and the highest one they reach. */
-							map<unsigned, decltype(i_edge.m_stack)::const_iterator > cycles_and_tree_edges;
-							set<unsigned> cycles_involved;
-							for (auto i_tree_edge = i_edge.m_stack.begin();
-								i_tree_edge != i_edge.m_stack.end();
-								++i_tree_edge)
-							{
-								auto tree_edge_source = i_edge.source_vertex_for(
-									i_tree_edge->first, i_tree_edge->second
-								);
-								if (!tree_edge_source) continue; // it's the fake initial edge
-								auto& tree_edge_target = i_tree_edge->first;
-								auto& tree_edge_reason = i_tree_edge->second;
-
-								auto cycles_involving_tree_source = cycles_by_participating_node.equal_range(tree_edge_source);
-								for (auto i_cyc = cycles_involving_tree_source.first;
-									i_cyc != cycles_involving_tree_source.second; ++i_cyc)
-								{
-									debug(5) << "Cycle involving a tree-edge source: " << i_cyc->second
-										<< std::endl;
-									if (cycle_idxs_involving_target.find(i_cyc->second)
-										!= cycle_idxs_involving_target.end())
-									{
-										auto iter_and_inserted = cycles_involved.insert(i_cyc->second);
-										auto& inserted = iter_and_inserted.second;
-										if (inserted)
-										{
-											cycles_and_tree_edges.insert(make_pair(i_cyc->second,
-												i_tree_edge));
-// 												edge_t(
-// 													make_pair(
-// 														i_edge.source_vertex_for(
-// 															i_tree_edge->first
-// 														),
-// 														i_tree_edge->second
-// 													),
-// 													i_tree_edge->first
-// 												)
-// 											));
-										}
-									}
-								}
-							}
-							
-							/* Now we know which cycles matter. We remembered the highest
-							 * tree node in each case. */
-							if (cycles_involved.size() > 0 )
-							{
-								debug_expensive(5, << "We think this cross edge forms " 
-									<< cycles_involved.size()
-									<< " new cycles, based on idxs {");
-								for (auto i_idx = cycles_involved.begin();
-									i_idx != cycles_involved.end(); ++i_idx)
-								{
-									if (i_idx != cycles_involved.begin()) debug_expensive(5, << ",");
-									debug_expensive(5, << *i_idx);
-								}
-								debug_expensive(5, << "}" << std::endl);
-							}
-								
-							for (auto i_cyc_pair = cycles_and_tree_edges.begin();
-								i_cyc_pair != cycles_and_tree_edges.end();
-								++i_cyc_pair)
-							{
-								debug_expensive(5, << "New cycle " << reached_cycles.size()
-									<< " based on cycle " << i_cyc_pair->first << std::endl);
-
-								/* We have a new cycle that involves 
-								 * - the current tree path from V onwards;
-								 * - the cycle's nodes, from T to V.
-								 */
-								cycle_t& existing_cycle = reached_cycles.at(i_cyc_pair->first);
-								cycle_t new_cycle;
-								unsigned new_idx = reached_cycles.size();
-								auto tree_edge_source = i_edge.source_vertex_for(i_cyc_pair->second->first,
-									i_cyc_pair->second->second);
-								for (auto i_tree_edge_to_add = i_cyc_pair->second;
-									i_tree_edge_to_add != i_edge.m_stack.end();
-									++i_tree_edge_to_add)
-								{
-									auto tree_edge_to_add_source = i_edge.source_vertex_for(
-										i_tree_edge_to_add->first, i_tree_edge_to_add->second
-									);
-									if (!tree_edge_to_add_source) continue; // it's the fake initial edge
-									auto& tree_edge_to_add_target = i_tree_edge_to_add->first;
-									auto& tree_edge_to_add_reason = i_tree_edge_to_add->second;
-									debug_expensive(5, << "Tree edge "
-										<< tree_edge_to_add_source.summary()
-										<< " --> "
-										<< tree_edge_to_add_target.summary()
-										<< std::endl
-									);
-									type_edge new_e(
-										make_pair(
-											/* source */ iterator_df<type_die>(
-												tree_edge_to_add_source
-											),
-											/* reason */ iterator_df<program_element_die>(
-												tree_edge_to_add_reason
-											)
-										),
-										/* target */ iterator_df<type_die>(
-											tree_edge_to_add_target
-										)
-									);
-									add_edge(new_cycle, new_idx, new_e);
-								}
-								/* Add the cross edge. */
-								debug_expensive(5, << "Cross edge "
-									<< cross_edge_source.summary()
-									<< " --> "
-									<< cross_edge_target.summary()
-									<< std::endl
-								);
-								type_edge c_e(
-									make_pair(
-										/* source */ iterator_df<type_die>(cross_edge_source),
-										/* reason */ iterator_df<program_element_die>(cross_edge_reason)
-									),
-									/* target */ iterator_df<type_die>(cross_edge_target)
-								);
-								add_edge(new_cycle, new_idx, c_e);
-								/* Add the existing cycle's edges from the cross-edge target...
-								 * We start with the edge whose source is the cross-edge
-								 * target. */
-								auto found = std::find_if(existing_cycle.begin(),
-									existing_cycle.end(),
-									[cross_edge_target](const edge_t & e) -> bool {
-										return e.source() == cross_edge_target;
-									});
-								for (auto i_cyc_edge = std::move(found);
-										/* The last one we do should have a *target*
-										 * of the tree edge source. So stop if our source
-										 * is the tree edge source. */
-										i_cyc_edge->source() != i_edge.source_vertex_for(
-										i_cyc_pair->second->first, i_cyc_pair->second->second
-										);
-										/* increment with wraparoud */
-										((unsigned)(i_cyc_edge - existing_cycle.begin()) < existing_cycle.size() - 1u)
-											? ++i_cyc_edge
-											: (i_cyc_edge = existing_cycle.begin()))
-								{
-									debug_expensive(5, << "Existing cycle edge "
-										<< i_cyc_edge->source().summary()
-										<< " --> "
-										<< i_cyc_edge->target().summary()
-										<< std::endl
-									);
-									type_edge new_e(
-										make_pair(
-											/* source */ iterator_df<type_die>(i_cyc_edge->source()),
-											/* reason */ iterator_df<program_element_die>(
-												i_cyc_edge->label()
-											)
-										),
-										/* target */ iterator_df<type_die>(i_cyc_edge->target())
-									);
-									add_edge(new_cycle, new_idx, new_e);
-								}
-								// check the vector invariant on edges
-								assert(new_cycle.size() > 0);
-								assert(new_cycle.begin()->source() == new_cycle.rbegin()->target());
-								// give this cycle its identity
-								reached_cycles.push_back(new_cycle);
-								assert(reached_cycles.size() == new_idx + 1);
-							} // end for each cycle in common
-						} // end case block
-						break;
-					case type_iterator_base::BACK:
-						debug_expensive(5, << "; edge BACK" << std::endl);
-						/* If we see back-edges, we're exploring a partially-cyclic type.
-						 * But just because we find back-edges doesn't mean the start node
-						 * is part of a cycle. The cycle might not reach back to the start node.
-						 * 
-						 * Put differently: we are definitely seeing a cycle. But the cycle
-						 * might not include the start node. How does this affect our caching
-						 * logic? It's only when we know that the cycle includes the start
-						 * node that we can make use of nodes' cached SCC presence/absence.
-						 *
-						 * Edges that are not in a cycle are those that 
-						 * are not *under* the target of any back-edge, where "under" is 
-						 * defined in terms of the depth-first tree. Our start node is the 
-						 * root of the depth-first tree, by definition. So to figure out 
-						 * whether the root node is part of a cycle, we only need to look
-						 * for back-edges that directly reach *it*. We remember this for
-						 * later; if we didn't see any cycle involving the root node,
-						 * we're not cyclic and can skip the remaining SCC calculation stuff. */
-						// is this a back-edge reaching back to the root?
-						/* back edges are (target, reason) */
-						/* general edges are ((source, reason), target). */
-						iterator_df<type_die>& back_edge_source = edge.first.first;
-						iterator_df<type_die>& back_edge_target = edge.second;
-						iterator_df<program_element_die>& back_edge_reason = edge.first.second;
-						debug_expensive(5, << "Back edge: from " << back_edge_source.summary() << " to "
-							<< back_edge_target.summary() << std::endl);
-						
-						/* Build the cycle we're currently forming, and give it an index. */
-						cycle_t cycle;
-						unsigned idx = reached_cycles.size();
-						debug_expensive(5, << "Recording a new cycle (may or may not involve start node), idx " << idx << std::endl);
-						/* Stacks are (target, reason). 
-						 * All the tree edges are also in the cycle. Or are they?
-						 * Only if we've seen the back-edge's target node
-						 * as the source of this tree edge
-						 * or a later tree edge. So
-						 * 
-
-					                                  o
-					                                   \
-					                                   _\|
-					                                     o  <--.
-					                                      \    |
-					                                      _\|  |
-					                                        o '
-
-						 * ... the lower of the two tree edges is in the cycle, but
-						 * the upper one isn't. We will see the back edge target at some
-						 * point as we walk down the tree edges; all tree edges from then
-						 * on (up to the back edge source) are part of the cycle. BUT:
-
-					                                 o <-------.
-					                                  \         \
-					                                  _\|        |
-					                                    o  <--.  |
-					                                     \    |  |
-					                                     _\|  |  |
-					                                       o '   |
-					                                        \    |
-					                                        _\|  |
-					                                          o '
-
-						 * Now the inner loop is part of a cycle involving the start node.
-						 * It's just that we hadn't seen the relevant back edge yet. What's
-						 * the actual problem, though? We record this cycle and the nodes
-						 * that participate in it; we figure out later, via the transitive
-						 * addition of cycles, which edges go in the SCC.
-
-						 * Another interesting case:
-
-					                                 o <----.
-					                                  \      \
-					                                  _\|     |
-					                                    o  <-----.
-					                                     \    |  |
-					                                     _\|  |  |
-					                                       o '   |
-					                                        \    |
-					                                        _\|  |
-					                                          o '
-
-						 */
-						/* The stack records the target node and the reaching reason.
-						 * To get the source node we have to do some reverse engineering. */
-						bool seen_back_edge_target = false;
-						for (auto i_tree_edge = i_edge.m_stack.begin();
-							i_tree_edge != i_edge.m_stack.end();
-							++i_tree_edge)
-						{
-							auto tree_edge_source = i_edge.source_vertex_for(
-								i_tree_edge->first, i_tree_edge->second
-							);
-							if (!tree_edge_source) continue; // it's the fake initial edge
-							auto& tree_edge_target = i_tree_edge->first;
-							auto& tree_edge_reason = i_tree_edge->second;
-
-							debug_expensive(5, << "Now walking tree edge from " << tree_edge_source.summary()
-								<< " to " << tree_edge_target.summary() << "; is it in the cycle? ");
-
-							seen_back_edge_target |= (tree_edge_source == back_edge_target);
-
-							if (seen_back_edge_target)
-							{
-								debug_expensive(5, << "yes" << std::endl);
-								/* This tree edge is in the cycle. */
-								edge_t new_e(
-									make_pair(
-										/* source */ iterator_df<type_die>(tree_edge_source),
-										/* reason */ iterator_df<program_element_die>(tree_edge_reason)
-									),
-									/* target */ iterator_df<type_die>(tree_edge_target)
-								);
-								add_edge(cycle, idx, new_e);
-							} else { debug_expensive(5, << "no" << std::endl); }
-						}
-						add_edge(cycle, idx, edge); // add the back edge
-						// check the vector invariant on edges
-						assert(cycle.size() > 0);
-						assert(cycle.begin()->source() == cycle.rbegin()->target());
-						// give this cycle its identity
-						reached_cycles.push_back(cycle);
-						assert(reached_cycles.size() == idx + 1);
-						break;
-				}
-			} // end while i_t
-			/* Did we see a cycle involving the start node? */
-			auto cycle_idxs = cycles_by_participating_node.equal_range(start_t);
-			if (cycle_idxs.first == cycle_idxs.second)
-			{
-				// cache the negative result: a positive optional holding a null pointer
-				start_t.as_a<type_die>()->opt_cached_scc
-				 = optional<shared_ptr<type_scc_t> >(shared_ptr<type_scc_t>(nullptr));
-				// return it
-				return opt<type_scc_t>();
+				debug_expensive(5, << "Reached white node: " << i_white.summary()
+					<< "; reason: " << i_white.reason().summary() << "; stack is: ");
+				i_white.print_stack();
 			}
-			else if (debug_level > 0)
+			debug(5) << "Explored all reachable nodes. Total SCCs: "
+				<< i_white.component_count << std::endl;
+
+			/* We've now built a load of SCCs. */
+			std::vector< shared_ptr<type_scc_t> > created_sccs;
+			for (unsigned i = 0; i < i_white.component_count; ++i)
 			{
-				debug() << "We think the following cycles (non-transitively) involve the start node:"
-					<< std::endl;
-				set<unsigned> idxs;
-				for (auto i_pair = cycle_idxs.first; i_pair != cycle_idxs.second; ++i_pair)
-				{
-					idxs.insert(i_pair->second);
-				}
-				auto print_cycle = [](const cycle_t& cycle, unsigned n) -> void {
-					debug_expensive(5, << "- cycle " << n << ":" << std::endl);
-					for (auto i_e = cycle.begin(); i_e != cycle.end(); ++i_e)
-					{
-						debug_expensive(5, << "\t" << std::hex << "0x" << i_e->source().offset_here()
-							<< " ----> 0x" << i_e->target().offset_here()
-							<< " (reason: " << i_e->label().offset_here() << ")"
-							<< std::endl);
-					}
-				};
-				for (auto i_i = idxs.begin(); i_i != idxs.end(); ++i_i)
-				{
-					unsigned i = *i_i;
-					auto& cycle = reached_cycles.at(i);
-					print_cycle(cycle, i);
-				}
-				debug_expensive(5, << "While walking, we found the following other cycles:"
+				shared_ptr<type_scc_t> p_scc = std::make_shared<type_scc_t>();
+				debug_expensive(5, << "Created a shared SCC structure at " << p_scc.get() << std::endl);
+				created_sccs.push_back(p_scc);
+			}
+			for (auto i_pair = i_white.component_numbers.begin();
+				i_pair != i_white.component_numbers.end();
+				++i_pair)
+			{
+				// the current type is in exactly one SCC
+				auto p_scc = created_sccs.at(i_pair->second);
+				debug_expensive(1, << i_pair->first << " is in component " << i_pair->second
 					<< std::endl);
-				for (unsigned i = 0; i < reached_cycles.size(); ++i)
-				{
-					if (idxs.find(i) != idxs.end()) continue;
-					
-					auto& cycle = reached_cycles.at(i);
-					print_cycle(cycle, i);
-				}
-			}
-			/* Okay, so we did see a cycle including the start node.
-			 * Elaborate the SCC by coalecing all cycles. */
-			vector<bool> done(reached_cycles.size(), false);
-			shared_ptr<type_scc_t> p_scc = std::make_shared<type_scc_t>();
-			debug_expensive(5, << "Created a shared SCC structure at " << p_scc.get() << std::endl);
-			type_scc_t& scc = *p_scc;
-			std::function<void(unsigned)> transitively_add_cycle_n;
-			transitively_add_cycle_n = [&done, &transitively_add_cycle_n,
-				cycles_by_participating_node, &reached_cycles, &scc]
-			(unsigned n) -> void {
-				if (done[n]) return;
-				done[n] = true;
-				cycle_t& cur = reached_cycles.at(n);
-				for (auto i_e = cur.begin(); i_e != cur.end(); ++i_e)
-				{
-					debug_expensive(5, << "Adding edge: "
-						<< std::hex << "0x" << i_e->source().offset_here()
-						<< " ----> 0x" << i_e->target().offset_here()
-						<< " (reason: " << i_e->label().offset_here() << ")"
-						<< std::endl);
-						
-					scc.insert(*i_e);
-					auto source_range = cycles_by_participating_node.equal_range(i_e->source());
-					for (auto i_n = source_range.first; i_n != source_range.second; ++i_n)
-					{
-						transitively_add_cycle_n(i_n->second);
-					}
-					auto target_range = cycles_by_participating_node.equal_range(i_e->target());
-					for (auto i_n = target_range.first; i_n != target_range.second; ++i_n)
-					{
-						transitively_add_cycle_n(i_n->second);
-					}
-				}
-			};
-			for (auto i_cycle_idx = cycle_idxs.first; i_cycle_idx != cycle_idxs.second; ++i_cycle_idx)
-			{
-				transitively_add_cycle_n(i_cycle_idx->second);
-			}
-			
-			set<Dwarf_Off> seen_offsets;
-			debug_expensive(5, << "--- begin SCC participant nodes:" << std::endl);
-			for (auto i_e = scc.begin(); i_e != scc.end(); ++i_e)
-			{
-				/* Use get_offset to force creation of payloads *before*
-				 * we print the "SCC participant nodes" header, to keep
-				 * debugging output a bit tidier. */
-				auto record_node_idem = [&seen_offsets, p_scc](const iterator_df<type_die>& n) {
-					Dwarf_Off off = n.offset_here();
-					if (seen_offsets.find(off) != seen_offsets.end()) return;
-					seen_offsets.insert(off);
-					/* Make the node sticky... otherwise, some nodes in the cycle
-					 * might go away and later get re-created, without their SCC
-					 * pointer. */
-					root_die::ptr_type p = &n.dereference();
-					n.root().sticky_dies.insert(make_pair(off, p));
-					
-					/* Cache the SCC in all participating nodes. */
-					if (n->opt_cached_scc && n->opt_cached_scc != p_scc)
-					{
-						debug_expensive(5, << "This shouldn't happen: DIE object at " << p.get()
-							<< ", " << p->summary() << ": "
-							<< "already cached SCC, at " 
-							<< n->opt_cached_scc->get() << std::endl);
-					}
-					assert(!n->opt_cached_scc || n->opt_cached_scc == p_scc);
-					debug_expensive(5, << "Caching into DIE object at " 
-						<< p.get() << "(" << n.summary()
-						<< ") address of the SCC object " << p_scc.get() << std::endl);
-					(dynamic_cast<type_die *>(p.get()))->opt_cached_scc = p_scc;
-					/* We also compute the edges summary as we go. */
-					p_scc->edges_summary << abstract_name_for_type(n);
-					/* Print the SCC for debugging purposes. */
-					debug_expensive(5, << "DIE object at " << p.get()
-						<< ": " << n->summary() << std::endl);
-				};
+				type_scc_t& scc = *p_scc;
+				// we've got all the nodes in the scc, but we want all the edges.
+				// we simply add all the outgoing edges whose target is in the SCC
+				// How do we walk all the outgoing edges? Use the iterator for the job.
 				
-				record_node_idem(i_e->source());
-				record_node_idem(i_e->target());
+				// follow its outgoing edges
+				type_iterator_outgoing_edges i_t(
+					type_iterator_df_edges(
+						//type_iterator_df_base(
+							i_pair->first
+						//)
+					)
+				);
+				// for each outgoing edge of the current type...
+				std::set< pair<string, string> > edges_sorted;
+				for (; i_t; ++i_t)
+				{
+					/* insert this edge iff the target is in the same scc as our i_pair. */
+					auto found_component = i_white.component_numbers.find(i_t);
+					if (found_component != i_white.component_numbers.end()
+						&& found_component->second == i_pair->second)
+					{
+						scc.insert(i_t.as_incoming_edge());
+						/* We also need to calculate the summary word for the
+						 * SCC. We make a sorted list of all the edges, as pairs of
+						 * abstract names. We then stuff them into the summary
+						 * word in order. */
+						edges_sorted.insert(make_pair(
+							abstract_name_for_type(i_t),
+							abstract_name_for_type(i_t.as_incoming_edge().first.first)
+						));
+					}
+				}
+				
+				for (auto i_edge = edges_sorted.begin(); i_edge != edges_sorted.end();
+						++i_edge)
+				{
+					scc.edges_summary << i_edge->first;
+					scc.edges_summary << i_edge->second;
+				}
 			}
-			debug_expensive(5, << "--- end SCC participant nodes (" << seen_offsets.size() << ")"
-				<< std::endl);
-			return scc;
+
+			/* Install the SCCs in the relevant type DIEs. */
+			for (unsigned i = 0; i < i_white.component_count; ++i)
+			{
+				auto types = i_white.component_members.equal_range(i);
+				auto p_scc = created_sccs.at(i);
+				type_scc_t& scc = *p_scc;
+				if (scc.size() == 0)
+				{
+					/* Edgeless SCCs are not SCCs at all. They're DIEs that are
+					 * not in any cycle. We want to cache this fact. */
+					for (auto i_t = types.first; i_t != types.second; ++i_t)
+					{
+						if (i_t->second) i_t->second->opt_cached_scc
+						= opt<shared_ptr<type_scc_t> >(shared_ptr<type_scc_t>());
+					}
+				}
+				else for (auto i_t = types.first; i_t != types.second; ++i_t)
+				{
+					/* NOTE that naively, we might have come up empty for ourselves,
+					 * i.e. found we're in only a singleton SCC (no cycle),
+					 * but still discovered other DIEs that don't reach back to us.
+					 * So we can't be sure that we haven't installed an SCC here
+					 * before.
+					 * We avoid this by pretending (above) edges to SCC-having nodes 
+					 * don't exist. */
+					debug_expensive(5, << "Installing SCC in DIE " << i_t->second.summary()
+						<< std::endl);
+					assert(!i_t->second->opt_cached_scc);
+					i_t->second->opt_cached_scc = p_scc;
+					// now we've calculated the SCC, make it sticky
+					root_die::ptr_type p = &i_t->second.dereference();
+					i_t->second.root().sticky_dies.insert(make_pair(i_t->second.offset_here(), p));
+				}
+			}
+			debug(5) << "Finished installing SCCs" << std::endl;
+
+			if (this->opt_cached_scc && *this->opt_cached_scc)
+			{
+				return opt<type_scc_t>(**this->opt_cached_scc);
+			} else return opt<type_scc_t>();
 		}
 		bool type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{

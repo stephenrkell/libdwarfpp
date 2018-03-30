@@ -21,6 +21,28 @@ struct cycle2
 	void (*fp)(cycle2 *arg);
 } dummy2;
 
+/* For case 3. */
+struct f;
+
+struct g
+{
+	struct f *p;
+};
+
+struct h
+{
+	struct f *p;
+};
+
+struct f
+{
+	struct h h;
+	struct g g;
+} f;
+
+typedef struct f cycle3;
+cycle3 dummy; // to ensure it does not get omitted from DWARF
+
 int main(int argc, char **argv)
 {
 	using namespace dwarf::core;
@@ -73,7 +95,33 @@ int main(int argc, char **argv)
 		assert(*type2_2->opt_cached_scc); // we have a non-null SCC cached
 		assert(*type2_1->opt_cached_scc == *type2_2->opt_cached_scc); // we are sharing correctly
 	}
-	// case 3: test short-circuiting of caching logic
+	cerr << "* case 3" << std::endl;
+	{
+		/* This is the cross-edge case that our earlier attempt didn't
+         * get right. */
+		iterator_df<type_die> type3_1 = cu.named_child("cycle3");
+		/* NOTE that cycle3 is not in the cycle. */
+		assert(type3_1);
+		assert(type3_1.is_a<typedef_die>());
+		auto scc3_1 = type3_1->get_scc();
+		assert(!scc3_1); // no SCC
+		assert(type3_1->opt_cached_scc); // cached that there is none!
+		iterator_df<type_die> type3_2 = cu.named_child("g").as_a<type_die>();
+		iterator_df<type_die> type3_3 = cu.named_child("h").as_a<type_die>();
+		iterator_df<type_die> type3_4 = cu.named_child("f").as_a<type_die>();
+		// we should now have SCCs for the others, though
+		assert(type3_2->opt_cached_scc);
+		assert(*type3_2->opt_cached_scc);
+		assert(type3_3->opt_cached_scc);
+		assert(*type3_3->opt_cached_scc);
+		assert(type3_4->opt_cached_scc);
+		assert(*type3_4->opt_cached_scc);
+		// and they should be equal!
+		assert(*type3_2->opt_cached_scc == *type3_3->opt_cached_scc);
+		assert(*type3_4->opt_cached_scc == *type3_3->opt_cached_scc);
+	}
+
+	// case 4: test short-circuiting of caching logic
 	
 
 	return 0;
