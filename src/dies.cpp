@@ -752,11 +752,11 @@ namespace dwarf
 			opt<uint32_t> code_to_return;
 			summary_code_word_t output_word;
 			/* if we have it cached, return that */
-			auto found_cached = get_root().type_summary_code_cache.find(get_offset());
-			if (found_cached != get_root().type_summary_code_cache.end())
-			{
-				return found_cached->second;
-			}
+			//auto found_cached = get_root().type_summary_code_cache.find(get_offset());
+			//if (found_cached != get_root().type_summary_code_cache.end())
+			//{
+			//	return found_cached->second;
+			//}
 		
 			/* FIXME: factor this into the various subclass cases. */
 			// we have to find ourselves. :-(
@@ -1059,15 +1059,21 @@ namespace dwarf
 
 			code_to_return = output_word.val; 
 		out:
-			get_root().type_summary_code_cache.insert(
-				make_pair(get_offset(), code_to_return)
-			);
+			//get_root().type_summary_code_cache.insert(
+			//	make_pair(get_offset(), code_to_return)
+			//);
 			return code_to_return;
 		}
 		
 		opt<uint32_t> type_die::summary_code_using_iterators() const
 		{
 			if (this->cached_summary_code) return this->cached_summary_code;
+			//auto found_in_root_cache = get_root().type_summary_code_cache.find(get_offset());
+			//if (found_in_root_cache != get_root().type_summary_code_cache.end())
+			//{
+			//	this->cached_summary_code = found_in_root_cache->second;
+			//	return found_in_root_cache->second;
+			//}
 			
 			/* The "old way" to compute summary codes was to walk the type
 			 * and fold in the summary code of all the constituent types,
@@ -1143,10 +1149,13 @@ namespace dwarf
 				output_word << maybe_scc->edges_summary.val;
 				output_word << abstract_name_for_type(self);
 			}
-			
+			this->cached_summary_code = output_word.val;
+			//get_root().type_summary_code_cache.insert(
+			//	make_pair(get_offset(), output_word.val)
+			//);
 			return output_word.val;
 		}
-		
+
 		opt<uint32_t> type_die::summary_code_using_walk_type() const
 		{
 			debug(2) << "Computing summary code for " << *this << std::endl;
