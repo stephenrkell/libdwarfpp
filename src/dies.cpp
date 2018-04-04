@@ -18,6 +18,11 @@
 #include <memory>
 #include <srk31/algorithm.hpp>
 
+// "return site marker" a.k.a. horrible HACK for debugging -- see below
+//extern "C" {
+//extern int __dwarfpp_assert_1;
+//}
+
 namespace dwarf
 {
 	namespace core
@@ -104,6 +109,11 @@ namespace dwarf
 		std::ostream& print_type_abstract_name(std::ostream& s, iterator_df<type_die> t)
 		{
 			if (!t) { s << "void"; return s; }
+			/* We should never be called from type_die::print_abstract_name */
+			//ptrdiff_t return_site_distance_from_bad_caller
+			// = (char*) __builtin_return_address(0) - (char*) &__dwarfpp_assert_1;
+			//assert(return_site_distance_from_bad_caller > 50
+			//	|| return_site_distance_from_bad_caller < -50);
 			return t->print_abstract_name(s);
 		}
 		string abstract_name_for_type(iterator_df<type_die> t)
@@ -120,6 +130,10 @@ namespace dwarf
 				&& (t.as_a<base_type_die>()->get_byte_size() == this->get_byte_size())
 				&& (t.as_a<base_type_die>()->get_bit_size() == this->get_bit_size())
 				&& (t.as_a<base_type_die>()->get_bit_offset() == this->get_bit_offset());
+		}
+		std::ostream& unspecified_type_die::print_abstract_name(std::ostream& s) const
+		{
+			s << "void"; return s; // FIXME: hmm, distinguish?
 		}
 		std::ostream& base_type_die::print_abstract_name(std::ostream& s) const
 		{
@@ -235,9 +249,18 @@ namespace dwarf
 		/* This one does for typedef and qualified types. */
 		std::ostream& type_die::print_abstract_name(std::ostream& s) const
 		{
-			// should never recurse
-			return print_type_abstract_name(s, get_concrete_type());
+			// should never recurse to the same type...
+			static __thread Dwarf_Off generic_print_abstract_name_processing;
+			assert(!generic_print_abstract_name_processing
+				|| generic_print_abstract_name_processing != get_offset());
+			generic_print_abstract_name_processing = get_offset();
+			std::ostream& ref = print_type_abstract_name(s, get_concrete_type());
+			generic_print_abstract_name_processing = 0;
+			// ... or we could maybe use this "return site marker" to assert that
+			// __asm__ volatile ("__dwarfpp_assert_1:\n");
+			return ref;
 		}
+		__asm__ volatile (".globl __dwarfpp_assert_1");
 		std::ostream& array_type_die::print_abstract_name(std::ostream& s) const
 		{
 			opt<Dwarf_Unsigned> element_count = find_self().as_a<array_type_die>()->element_count();

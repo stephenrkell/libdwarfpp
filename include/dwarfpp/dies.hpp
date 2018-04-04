@@ -773,7 +773,9 @@ end_class(with_data_members)
 		iterator_df<type_die> find_or_create_type_handling_bitfields() const;
 #define extra_decls_subroutine_type \
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */ \
-		core::iterator_df<core::type_die> get_return_type() const; 
+		core::iterator_df<core::type_die> get_return_type() const;
+#define extra_decls_unspecified_type \
+		std::ostream& print_abstract_name(std::ostream& s) const;
 
 #define extra_decls_compile_unit \
 /* We define fields and getters for the per-CU source file info */ \
