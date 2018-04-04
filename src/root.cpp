@@ -633,7 +633,13 @@ namespace dwarf
 			}
 			
 			auto created = make_new(begin(), DW_TAG_compile_unit);
-			/* FIXME: set attributes */
+			/* Set attributes. We must have a DW_AT_language. We pretend we're C.
+			 * FIXME: should have one synthetic CU per language requested? */
+			auto& attrs = dynamic_cast<core::in_memory_abstract_die&>(created.dereference()).attrs();
+			encap::attribute_value v_lang((Dwarf_Unsigned) DW_LANG_C);
+			attrs.insert(make_pair(DW_AT_language, v_lang));
+			encap::attribute_value v_name(std::string("dwarfpp.synthetic"));
+			attrs.insert(make_pair(DW_AT_name, v_name));
 			
 			this->synthetic_cu = created.offset_here();
 			iterator_df<compile_unit_die> created_cu = created.as_a<compile_unit_die>();
