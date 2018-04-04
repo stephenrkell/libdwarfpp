@@ -1299,7 +1299,6 @@ namespace dwarf
 			//get_root().type_summary_code_cache.insert(
 			//	make_pair(get_offset(), output_word.val)
 			//);
-
 			return output_word.val;
 		}
 
