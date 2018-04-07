@@ -169,20 +169,22 @@ begin_class(program_element, base_initializations(basic), declare_base(basic))
 		attr_optional(artificial, flag)
 end_class(program_element)
 /* type_die */
-struct summary_code_word_t
+template <typename BaseType>
+struct summary_code_word
 {
-	opt<uint32_t> val;
+	opt<BaseType> val;
+	typedef summary_code_word<BaseType> self;
 
-	void invalidate() { val = opt<uint32_t>(); }
+	void invalidate() { val = opt<BaseType>(); }
 	void zero_check()
 	{
 		if (val && *val == 0)
 		{
 			debug() << "Warning: output_word value hit zero again." << endl;
-			*val = (uint32_t) -1;
+			*val = (BaseType) -1;
 		}
 	}
-	summary_code_word_t& operator<<(uint32_t arg) 
+	self& operator<<(BaseType arg) 
 	{
 		if (val)
 		{
@@ -191,28 +193,28 @@ struct summary_code_word_t
 		}
 		return *this;
 	}
-	summary_code_word_t& operator<<(const string& s) 
+	self& operator<<(const string& s) 
 	{
 		if (val)
 		{
 			for (auto i = s.begin(); i != s.end(); ++i)
 			{
-				*this << static_cast<uint32_t>(*i);
+				*this << static_cast<BaseType>(*i);
 			}
 		}
 		zero_check();
 		return *this;
 	}
-	summary_code_word_t& operator<<(opt<uint32_t> o)
+	self& operator<<(opt<BaseType> o)
 	{
 		if (!o) 
 		{
-			val = opt<uint32_t>(); // FIXME: do I want this to "lock" at the invalid state? for incomplete types etc.
+			val = opt<BaseType>(); // FIXME: do I want this to "lock" at the invalid state? for incomplete types etc.
 			return *this;
 		}
 		else return this->operator<<(*o);
 	}
-	summary_code_word_t() : val(0) {}
+	summary_code_word() : val(0) {}
 };
 /* To do summary codes efficiently, we need to make them compositional. 
  * This means that given the summary codes for the types we depend on,
@@ -258,16 +260,27 @@ struct type_scc_t : public set<type_edge, type_edge_compare>
 	using set::set;
 	// FIXME: we could try to maintain this on inserts.
 	// if we remove an edge, we have to invalidate it and recompute.
-	summary_code_word_t edges_summary;
+	summary_code_word<uint32_t> edges_summary;
 };
 bool types_abstractly_equal(iterator_df<type_die> t1, iterator_df<type_die> t2);
 std::ostream& print_type_abstract_name(std::ostream& s, iterator_df<type_die> t);
 string abstract_name_for_type(iterator_df<type_die> t);
+opt<uint32_t> summary_code_for_type(iterator_df<type_die> t);
+opt<uint16_t> containment_summary_code_for_type(iterator_df<type_die> t);
+opt<uint16_t> traversal_summary_code_for_type(iterator_df<type_die> t);
 begin_class(type, base_initializations(initialize_base(program_element)), declare_base(program_element))
 		attr_optional(byte_size, unsigned)
 		mutable opt<uint32_t> cached_summary_code;
 	protected:
 		string arbitrary_name() const;
+		template <typename BaseType> opt<BaseType> containment_summary_code(
+			/* Take an argument for the recursive call. By default it's unset. */
+			std::function<opt<BaseType>(iterator_df<type_die>)> recursive_call
+			= std::function<opt<BaseType>(iterator_df<type_die>)>()
+		) const;
+		opt<uint16_t> traversal_summary_code() const;
+		friend opt<uint16_t> containment_summary_code_for_type(iterator_df<type_die> t);
+		friend opt<uint16_t> traversal_summary_code_for_type(iterator_df<type_die> t);
 	public:
 		mutable optional<shared_ptr<type_scc_t> > opt_cached_scc; // HACK: should be private, but test-scc needs it
 		virtual opt<Dwarf_Unsigned> calculate_byte_size() const;
@@ -279,7 +292,9 @@ begin_class(type, base_initializations(initialize_base(program_element)), declar
 		virtual opt<type_scc_t> get_scc() const;
 		virtual opt<uint32_t>		 summary_code() const;
 		/* FIXME: temporary side-by-side impls while we compare / bug-fix. */
-		virtual opt<uint32_t>		 summary_code_using_iterators() const;
+		template <typename BaseType> 
+		opt<BaseType>		 combined_summary_code_using_iterators() const;
+		virtual opt<uint32_t>		 summary_code_using_old_method() const;
 		virtual opt<uint32_t>		 summary_code_using_walk_type() const;
 		virtual bool may_equal(core::iterator_df<core::type_die> t, 
 			const std::set< std::pair<core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
@@ -297,6 +312,7 @@ struct type_edge : public pair< pair<iterator_df<type_die>, iterator_df<program_
 	iterator_df<program_element_die>& label() { return first.second; }
 	const iterator_df<program_element_die>& reason() const { return first.second; }
 	iterator_df<program_element_die>& reason() { return first.second; }
+	bool reason_is_traversal() const;
 	const iterator_df<type_die>& target() const { return second; }
 	iterator_df<type_die>& target() { return second; }
 };
@@ -779,6 +795,8 @@ begin_class(address_holding_type, base_initializations(initialize_base(type_chai
 		iterator_df<type_die> get_concrete_type() const;
 		opt<Dwarf_Unsigned> calculate_byte_size() const;
 		bool abstractly_equals(iterator_df<type_die> t) const;
+		pair<unsigned, iterator_df<type_die> > get_ultimate_reached_type() const;
+		pair<unsigned, iterator_df<type_die> > find_ultimate_reached_type() const;
 		std::ostream& print_abstract_name(std::ostream& s) const;
 end_class(type_chain)
 /* qualified_type_die */
@@ -788,6 +806,10 @@ end_class(qualified_type)
 /* with_data_members_die */
 begin_class(with_data_members, base_initializations(initialize_base(type)), declare_base(type))
 		child_tag(member)
+protected:
+		mutable optional< iterator_df<> > maybe_cached_definition; 
+		// really use boost::optional, to distinguish "cached END" from "no cache"
+public:
 		iterator_base find_definition() const; // for turning declarations into defns
 		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; 
 		bool abstractly_equals(iterator_df<type_die> t) const;

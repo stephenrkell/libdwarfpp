@@ -16,6 +16,7 @@
 #include "dwarfpp/dies-inl.hpp"
 
 #include <memory>
+#include <boost/regex.hpp>
 #include <srk31/algorithm.hpp>
 
 // "return site marker" a.k.a. horrible HACK for debugging -- see below
@@ -260,7 +261,7 @@ namespace dwarf
 			// __asm__ volatile ("__dwarfpp_assert_1:\n");
 			return ref;
 		}
-		__asm__ volatile (".globl __dwarfpp_assert_1");
+		//__asm__ volatile (".globl __dwarfpp_assert_1");
 		std::ostream& array_type_die::print_abstract_name(std::ostream& s) const
 		{
 			opt<Dwarf_Unsigned> element_count = find_self().as_a<array_type_die>()->element_count();
@@ -749,15 +750,311 @@ namespace dwarf
 		{
 			return find_self();
 		}
-		opt<uint32_t> type_die::summary_code() const
+		template <typename BaseType>
+		opt<BaseType> type_die::containment_summary_code(
+			std::function<opt<BaseType>(iterator_df<type_die>)> recursive_call
+		) const
 		{
-			//return this->summary_code_using_walk_type();
+			/* Summary of what we documented in type_die::summary_code():
+			 * Incompletes have no summary.
+			 * Pointers to incompletes have no summary.
+			 * Pointers to completes do have a summary.
+			 * Inside a struct (or array?), the contribution of a pointer
+			 * to the summary
+			 * is in terms of the pointer's abstract name, not its summary.
+			 * This prevents pointer-to-complete and pointer-to-incomplete
+			 * having different effects.
+			 * In dumptypes, we will have to take care to emit a reference
+			 * to the codeless or codeful uniqtype as appropriate.
+			 * If we use a codeless pointer type, we should emit a weak definition
+			 * that is not in a section group.
+			 *
+			 * NOTE: we're not virtual, because we're a template,
+			 * so we have to handle every case here.
+			 *
+			 * NOTE: this method knows nothing about caching.
+			 * If we recurse, we have to worry about caching.
+			 * Only type_die::summary code knows about that.
+			 * So, we are parameterised by what actually is our recursive call.
+			 */
+			
+			if (!recursive_call) recursive_call = [](iterator_df<type_die> arg) -> opt<BaseType> {
+				return arg->containment_summary_code<BaseType>();
+			};
+			
+			summary_code_word<BaseType> output_word;
+			iterator_df<type_die> t = find_self();
+			// don't let concrete_t binding last
+			{
+				auto concrete_t = t ? t->get_concrete_type() : t;
+				if (!concrete_t) return opt<BaseType>(0); // FIXME: top-level function that can deal with void
+				/* If we ourselves are not concrete, recurse. */
+				if (&*concrete_t != this) return recursive_call(concrete_t);
+			}
+
+			/* For declarations, try to find their definition and recurse. Else return opt<>(). */
+			if (t.is_a<with_data_members_die>() &&
+			    t.as_a<with_data_members_die>()->get_declaration() &&
+			   *t.as_a<with_data_members_die>()->get_declaration())
+			{
+				iterator_df<> found = t->find_definition();
+				if (found) return recursive_call(found);
+				else return opt<BaseType>();
+			}
+			if (t.is_a<base_type_die>())
+			{
+				auto base_t = t.as_a<core::base_type_die>();
+				unsigned encoding = base_t->get_encoding();
+				assert(base_t->get_byte_size());
+				unsigned byte_size = *base_t->get_byte_size();
+				unsigned bit_size = base_t->get_bit_size() ? *base_t->get_bit_size() : byte_size * 8;
+				unsigned bit_offset = base_t->get_bit_offset() ? *base_t->get_bit_offset() : 0;
+				output_word << DW_TAG_base_type << encoding << byte_size << bit_size << bit_offset;
+				return output_word.val;
+			}
+			else if (t.is_a<enumeration_type_die>())
+			{
+				/* HACK: because CIL sometimes mangles names to keep them unique,
+				 * e.g. "ADDRESS___0"
+				 * FIXME: in uniqtype-defs.h, and places which use its contents,
+				  * use "_"-prefix/suffixing to remove this problem. Or just don't
+				  * include uniqtype.h in libcrunch_cil_inlines? Why do we need it? */
+				auto HACK_NAME = [](const string& name) -> string {
+					boost::smatch m;
+					if (boost::regex_match(name, m, boost::regex("([a-zA-Z_][a-zA-Z0-9_]*)___[0-9]+")))
+					{
+						string to_return = m[1];
+						std::cerr << "Hacked name " << name << " back to " << to_return << std::endl;
+						return to_return;
+					} else return name;
+				};
+				// shift in the enumeration name
+				output_word << t->arbitrary_name();
+
+				// shift in the names and values of each enumerator
+				auto enum_t = t.as_a<enumeration_type_die>();
+				auto enumerators = t.children().subseq_of<enumerator_die>();
+				int last_enum_value = -1;
+				for (auto i_enum = enumerators.first; i_enum != enumerators.second; ++i_enum)
+				{
+					output_word << HACK_NAME(*i_enum->get_name());
+					if (i_enum->get_const_value())
+					{
+						last_enum_value = *i_enum->get_const_value();
+						output_word << last_enum_value;
+					} else output_word << last_enum_value++;
+				}
+
+				// then shift in the base type's summary code
+				auto enum_base_t = enum_t->get_type();
+				if (!enum_base_t)
+				{
+					// debug() << "Warning: saw enum with no type" << endl;
+					enum_base_t = enum_t.enclosing_cu()->implicit_enum_base_type();
+					if (!enum_base_t)
+					{
+						debug() << "Warning: saw enum with no type" << endl;
+						return output_word.val;
+					}
+				}
+				output_word << recursive_call(enum_base_t);
+				return output_word.val;
+			}
+			else if (t.is_a<subrange_type_die>())
+			{
+				auto subrange_t = t.as_a<subrange_type_die>();
+
+				// DON'T shift in the name; names on subrange types are irrelevant
+
+				// shift in the base type's summary code
+				if (!subrange_t->get_type())
+				{
+					debug() << "Warning: saw subrange with no type" << endl;
+				}
+				else output_word << recursive_call(subrange_t->get_type());
+
+				/* Then shift in the upper bound and lower bound, if present
+				 * NOTE: this means unnamed boundless subrange types have the 
+				 * same code as their underlying type. This is probably what we want. */
+				if (subrange_t->get_upper_bound()) output_word << *subrange_t->get_upper_bound();
+				if (subrange_t->get_lower_bound()) output_word << *subrange_t->get_lower_bound();
+				return output_word.val;
+			}
+			else if (t.is_a<type_describing_subprogram_die>())
+			{
+				auto subp_t = t.as_a<type_describing_subprogram_die>();
+
+				/* This is the key trick for cutting off the effects of incompleteness,
+				 * and also avoiding cycles. */
+				auto incorporate_type = [&](iterator_df<type_die> t) {
+					if (t && t->get_concrete_type().is_a<address_holding_type_die>())
+					{
+						output_word << abstract_name_for_type(t->get_concrete_type());
+					} else output_word << recursive_call(t);
+				};
+				
+				// shift in the argument and return types
+				auto return_type = subp_t->get_return_type();
+				incorporate_type(return_type);
+
+				// shift in something to distinguish void(void) from void
+				output_word << "()";
+
+				auto fps = t.children().subseq_of<formal_parameter_die>();
+				for (auto i_fp = fps.first; i_fp != fps.second; ++i_fp)
+				{
+					/* This is the key trick for cutting off the effects of incompleteness,
+					 * and also avoiding cycles. */
+					incorporate_type(i_fp->find_type());
+				}
+
+				if (subp_t->is_variadic()) output_word << "...";
+				return output_word.val;
+			}
+			else if (t.is_a<address_holding_type_die>())
+			{
+				auto ptr_t = t.as_a<core::address_holding_type_die>();
+				auto ultimate_pointee_pair = ptr_t->find_ultimate_reached_type();
+				auto ultimate_pointee_t = ultimate_pointee_pair.second;
+				if (ultimate_pointee_t.is_a<with_data_members_die>()
+					&& ultimate_pointee_t.as_a<with_data_members_die>()->get_declaration()
+					&& *ultimate_pointee_t.as_a<with_data_members_die>()->get_declaration())
+				{
+					// we're opaque. we have no summary
+					return opt<BaseType>();
+				}
+				
+				unsigned ptr_size = *ptr_t->calculate_byte_size();
+				unsigned addr_class = ptr_t->get_address_class() ? *ptr_t->get_address_class() : 0;
+				if (addr_class != 0)
+				{
+					switch(addr_class) 
+					{
+						default:
+							assert(false); // nobody seems to use this feature so far
+						/* NOTE: There is also something called DWARF Pointer-Encoding (PEs).
+						   This is a DWARF representation issue, used in frame info, and is not 
+						   something we care about. */
+					}
+				}
+				output_word << t.tag_here() << ptr_size << addr_class;
+				auto target_t = ptr_t->find_type();
+				output_word << recursive_call(target_t);
+				return output_word.val;
+			}
+			if (t.is_a<with_data_members_die>())
+			{
+				// add in the name
+				output_word << t->arbitrary_name();
+
+				// for each member 
+				auto members = t.children().subseq_of<core::data_member_die>();
+				for (auto i_member = members.first; i_member != members.second; ++i_member)
+				{
+					// skip members that are mere declarations 
+					if (i_member->get_declaration() && *i_member->get_declaration()) continue;
+
+					// calculate its offset
+					opt<Dwarf_Unsigned> opt_offset = i_member->byte_offset_in_enclosing_type();
+					if (!opt_offset)
+					{
+						debug() << "Warning: saw member " << *i_member << " with no apparent offset." << endl;
+						continue;
+					}
+
+					output_word << (opt_offset ? *opt_offset : 0);
+					// also its bit offset!
+					
+					auto member_type = i_member->get_type();
+					assert(member_type);
+					assert(member_type.is_a<type_die>());
+					
+					/* This is the key trick for cutting off the effects of incompleteness,
+					 * and also avoiding cycles. */
+					if (member_type && member_type->get_concrete_type()
+						.is_a<address_holding_type_die>())
+					{
+						output_word << abstract_name_for_type(member_type->get_concrete_type());
+					} else output_word << recursive_call(member_type);
+				}
+				return output_word.val;
+			}
+			if (t.is_a<array_type_die>())
+			{
+				// if we're a member of something, we should be bounded in all dimensions
+				auto opt_el_type = t.as_a<array_type_die>()->ultimate_element_type();
+				auto opt_el_count = t.as_a<array_type_die>()->ultimate_element_count();
+				if (!opt_el_type) output_word << opt<BaseType>();
+				else if (opt_el_type.is_a<address_holding_type_die>())
+				{
+					output_word << abstract_name_for_type(opt_el_type);
+				}
+				else output_word << recursive_call(opt_el_type);
+				
+				output_word << (opt_el_count ? *opt_el_count : 0);
+				// FIXME: also the factoring into dimensions needs to be taken into account
+				
+				return output_word.val;
+			}
+			else if (t.is_a<string_type_die>())
+			{
+				// Fortran strings can be fixed-length or variable-length
+				auto opt_dynamic_length = t.as_a<string_type_die>()->get_string_length();
+				unsigned byte_len;
+				if (opt_dynamic_length)
+				{
+					// treat it as length 0
+					byte_len = 0;
+				}
+				else
+				{
+					auto opt_byte_size = t.as_a<string_type_die>()->fixed_length_in_bytes();
+					assert(opt_byte_size);
+					byte_len = *opt_byte_size;
+				}
+				output_word << DW_TAG_string_type << byte_len;
+				return output_word.val;
+			}
+			else if (t.is_a<unspecified_type_die>())
+			{
+				debug() << "Warning: saw unspecified type " << t << std::endl;
+				return opt<BaseType>();
+			}
+
+			abort(); // we should not reach here
+		}
+		opt<uint16_t> type_die::traversal_summary_code() const
+		{
+			return opt<uint16_t>(); // FIXME
+		}
+		opt<uint32_t> summary_code_for_type(iterator_df<type_die> t)
+		{
+			if (!t) return opt<uint32_t>(0);
+			else return t->summary_code();
+		}
+		template <typename BaseType>
+		opt<BaseType> containment_summary_code_for_type(iterator_df<type_die> t);
+		template <typename BaseType>
+		opt<BaseType> containment_summary_code_for_type(iterator_df<type_die> t)
+		{
+			if (!t) return opt<BaseType>(0);
+			else return t->containment_summary_code<BaseType>();
+		}
+		opt<uint16_t> traversal_summary_code_for_type(iterator_df<type_die> t);
+		opt<uint16_t> traversal_summary_code_for_type(iterator_df<type_die> t)
+		{
+			if (!t) return opt<uint16_t>(0);
+			else return t->traversal_summary_code();
+		}
+		opt<uint32_t> type_die::summary_code_using_old_method() const
+		{
+			// what follows is the "old way"; preserved here for now
 			using lib::Dwarf_Unsigned;
 			using lib::Dwarf_Half;
 			using namespace dwarf::core;
 
 			opt<uint32_t> code_to_return;
-			summary_code_word_t output_word;
+			summary_code_word<uint32_t> output_word;
 			/* if we have it cached, return that */
 			//auto found_cached = get_root().type_summary_code_cache.find(get_offset());
 			//if (found_cached != get_root().type_summary_code_cache.end())
@@ -826,7 +1123,9 @@ namespace dwarf
 			}
 
 			/* For declarations, if we can't find their definition, we return opt<>(). */
-			if (concrete_t->get_declaration() && *concrete_t->get_declaration())
+			if (concrete_t.is_a<with_data_members_die>() &&
+			    concrete_t.as_a<with_data_members_die>()->get_declaration() &&
+			   *concrete_t.as_a<with_data_members_die>()->get_declaration())
 			{
 				iterator_df<> found = concrete_t->find_definition();
 				concrete_t = found.as_a<type_die>();
@@ -980,7 +1279,7 @@ namespace dwarf
 					opt<uint32_t> target_code;
 					if (target_t.is_real_die_position() && target_t.is_a<with_data_members_die>())
 					{
-						summary_code_word_t tmp_output_word;
+						summary_code_word<uint32_t> tmp_output_word;
 						// add in the name only
 						if (target_t.name_here())
 						{
@@ -1072,7 +1371,8 @@ namespace dwarf
 			return code_to_return;
 		}
 		
-		opt<uint32_t> type_die::summary_code_using_iterators() const
+		template <typename BaseType>
+		opt<BaseType> type_die::combined_summary_code_using_iterators() const
 		{
 			if (this->cached_summary_code) return this->cached_summary_code;
 			//auto found_in_root_cache = get_root().type_summary_code_cache.find(get_offset());
@@ -1116,7 +1416,7 @@ namespace dwarf
 			auto maybe_scc = get_scc();
 			auto self = find_self();
 			auto t = self.as_a<type_die>();
-			summary_code_word_t output_word;
+			summary_code_word<BaseType> output_word;
 			if (!maybe_scc)
 			{
 				/* We're acyclic. Just iterate over our *immediate* child types,
@@ -1131,31 +1431,40 @@ namespace dwarf
 				 * FIXME: here we are ignoring field offsets and names, among other 
 				 * things which ought to make a difference to the type.
 				 */
+				// just a decl, no def? try to replace ourselves with the definition, and if not, null out. */
+				if (t->get_declaration() && *t->get_declaration())
+				{
+					iterator_df<> found = t->find_definition();
+					t = found.as_a<type_die>();
+					if (!t)
+					{
+						debug(2) << "Detected that we have a declaration with no definition; returning no code" << std::endl;
+						// NOTE that we will still get a post-visit, just no recursion
+						// so we explicitly clear the output word (HACK)
+						output_word.invalidate();
+						return output_word.val;
+					}
+				}
 				Dwarf_Off offset_here = get_offset();
 				walk_type(self, self,
 					/* pre_f */ [&output_word, offset_here](
 						iterator_df<type_die> t, iterator_df<program_element_die> reason) -> bool {
+						// ignore the starting DIE
 						if (t && t.offset_here() == offset_here) return true;
+						// void means 0
 						if (!t) output_word << 0;
-						else output_word << t->summary_code_using_iterators();
+						else output_word << t->combined_summary_code_using_iterators<BaseType>();
 						return false;
 					},
 					/* post_f */ [](iterator_df<type_die> t, iterator_df<program_element_die> reason) -> void
 					{});
-				// distinguish ourselves, unless we're a typedef.
+
+				// now we've accumulated a summary of our immediate children
+				// but we've yet to distinguish ourselves
 				
-				// 
-				{
-					auto concrete_t = t ? t->get_concrete_type() : t;
-					// non-concrete? ignore but keep going -- walk_type will go down the chain
-					// ACTUALLY: when we hit another type, 
-					// FIXME: don't continue the walk -- use summary_code() on it, to benefit from caching
-					// + ditto on other cases.
-					// AH, but "stopping the walk" needs to distinguish skipping a subtree from stopping completely;
-					// incrementalise "walk_type" as another kind of iterator? model on iterator_bf.
-					// what about getting both pre- and post-order in one? we seem to get that here; use currently_walking?
-					if (t != concrete_t) return output_word.val;
-				}
+				// if we're not concrete, our children have captured everything
+				auto concrete_t = t ? t->get_concrete_type() : t;
+				if (t != concrete_t) return output_word.val;
 				// void? our code is 0; keep going
 				if (!t) { output_word << 0; return output_word.val; }
 				// just a decl, no def? try to replace ourselves with the definition, and if not, null out. */
@@ -1359,7 +1668,7 @@ namespace dwarf
 				else return *t.name_here();
 			};
 			opt<uint32_t> code_to_return;
-			summary_code_word_t output_word;
+			summary_code_word<uint32_t> output_word;
 			auto outer_t = find_self().as_a<type_die>();
 			decltype(outer_t) concrete_outer_t;
 			if (!outer_t) { code_to_return = opt<uint32_t>(0); goto out; }
@@ -1606,6 +1915,150 @@ namespace dwarf
 			this->cached_summary_code = code_to_return;
 			return code_to_return;
 		}
+		opt<uint32_t> type_die::summary_code() const
+		{
+			if (this->cached_summary_code) return this->cached_summary_code;
+			//return this->summary_code_using_walk_type();
+			// return this->combined_summary_code_using_iterators<uint32_t>();
+			
+			/* BIG problem: incompleteness. The "combined summary" code, which
+			 * factors in types reached by pointer traversals, is broken by
+			 * this. */
+			
+			/* What about where our exploration is "cut off" by incompleteness?
+			 * This is a real problem. We might need two summary codes -- one "local",
+			 * where pointees are cut off and represented by their abstract names alone,
+			 * and another that records the whole cycle *if it is available*.
+			 * Need to think about the soundness of this. It might reduce to the sort
+			 * of uniqueness we're going for with the symbol alias policy. FIXME.
+			 * In the meantime, just to to canonicalise to definitions whenever we
+			 * follow an edge, and bail if we can't do it. That's not right, because
+			 * it means if we have
+			 *
+			 * struct opaque;
+			 * struct Foo { double d; struct opaque *p; }
+			 *
+			 * and also
+			 * struct opaque;
+			 * struct Foo { int i; struct opaque *p; }
+			 *
+			 * They will both come out as without-code.
+			 *
+			 * So what happens? Will we will emit two __uniqtype__Foo instances?
+			 * NO! We should *never* emit a real uniqtype without a code.
+			 * ASSERT THIS somewhere.
+			 *
+			 * We need to define type_die::summary_code in terms of
+			 * two helpers: local summary code and
+			 * reachable summary code.
+			 * (Note that reachability is not the same as cyclicity.
+			 * The reachable thing still makes sense for acyclic DIEs.)
+			 *
+			 * Things without pointers have 0 for the reachable part.
+			 * Things that reach incompletes have ffff for the reachable part.
+			 * If we only care about local compatibility, we can ignore the
+			 * reachability-based 16 bits.
+			 * Modify the summary code code (the thing defining operator<<)
+			 * to be parameterisable by width.
+			 * Then make two 16-bit ones.
+			 * Also FIXME the problem where bitfields of different bit offsets
+			 * come out with the same code.
+			 *
+			 * NOTE there are several cases:
+			 * 1. (acyclic, does not reach cycle,              graph-complete)
+			 * 2. (acyclic, does not reach cycle,              graph-incomplete) "apparently acyclic"
+			 * 3. (acyclic but reaches graph-complete cycle,   graph-complete)
+			 * 4. (acyclic but reaches graph-complete cycle,   graph-incomplete) "apparently acyclic"
+			 *    (acyclic but reaches graph-incomplete cycle, graph-complete) <-- impossible
+			 * 5. (acyclic but reaches graph-incomplete cycle, graph-incomplete) "apparently acyclic"
+			 *    (on a graph-incomplete cycle,                graph-complete) <-- impossible
+			 * 6. (on a graph-incomplete cycle,                graph-incomplete)
+			 * 7. (on a graph-complete cycle,                  graph-complete)
+			 *    (on a graph-complete cycle,                  graph-incomplete) <-- impossible
+			 *
+			 * Here a "graph-incomplete cycle" means the SCC has outgoing edges
+			 * to an incomplete type.
+			 * If we're graph-incomplete but acyclic and reach only complete cycles if any,
+			 * it means we can reach such an outgoing edge
+			 * but its origin vertex isn't part of an SCC.
+			 *
+			 * Case 1 is straightforward and compositional by immediate-successor walk.
+			 * Case 2 must return traversal ffff, compositional by immediate-successor walk.
+			 * Case 3 is straightforward and compositional by immediate-successor walk.
+			 * Case 4 must return traversal ffff, compositional by immediate-successor walk.
+			 * Case 5 must return traversal ffff, compositional by SCC (SCC summary ffff)
+			 * Case 6 must return traversal ffff, compositional by SCC (SCC summary ffff)
+			 * Case 7 is nonstraightforward but compositional by the SCC summary algorithm.
+			 *
+			 * WAIT. The whole point of this is not to falsely distinguish
+			 * two compilation units' views of what is actually the same type.
+			 * So the summary code we use should be based on containment.
+			 * Otherwise, if I have one CU in which a type has traversal-reachable other types
+			 * that are opaque, its reachability summary will be ffff,
+			 * whereas in a CU where the whole graph is fully defined it will be something else.
+			 *
+			 * The other options it not to compute summary codes on a per-DIE / CU basis
+			 * at all. I.e. we're heading towards splitting the summary codes back into
+			 * liballocstool when working at a whole-dynobj granularity.
+			 * This makes sense.
+			 * In short: we can compute per-CU containment-based codes,
+			 * and we can make a good go of reachability-based codes in a whole-dynobj setting
+			 * but not in a per-CU setting.
+			 * Of course some structs will be incomplete even across the whole dynobj.
+			 * So, anything that reaches them will have ffff reachability.
+			 * It would be unusual, but completely possible, for some compilation unit
+			 * in another dynobj
+			 * to define such an opaque-to-clients struct
+			 * such that it forms a cycle reaching back to itself via one of the client's
+			 * own struct definitions. So, cutting off the abstraction boundary doesn't work.
+			 * We would have to compute the summary codes in whole-process style,
+			 * in liballocs proper!
+			 *
+			 * A likely compromise is
+			 * - use containment-based summaries only
+			 * - incompletes have no summary (but have an abstract name)
+			 * - pointers to incompletes *do* have a summary?
+			 *     -- we can compute one from the pointee abstract name
+			 *     -- what about a pointer to the same type but complete?
+			 *     -- what about a pointer to a concidentally like-named type, also complete?
+			 *     -- do we want these three pointers to have the same uniqtype?
+			 * - can we use link-time laziness to resolve this?
+			 *     -- emit the pointee as simply the abstract name
+			 *     -- say it has no summary code
+			 *     -- BUT... a structure containing such a thing *does* have a summary
+			 *     -- in this way, contained pointer fields can be emitted to reference
+			 *                "__uniqtype____PTR_struct_name"
+			 *         or equally to   "__uniqtype_0123456a___PTR_struct_name"
+			 *         and they *should* come out the same at link time.
+			 * - structures containing pointers to incompletes *do* have a summary
+			 *      but it is computed using those pointers' abstract names
+			 *
+			 * YES i.e. pointer members are summarised using their abstract names,
+			 * regardless of whether a summary is available.
+			 * Incompletes have no summary.
+			 * Pointers to incompletes have no summary.
+			 * Pointers to completes do have a summary.
+			 * ARGH. But this violates our "never emit without a summary code" invariant.
+			 * If we have "struct S" defined in some compilation unit,
+			 * we might reasonably *never* make S* except in a CU where S is opaque/incomplete.
+			 * So some client that just emits a reference to __uniqtype____PTR_S
+			 * will cause a link failure.
+			 * Answer:
+			 * we do emit the codeless definition,
+			 * but as a *weak* definition and *not* in a section group.
+			 * HMM. The dynamic linking boundary might mess with this. A "winning" weak definition
+			 * in an executable or preloaded library
+			 * will trump an actual alias-of-summarised-full-definition symbol in the meta-obj.
+			 */
+			auto computed = this->containment_summary_code<uint32_t>(
+				/* Pass ourselves as the recursive call, to take advantage of caching. */
+				[](iterator_df<type_die> arg) -> opt<uint32_t> {
+					return summary_code_for_type(arg);
+				}
+			);
+			this->cached_summary_code = computed;
+			return computed;
+		}
 		
 		/* reverse-engineering helper. */
 		iterator_df<type_die> type_iterator_df_base::source_vertex_for(
@@ -1701,9 +2154,10 @@ namespace dwarf
 	// 		}
 			return arg1 < arg2; // FIXME
 		}){}
-
-		void get_all_sccs(root_die& r)
+		
+		bool type_edge::reason_is_traversal() const
 		{
+			return this->source().is_a<address_holding_type_die>();
 		}
 
 		opt<type_scc_t> type_die::get_scc() const
@@ -1720,7 +2174,10 @@ namespace dwarf
 			// cheque the cache. we might have a null pointer cached, meaning "not cyclic"
 			if (opt_cached_scc) return *opt_cached_scc ? **opt_cached_scc : opt<type_scc_t>();
 			
-			auto start_t = find_self();
+			iterator_df<type_die> start_t = find_self();
+			
+			// if we're a declaration, that's bad
+			if (start_t->get_declaration() && *start_t->get_declaration()) return opt<type_scc_t>();
 			
 			//get_all_sccs(start_t.root());
 			/* We could run DFS on the whole graph. However,
@@ -2068,18 +2525,22 @@ namespace dwarf
 						 * SCC. We make a sorted list of all the edges, as pairs of
 						 * abstract names. We then stuff them into the summary
 						 * word in order. */
-						edges_sorted.insert(make_pair(
+						auto pair = make_pair(
 							abstract_name_for_type(i_t),
 							abstract_name_for_type(i_t.as_incoming_edge().first.first)
-						));
+						);
+						edges_sorted.insert(pair);
 					}
 				}
 				
+				debug_expensive(5, << "SCC number " << i_pair->second <<
+					" has the following abstract name edges" << std::endl);
 				for (auto i_edge = edges_sorted.begin(); i_edge != edges_sorted.end();
 						++i_edge)
 				{
 					scc.edges_summary << i_edge->first;
 					scc.edges_summary << i_edge->second;
+					debug_expensive(5, << i_edge->first << " ----> " << i_edge->second << std::endl);
 				}
 			}
 
@@ -2099,22 +2560,28 @@ namespace dwarf
 						= opt<shared_ptr<type_scc_t> >(shared_ptr<type_scc_t>());
 					}
 				}
-				else for (auto i_t = types.first; i_t != types.second; ++i_t)
+				else
 				{
-					/* NOTE that naively, we might have come up empty for ourselves,
-					 * i.e. found we're in only a singleton SCC (no cycle),
-					 * but still discovered other DIEs that don't reach back to us.
-					 * So we can't be sure that we haven't installed an SCC here
-					 * before.
-					 * We avoid this by pretending (above) edges to SCC-having nodes 
-					 * don't exist. */
-					debug_expensive(5, << "Installing SCC in DIE " << i_t->second.summary()
+					for (auto i_t = types.first; i_t != types.second; ++i_t)
+					{
+						/* NOTE that naively, we might have come up empty for ourselves,
+						 * i.e. found we're in only a singleton SCC (no cycle),
+						 * but still discovered other DIEs that don't reach back to us.
+						 * So we can't be sure that we haven't installed an SCC here
+						 * before.
+						 * We avoid this by pretending (above) edges to SCC-having nodes 
+						 * don't exist. */
+						debug_expensive(5, << "Installing SCC in DIE " << i_t->second.summary()
+							<< std::endl);
+						assert(!i_t->second->opt_cached_scc);
+						i_t->second->opt_cached_scc = p_scc;
+						// now we've calculated the SCC, make it sticky
+						root_die::ptr_type p = &i_t->second.dereference();
+						i_t->second.root().sticky_dies.insert(make_pair(i_t->second.offset_here(), p));
+					}
+					debug_expensive(5, << "SCC number " << i << " has summary code "
+						<< (scc.edges_summary.val ? *scc.edges_summary.val : 0)
 						<< std::endl);
-					assert(!i_t->second->opt_cached_scc);
-					i_t->second->opt_cached_scc = p_scc;
-					// now we've calculated the SCC, make it sticky
-					root_die::ptr_type p = &i_t->second.dereference();
-					i_t->second.root().sticky_dies.insert(make_pair(i_t->second.offset_here(), p));
 				}
 			}
 			debug(5) << "Finished installing SCCs" << std::endl;
@@ -2348,6 +2815,43 @@ namespace dwarf
 			
 			return true;
 		}
+/* from address_holding_type_die: */
+		pair<unsigned, iterator_df<type_die> > address_holding_type_die::get_ultimate_reached_type() const
+		{
+			unsigned indir_level = 0;
+			iterator_df<type_die> pointee_t = find_self();
+			while (pointee_t.is_a<address_holding_type_die>())
+			{
+				++indir_level;
+				pointee_t = pointee_t.as_a<address_holding_type_die>()->get_type();
+				if (pointee_t) pointee_t = pointee_t->get_concrete_type();
+			}
+			return make_pair(indir_level, pointee_t);
+		}
+		pair<unsigned, iterator_df<type_die> > address_holding_type_die::find_ultimate_reached_type() const
+		{
+			unsigned indir_level = 0;
+			iterator_df<type_die> pointee_t = find_self();
+			while (pointee_t.is_a<address_holding_type_die>())
+			{
+				++indir_level;
+				/* Using "find_type" will turn a declaration (i.e. with DW_AT_declaration)
+				 * into a definition if it can, and look for a "type" attribute there.
+				 * But that's not what we want! Address-holding types generally don't
+				 * appear as declarations. Instead, when we get to the end....*/
+				pointee_t = pointee_t.as_a<address_holding_type_die>()->get_type();
+				if (pointee_t) pointee_t = pointee_t->get_concrete_type();
+			}
+			/* Now we do the declaration-to-definition bit. */
+			if (pointee_t)
+			{
+				auto maybe_def = pointee_t->find_definition();
+				if (maybe_def) return make_pair(indir_level, maybe_def);
+				// otherwise, stick with the not-nothing pointee we've got (i.e. a specification)
+			}
+			return make_pair(indir_level, pointee_t);
+		}
+
 /* from string_type_die */
 		bool string_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
@@ -2730,6 +3234,10 @@ namespace dwarf
 				/* we are a definition already */
 				return find_self();
 			}
+			
+			// if we have a cached result, use that
+			if (this->maybe_cached_definition) return *maybe_cached_definition;
+			
 			debug(2) << "Looking for definition of declaration " << summary() << endl;
 			
 			// if we don't have a name, we have no way to proceed
@@ -2771,12 +3279,14 @@ namespace dwarf
 							!opt_decl_flag || !*opt_decl_flag))
 					{
 						debug(2) << "Found definition " << i_sib->summary() << endl;
+						this->maybe_cached_definition = i_sib;
 						return i_sib;
 					}
 				}
 			}
 		return_no_result:
 			debug(2) << "Failed to find definition of declaration " << summary() << endl;
+			this->maybe_cached_definition = iterator_base::END;
 			return iterator_base::END;
 		}
 
