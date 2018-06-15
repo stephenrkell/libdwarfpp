@@ -436,7 +436,7 @@ public:
 	iterator_df<type_die> source_vertex() const
 	{ return source_vertex_for(base(), reason()); }
 	iterator_df<program_element_die> edge_label() const { return reason(); }
-	pair< pair<iterator_df<type_die>, iterator_df<program_element_die> >, iterator_df<type_die> > as_incoming_edge() const
+	type_edge as_incoming_edge() const
 	{
 		return make_pair(
 			make_pair(
