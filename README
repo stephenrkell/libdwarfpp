@@ -1,6 +1,7 @@
 Build guide for the impatient:
 
-$ make -C contrib  # if you lack libsrk31c++ or libc++fileno
+$ make -C contrib && \
+    . contrib/env.sh # if you lack libsrk31c++ or libc++fileno
 $ ./autogen.sh
 $ ./configure
 $ make
