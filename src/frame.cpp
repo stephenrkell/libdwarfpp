@@ -820,17 +820,11 @@ namespace dwarf
 					} break;
 					// row state
 					case DW_CFA_restore_state: {
-						auto current_cfa = current_row_defs[DW_FRAME_CFA_COL3];
-						
 						assert(remembered_row_defs.size() > 0);
 						current_row_defs = remembered_row_defs.top(); remembered_row_defs.pop();
-						// don't clobber the CFA we had
-						current_row_defs[DW_FRAME_CFA_COL3] = current_cfa;
 					} break;
 					case DW_CFA_remember_state:
 						remembered_row_defs.push(current_row_defs);
-						// do NOT remember CFA!
-						remembered_row_defs.top().erase(DW_FRAME_CFA_COL3);
 						break;
 					// padding 
 					case DW_CFA_nop: // this is a full zero byte
