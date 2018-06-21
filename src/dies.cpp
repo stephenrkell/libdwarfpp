@@ -3297,7 +3297,7 @@ namespace dwarf
 			//{
 				// we're either a local or a static -- skip if local
 				root_die& r = get_root();
-				auto attrs = copy_attrs();
+				auto attrs = find_all_attrs();
 				if (attrs.find(DW_AT_location) != attrs.end())
 				{
 					// HACK: only way to work out whether it's static
@@ -3480,7 +3480,7 @@ namespace dwarf
 			sym_resolver_t sym_resolve,
 			void *arg /* = 0 */) const
 		{
-			encap::attribute_map attrs = d.copy_attrs();
+			encap::attribute_map attrs = find_all_attrs();
 			
 			using namespace boost::icl;
 			auto& right_open = interval<Dwarf_Addr>::right_open;
@@ -3737,7 +3737,7 @@ namespace dwarf
 //         }
 		encap::loclist with_static_location_die::get_static_location() const
         {
-        	auto attrs = copy_attrs();
+        	auto attrs = find_all_attrs();
             if (attrs.find(DW_AT_location) != attrs.end())
             {
             	return attrs.find(DW_AT_location)->second.get_loclist();
@@ -3993,7 +3993,7 @@ namespace dwarf
 					Dwarf_Off dieset_relative_ip,
 					expr::regs *p_regs) const
 		{
-			auto attrs = copy_attrs();
+			auto attrs = find_all_attrs();
 			if (attrs.find(DW_AT_location) == attrs.end())
 			{
 				debug(2) << "Warning: " << this->summary() << " has no DW_AT_location; "
@@ -4058,7 +4058,7 @@ namespace dwarf
 					Dwarf_Off dieset_relative_ip,
 					expr::regs *p_regs) const
 		{
-			auto attrs = copy_attrs();
+			auto attrs = find_all_attrs();
 			auto base_addr = calculate_addr_in_object(
 				object_base_addr, r, dieset_relative_ip, p_regs);
 			assert(attrs.find(DW_AT_type) != attrs.end());
@@ -4204,7 +4204,7 @@ namespace dwarf
 				Dwarf_Off dieset_relative_ip,
 				expr::regs *p_regs/* = 0*/) const
 		{
-			auto attrs = copy_attrs();
+			auto attrs = find_all_attrs();
 			assert(attrs.find(DW_AT_location) != attrs.end());
 			
 			/* We have to find ourselves. Well, almost -- enclosing CU. */
@@ -4254,7 +4254,7 @@ namespace dwarf
 				Dwarf_Off dieset_relative_ip,
 				expr::regs *p_regs /*= 0*/) const
 		{
-			auto attrs = copy_attrs();
+			auto attrs = find_all_attrs();
 			iterator_df<compile_unit_die> i_cu = r.cu_pos(get_enclosing_cu_offset());
 			assert(attrs.find(DW_AT_data_member_location) != attrs.end());
 			return (Dwarf_Addr) expr::evaluator(
