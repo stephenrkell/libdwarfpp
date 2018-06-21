@@ -55,10 +55,10 @@ include/dwarfpp/dwarf-ext-GNU.h: $(libdwarf_includes)/dwarf.h
 	cat "$<" | egrep '(_|/\* |, )GNU' | egrep -vi conflict | egrep -vi '^[[:blank:]]*/\*' | cat > "$@"
 
 include/dwarfpp/dwarf-current-adt.h: spec/gen-adt-cpp.py spec/dwarf_current.py
-	python spec/gen-adt-cpp.py > "$@"
+	python2 spec/gen-adt-cpp.py > "$@"
 
 include/dwarfpp/dwarf-current-factory.h: spec/gen-factory-cpp.py spec/dwarf_current.py
-	python spec/gen-factory-cpp.py > "$@"
+	python2 spec/gen-factory-cpp.py > "$@"
 
 # to avoid propagating libdwarf CFLAGS into all clients, symlink the libdwarf.h we use
 include/libdwarf.h: $(libdwarf_includes)/libdwarf.h
