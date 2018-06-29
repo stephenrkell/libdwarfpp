@@ -2556,8 +2556,9 @@ namespace dwarf
 					 * not in any cycle. We want to cache this fact. */
 					for (auto i_t = types.first; i_t != types.second; ++i_t)
 					{
-						if (i_t->second) i_t->second->opt_cached_scc
-						= opt<shared_ptr<type_scc_t> >(shared_ptr<type_scc_t>());
+						if (i_t->second)
+							i_t->second->opt_cached_scc =
+								opt<shared_ptr<type_scc_t> >();
 					}
 				}
 				else
