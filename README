@@ -1,6 +1,7 @@
 Build guide for the impatient:
 
-$ make -C contrib && \
+$ git submodule init && git submodule update && \
+    make -C contrib && \
     . contrib/env.sh # if you lack libsrk31c++ or libc++fileno
 $ ./autogen.sh
 $ ./configure
@@ -13,14 +14,15 @@ To build this you'll need a recent-ish C++ compiler, a GNU build system,
 recent-ish boost, and my other repositories libsrk31c++ and
 libc++fileno (present as submodules in contrib/, if building from git).
 
-You'll also need David Anderson's libdwarf. I'm slowly working on making
-things compile-time configurable to use libdw instead (from elfituls), 
-but it's not there yet.
+You'll also need David Anderson's libdwarf (also submodule'd). I'm
+slowly working on making things compile-time configurable to use libdw
+instead (from elfutils), but it's not there yet.
 
 Autotools support is new and is only lightly tested; improvements are
 welcome. On some non-Debian-based distributions, libdwarf headers don't
 appear in /usr/include but somewhere else. Configure with
---with-libdwarf-includes=/path/to/include to make this work.
+--with-libdwarf-includes=/path/to/include to make this work. (You don't
+need to worry about that if you're using the libdwarf submodule.)
 
 There's not much documentation for the library. The easiest way to get
 started is probably to look at the (smaller) examples in examples/.
