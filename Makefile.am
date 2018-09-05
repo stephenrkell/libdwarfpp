@@ -11,6 +11,15 @@ dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.
   include/dwarfpp/opt.hpp include/dwarfpp/dwarf-current-adt.h include/dwarfpp/regs.hpp \
   include/dwarfpp/dwarf-current-factory.h include/dwarfpp/dwarf-ext-GNU.h \
   include/dwarfpp/expr.hpp include/dwarfpp/spec.hpp \
+  include/dwarfpp/util.hpp \
+  include/dwarfpp/abstract.hpp \
+  include/dwarfpp/root.hpp \
+  include/dwarfpp/iter.hpp \
+  include/dwarfpp/dies.hpp \
+  include/dwarfpp/root-inl.hpp \
+  include/dwarfpp/abstract-inl.hpp \
+  include/dwarfpp/iter-inl.hpp \
+  include/dwarfpp/dies-inl.hpp \
   include/dwarfpp/libdwarf-handles.hpp include/dwarfpp/libdwarf.hpp
 
 lib_LTLIBRARIES = src/libdwarfpp.la
