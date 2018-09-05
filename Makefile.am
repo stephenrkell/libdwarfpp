@@ -25,8 +25,10 @@ examplesdir = examples
 examples_PROGRAMS = examples/core-query examples/dwarfppdump \
   examples/print_spec examples/sranges examples/subseq
 
+LIBDWARF_LIBS ?= -ldwarf
+
 EXAMPLE_LDFLAGS_INS = -L$(top_srcdir)/lib -Wl,-rpath,$(realpath $(top_srcdir))/lib
-EXAMPLE_LDADD_INS = -ldwarfpp -ldwarf -lelf -lz $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS)
+EXAMPLE_LDADD_INS = -ldwarfpp $(LIBDWARF_LIBS) -lelf -lz $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS)
 examples_core_query_SOURCES = examples/core-query.cpp
 examples_core_query_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_core_query_LDADD = $(EXAMPLE_LDADD_INS)
