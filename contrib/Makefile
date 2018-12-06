@@ -65,8 +65,8 @@ clean::
 	$(MAKE) -C libdwarf clean
 	rm -f libdwarf/config.status
 
-CONFIG_MK += \nLIBDWARF_CFLAGS += -I$(CONTRIB_ROOT)/libdwarf/prefix/include\n
-CONFIG_MK += \nLIBDWARF_LIBS += -L$(CONTRIB_ROOT)/libdwarf/prefix/lib -ldwarf\n
+CONFIG_MK += \nLIBDWARF_INCLUDE_DIR += $(CONTRIB_ROOT)/libdwarf/prefix/include\n
+CONFIG_MK += \nLIBDWARF_LIB_DIR += $(CONTRIB_ROOT)/libdwarf/prefix/lib \n
 
 # ----------------------------config.site
 # our config.site needs to tell libdwarfpp's configure
@@ -83,7 +83,7 @@ CONFIG_MK += \nCONFIG_SITE := $(shell pwd)/config.site\n
 varlist := CXXFLAGS CPPFLAGS CFLAGS LDFLAGS \
 LIBCXXFILENO_CXXFLAGS LIBCXXFILENO_LIBS \
 LIBSRK31CXX_CXXFLAGS LIBSRK31CXX_LIBS \
-LIBDWARF_CFLAGS LIBDWARF_LIBS \
+LIBDWARF_INCLUDE_DIR LIBDWARF_LIB_DIR \
 CONFIG_SITE
 
 CONFIG_MK += \n\nenv.sh:\n\tprintf '"'"'$(foreach var,$(varlist),export $(var)="$$($(var))"; )'"'"' >"$$@" || (rm -f "$$@"; false)

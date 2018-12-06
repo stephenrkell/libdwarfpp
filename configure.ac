@@ -45,6 +45,9 @@ dnl PROBLEM: those are pathnames, but what we get are compiler flags.
 dnl PROBLEM: we need the exact path to dwarf.h because it's a prerequisite
 dnl of our makefiles. So we can't just rely on the compiler picking it up
 dnl from standard header directories -- we need to find its location here.
+dnl PROBLEM: use our contrib only if the user opted in (by . contrib/env.sh)
+dnl SOLUTION: get rid of LIBDWARF_{LIBS,CFLAGS}.
+dnl SOLUTION: use LIBDWARF_INCLUDE_DIR and LIBDWARF_LIB_DIR
 AC_ARG_WITH([libdwarf-includes],
             [AS_HELP_STRING([--with-libdwarf-includes=DIR],
               [where to find libdwarf headers])],
@@ -56,7 +59,7 @@ AC_ARG_WITH([libdwarf-includes],
                         AC_MSG_ERROR(--with-libdwarf-includes expected directory name)
                 fi
             ],
-            [ac_libdwarf_includes=/usr/include])
+            [ac_libdwarf_includes=${LIBDWARF_INCLUDE_DIR:-/usr/include}])
 AC_ARG_WITH([libdwarf-libs],
             [AS_HELP_STRING([--with-libdwarf-libs=DIR],
               [where to find libdwarf.a])],
@@ -68,7 +71,7 @@ AC_ARG_WITH([libdwarf-libs],
                         AC_MSG_ERROR(--with-libdwarf-libs expected directory name)
                 fi
             ],
-            [ac_libdwarf_libs=-ldwarf])
+            [ac_libdwarf_libs=${LIBDWARF_LIB_DIR:--L${LIBDWARF_LIB_DIR}} -ldwarf])
 
 AC_CHECK_HEADERS([${ac_libdwarf_includes}/dwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h (looked in $ac_libdwarf_includes)])])
 AC_SUBST([libdwarf_libs], [$ac_libdwarf_libs])
