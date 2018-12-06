@@ -71,7 +71,7 @@ AC_ARG_WITH([libdwarf-libs],
                         AC_MSG_ERROR(--with-libdwarf-libs expected directory name)
                 fi
             ],
-            [ac_libdwarf_libs=${LIBDWARF_LIB_DIR:--L${LIBDWARF_LIB_DIR}} -ldwarf])
+            [ac_libdwarf_libs="${LIBDWARF_LIB_DIR:+-L${LIBDWARF_LIB_DIR}} -ldwarf"])
 
 AC_CHECK_HEADERS([${ac_libdwarf_includes}/dwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h (looked in $ac_libdwarf_includes)])])
 AC_SUBST([libdwarf_libs], [$ac_libdwarf_libs])

@@ -34,6 +34,7 @@ examplesdir = examples
 examples_PROGRAMS = examples/core-query examples/dwarfppdump \
   examples/print_spec examples/sranges examples/subseq
 
+-include config.mk
 LIBDWARF_LIBS ?= -ldwarf
 
 EXAMPLE_LDFLAGS_INS = -L$(top_srcdir)/lib -Wl,-rpath,$(realpath $(top_srcdir))/lib
