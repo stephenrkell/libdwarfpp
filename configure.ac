@@ -73,14 +73,8 @@ AC_ARG_WITH([libdwarf-libs],
             ],
             [ac_libdwarf_libs="${LIBDWARF_LIB_DIR:+-L${LIBDWARF_LIB_DIR}} -ldwarf"])
 
-AC_CHECK_HEADERS([${ac_libdwarf_includes}/dwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h (looked in $ac_libdwarf_includes)])])
 AC_SUBST([libdwarf_libs], [$ac_libdwarf_libs])
 AC_SUBST([libdwarf_includes], [$ac_libdwarf_includes])
-CPPFLAGS="${libdwarf_includes+-I${libdwarf_includes}} ${LIBDWARF_CFLAGS} $CPPFLAGS"
-CFLAGS="${libdwarf_includes+-I${libdwarf_includes}} ${LIBDWARF_CFLAGS} $CFLAGS"
-CXXFLAGS="${libdwarf_includes+-I${libdwarf_includes}} ${LIBDWARF_CFLAGS} $CXXFLAGS"
-export CFLAGS CXXFLAGS
-AC_CHECK_HEADERS([libdwarf.h], [], [AC_MSG_FAILURE([required headers: libdwarf.h])])
 AX_BOOST_BASE
 
 AC_CHECK_HEADER([boost/iostreams/filtering_stream.hpp], [], [AC_MSG_FAILURE([boost::iostreams is required])])
