@@ -73,6 +73,9 @@ AC_ARG_WITH([libdwarf-libs],
             ],
             [ac_libdwarf_libs="${LIBDWARF_LIB_DIR:+-L${LIBDWARF_LIB_DIR}} -ldwarf"])
 
+# we check for dwarf.h mainly to ensure we got a single directory as $ac_libdwarf_includes,
+# otherwise strange things happen when multiple filenames get subst'd into makefile commands....
+AC_CHECK_HEADERS([${ac_libdwarf_includes}/dwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h (looked in $ac_libdwarf_includes)])])
 AC_SUBST([libdwarf_libs], [$ac_libdwarf_libs])
 AC_SUBST([libdwarf_includes], [$ac_libdwarf_includes])
 AX_BOOST_BASE

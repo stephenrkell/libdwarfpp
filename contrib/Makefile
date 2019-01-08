@@ -65,8 +65,8 @@ clean::
 	$(MAKE) -C libdwarf clean
 	rm -f libdwarf/config.status
 
-CONFIG_MK += \nLIBDWARF_INCLUDE_DIR += $(CONTRIB_ROOT)/libdwarf/prefix/include\n
-CONFIG_MK += \nLIBDWARF_LIB_DIR += $(CONTRIB_ROOT)/libdwarf/prefix/lib \n
+CONFIG_MK += \nLIBDWARF_INCLUDE_DIR := $(CONTRIB_ROOT)/libdwarf/prefix/include\n
+CONFIG_MK += \nLIBDWARF_LIB_DIR := $(CONTRIB_ROOT)/libdwarf/prefix/lib \n
 
 # ----------------------------config.site
 # our config.site needs to tell libdwarfpp's configure
