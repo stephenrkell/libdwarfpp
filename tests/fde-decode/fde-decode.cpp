@@ -12,7 +12,8 @@
 #include <dwarfpp/regs.hpp>
 #include <gelf.h>
 
-using std::cout; 
+using std::cout;
+using std::cerr;
 using std::endl;
 using std::ostringstream;
 using std::setw;
@@ -172,7 +173,7 @@ void print_in_readelf_style(std::ostream& s, const FrameSection::instrs_results&
 	visitor_function column_header_visitor = [all_columns, ra_rule_number, &s]
 		(int col, optional< pair<int, FrameSection::register_def> > unused) -> void {
 		if (col == DW_FRAME_CFA_COL3) s << "CFA    ";
-		else if (col == ra_rule_number) s << setw(0) << "  ra      ";
+		else if (col == ra_rule_number) s << setw(0) << "  ra    ";
 		else s << setw(5) << dwarf_regnames_for_elf_machine(elf_machine)[col] << ' ';
 	};
 	

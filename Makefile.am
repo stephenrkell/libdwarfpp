@@ -11,22 +11,35 @@ dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.
   include/dwarfpp/opt.hpp include/dwarfpp/dwarf-current-adt.h include/dwarfpp/regs.hpp \
   include/dwarfpp/dwarf-current-factory.h include/dwarfpp/dwarf-ext-GNU.h \
   include/dwarfpp/expr.hpp include/dwarfpp/spec.hpp \
-  include/dwarfpp/libdwarf-handles.hpp include/dwarfpp/libdwarf.hpp
+  include/dwarfpp/util.hpp \
+  include/dwarfpp/abstract.hpp \
+  include/dwarfpp/root.hpp \
+  include/dwarfpp/iter.hpp \
+  include/dwarfpp/dies.hpp \
+  include/dwarfpp/root-inl.hpp \
+  include/dwarfpp/abstract-inl.hpp \
+  include/dwarfpp/iter-inl.hpp \
+  include/dwarfpp/dies-inl.hpp \
+  include/dwarfpp/libdwarf-handles.hpp include/dwarfpp/libdwarf.hpp \
+  include/dwarfpp/dwarf-lib.h
 
 lib_LTLIBRARIES = src/libdwarfpp.la
 src_libdwarfpp_la_SOURCES = src/libdwarf.cpp src/libdwarf-handles.cpp src/libdwarf-data.cpp src/expr.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp src/root.cpp src/abstract.cpp src/iter.cpp src/dies.cpp
 src_libdwarfpp_la_LIBADD = $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lsupc++
+src_libdwarfpp_la_LDFLAGS = -Wl,--whole-archive $(libdwarf_libs) -Wl,--no-whole-archive
 
 INC_PP = include/dwarfpp
-BUILT_SOURCES = $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)/dwarf-ext-GNU.h $(INC_PP)/dwarf-current-adt.h $(INC_PP)/dwarf-current-factory.h 
+BUILT_SOURCES = $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)/dwarf-ext-GNU.h $(INC_PP)/dwarf-current-adt.h $(INC_PP)/dwarf-current-factory.h $(INC_PP)/dwarf-lib.h
 CLEANFILES = $(BUILT_SOURCES)
 
 examplesdir = examples
 examples_PROGRAMS = examples/core-query examples/dwarfppdump \
   examples/print_spec examples/sranges examples/subseq
 
+-include config.mk
+
 EXAMPLE_LDFLAGS_INS = -L$(top_srcdir)/lib -Wl,-rpath,$(realpath $(top_srcdir))/lib
-EXAMPLE_LDADD_INS = -ldwarfpp -ldwarf -lelf -lz $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS)
+EXAMPLE_LDADD_INS = -ldwarfpp -lelf -lz $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS)
 examples_core_query_SOURCES = examples/core-query.cpp
 examples_core_query_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_core_query_LDADD = $(EXAMPLE_LDADD_INS)
@@ -55,17 +68,14 @@ include/dwarfpp/dwarf-ext-GNU.h: $(libdwarf_includes)/dwarf.h
 	cat "$<" | egrep '(_|/\* |, )GNU' | egrep -vi conflict | egrep -vi '^[[:blank:]]*/\*' | cat > "$@"
 
 include/dwarfpp/dwarf-current-adt.h: spec/gen-adt-cpp.py spec/dwarf_current.py
-	python spec/gen-adt-cpp.py > "$@"
+	python2 spec/gen-adt-cpp.py > "$@"
 
 include/dwarfpp/dwarf-current-factory.h: spec/gen-factory-cpp.py spec/dwarf_current.py
-	python spec/gen-factory-cpp.py > "$@"
+	python2 spec/gen-factory-cpp.py > "$@"
 
 # to avoid propagating libdwarf CFLAGS into all clients, symlink the libdwarf.h we use
-include/libdwarf.h: $(libdwarf_includes)/libdwarf.h
-	(cd $(dir $@) && ln -s "$(realpath $<)" "$(notdir $@)" )
-
-# ditto for libdwarf.a
-lib/libdwarf.a: $(libdwarf_libs)/libdwarf.a
+# FIXME: support libdw1 as an alternative
+include/dwarfpp/dwarf-lib.h: $(libdwarf_includes)/libdwarf.h
 	(cd $(dir $@) && ln -s "$(realpath $<)" "$(notdir $@)" )
 
 lib/libdwarfpp.so: $(lib_LTLIBRARIES)
