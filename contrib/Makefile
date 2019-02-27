@@ -5,7 +5,7 @@ CONTRIB_ROOT := $(realpath $(dir $(THIS_MAKEFILE)))
 # - libc++fileno
 # - libsrk31c++
 
-default: env.sh config.mk \
+default: env.sh config.mk config.site \
 build-libsrk31c++ build-libc++fileno build-libdwarf
 
 .PHONY: clean default
@@ -52,9 +52,9 @@ CONFIG_MK += \nLIBSRK31CXX_LIBS += -L$(CONTRIB_ROOT)/libsrk31c++/lib -Wl,-rpath,
 .PHONY: build-libdwarf
 build-libdwarf: libdwarf/config.status
 	$(MAKE) -C libdwarf
-	cd libdwarf/prefix && mkdir lib && cd lib && ln -s ../../libdwarf/libdwarf.a .
-	cd libdwarf/prefix && mkdir bin && cd bin && ln -s ../../dwarfdump/dwarfdump .
-	cd libdwarf/prefix && mkdir include && cd include && ln -s ../../libdwarf/libdwarf.h ../../libdwarf/dwarf.h .
+	cd libdwarf/prefix && mkdir -p lib && cd lib && ln -sf ../../libdwarf/libdwarf.a .
+	cd libdwarf/prefix && mkdir -p bin && cd bin && ln -sf ../../dwarfdump/dwarfdump .
+	cd libdwarf/prefix && mkdir -p include && cd include && ln -sf ../../libdwarf/libdwarf.h ../../libdwarf/dwarf.h .
 
 libdwarf/config.status:
 	cd libdwarf && mkdir -p prefix && CFLAGS=-g ./configure --prefix=`pwd`/prefix
@@ -65,15 +65,26 @@ clean::
 	$(MAKE) -C libdwarf clean
 	rm -f libdwarf/config.status
 
-CONFIG_MK += \nLIBDWARF_CFLAGS += -I$(CONTRIB_ROOT)/libdwarf/prefix/include\n
-CONFIG_MK += \nLIBDWARF_LIBS += -L$(CONTRIB_ROOT)/libdwarf/prefix/lib -ldwarf\n
+CONFIG_MK += \nLIBDWARF_INCLUDE_DIR := $(CONTRIB_ROOT)/libdwarf/prefix/include\n
+CONFIG_MK += \nLIBDWARF_LIB_DIR := $(CONTRIB_ROOT)/libdwarf/prefix/lib \n
+
+# ----------------------------config.site
+# our config.site needs to tell libdwarfpp's configure
+# about ac_libdwarfpp_includes
+config.site:
+	printf "ac_libdwarf_includes=`pwd`/libdwarf/prefix/include" > "$@" || (rm -f "$@"; false)
+
+# we don't really need a make var for this, only a shell var in env.sh, but
+# it's easier to add this here
+CONFIG_MK += \nCONFIG_SITE := $(shell pwd)/config.site\n
 
 # ----------------------------config.mk
 
 varlist := CXXFLAGS CPPFLAGS CFLAGS LDFLAGS \
 LIBCXXFILENO_CXXFLAGS LIBCXXFILENO_LIBS \
 LIBSRK31CXX_CXXFLAGS LIBSRK31CXX_LIBS \
-LIBDWARF_CFLAGS LIBDWARF_LIBS
+LIBDWARF_INCLUDE_DIR LIBDWARF_LIB_DIR \
+CONFIG_SITE
 
 CONFIG_MK += \n\nenv.sh:\n\tprintf '"'"'$(foreach var,$(varlist),export $(var)="$$($(var))"; )'"'"' >"$$@" || (rm -f "$$@"; false)
 
@@ -84,4 +95,4 @@ env.sh: config.mk
 	$(MAKE) -f "$<" "$@"
 
 clean::
-	rm -f config.mk env.sh
+	rm -f config.mk env.sh config.site

@@ -2557,7 +2557,7 @@ namespace dwarf
 					for (auto i_t = types.first; i_t != types.second; ++i_t)
 					{
 						if (i_t->second) i_t->second->opt_cached_scc
-						= opt<shared_ptr<type_scc_t> >(shared_ptr<type_scc_t>());
+						= optional<shared_ptr<type_scc_t> >(shared_ptr<type_scc_t>());
 					}
 				}
 				else
