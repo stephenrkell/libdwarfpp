@@ -167,6 +167,7 @@ begin_class(program_element, base_initializations(basic), declare_base(basic))
 		attr_optional(external, flag)
 		attr_optional(visibility, unsigned)
 		attr_optional(artificial, flag)
+		attr_optional(name, string)
 end_class(program_element)
 /* type_die */
 template <typename BaseType>
