@@ -81,6 +81,7 @@ namespace dwarf
 
 		struct loc_expr : public vector<expr_instr>
 		{
+			using vector::vector;
 			/* We used to have NO_LOCATION here. But we don't need it! Recap: 
 			 * In DWARF, hipc == 0 && lopc == 0 means an "end of list entry".
 			 * BUT libdwarf abstracts this so that we don't see end-of-list
@@ -228,6 +229,7 @@ namespace dwarf
 			}
 			friend std::ostream& operator<<(std::ostream& s, const loc_expr& e);
 		};
+		std::ostream& operator<<(std::ostream& s, const loc_expr& e);
 		
 		struct loclist : public vector<loc_expr>
 		{
@@ -308,8 +310,20 @@ namespace dwarf
 		using std::stack;
 		using std::ostream;
 		class evaluator {
-			std::stack<Dwarf_Unsigned> m_stack;
-			vector<Dwarf_Loc> expr;
+			class eval_stack : private std::stack<Dwarf_Unsigned> {
+				friend class dwarf::expr::evaluator;
+				bool tos_is_value;  // whether our client saw a DW_OP_stack_value hence has calculated a value not an addr
+			public:
+				Dwarf_Unsigned top() const { return stack::top(); }
+				void pop() { stack::pop(); tos_is_value = false; }
+				void push(Dwarf_Unsigned v) { stack::push(v); tos_is_value = false; }
+				bool empty() const { return stack::empty(); }
+				void mark_tos_as_value() { tos_is_value = true; }
+				using stack::stack;
+				eval_stack(const std::stack<Dwarf_Unsigned>& s) : stack(s), tos_is_value(false) {}
+				eval_stack() : tos_is_value(false) {}
+			} m_stack;
+			encap::loc_expr expr;
 			const ::dwarf::spec::abstract_def& spec;
 			regs *p_regs; // optional set of register values, for DW_OP_breg*
 			bool tos_is_value; // whether we saw a DW_OP_stack_value hence have calculated a value not an addr
@@ -317,8 +331,9 @@ namespace dwarf
 			vector<Dwarf_Loc>::iterator i;
 			void eval();
 		public:
+			void eval_next() { assert(i != expr.end() && i != expr.begin()); eval(); }
 			evaluator(const vector<unsigned char> expr, 
-				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0), tos_is_value(false)
+				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0)
 			{
 				//i = expr.begin();
 				assert(false);
@@ -333,7 +348,7 @@ namespace dwarf
 			evaluator(const vector<Dwarf_Loc>& loc_desc,
 				const ::dwarf::spec::abstract_def& spec,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>())
-				: m_stack(initial_stack), spec(spec), p_regs(0), tos_is_value(false)
+				: m_stack(initial_stack), spec(spec), p_regs(0)
 			{
 				expr = loc_desc;
 				i = expr.begin();
@@ -344,7 +359,7 @@ namespace dwarf
 				regs& regs,
 				Dwarf_Signed frame_base,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(&regs), tos_is_value(false)
+				: m_stack(initial_stack), spec(spec), p_regs(&regs)
 			{
 				expr = loc_desc;
 				i = expr.begin();
@@ -356,7 +371,7 @@ namespace dwarf
 				const ::dwarf::spec::abstract_def& spec,
 				Dwarf_Signed frame_base,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(0), tos_is_value(false)
+				: m_stack(initial_stack), spec(spec), p_regs(0)
 			{
 				//if (av.get_form() != dwarf::encap::attribute_value::LOCLIST) throw "not a DWARF expression";
 				//if (av.get_loclist().size() != 1) throw "only support singleton loclists for now";
@@ -368,10 +383,18 @@ namespace dwarf
 			}
 			
 			Dwarf_Unsigned tos() const { return m_stack.top(); }
-			Dwarf_Unsigned tos(bool may_be_value) const { // FIXME: more complete+orthogonal interface
+			Dwarf_Unsigned tos(bool may_be_value) const { 
 				if (may_be_value) return m_stack.top();
-				if (!tos_is_value && !may_be_value) return m_stack.top();
+				if (!m_stack.tos_is_value && !may_be_value) return m_stack.top();
 				throw No_entry();
+			}
+			opt<Dwarf_Unsigned> tos_address() const {
+				if (!m_stack.tos_is_value) return opt<Dwarf_Unsigned>(m_stack.top());
+				return opt<Dwarf_Unsigned>();
+			}
+			opt<Dwarf_Unsigned> tos_value() const {
+				if (m_stack.tos_is_value) return opt<Dwarf_Unsigned>(m_stack.top());
+				return opt<Dwarf_Unsigned>();
 			}
 			bool finished() const { return i == expr.end(); }
 			Dwarf_Loc current() const { return *i; }

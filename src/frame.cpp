@@ -1000,6 +1000,7 @@ namespace dwarf
 			map< boost::icl::discrete_interval<Dwarf_Addr>, loc_expr> loclist_intervals;
 			
 			loclist copied_l = l;
+			//std::clog << "Rewriting loclist: " << copied_l << std::endl;
 			for (auto i_loc_expr = copied_l.begin();	
 				i_loc_expr != copied_l.end();
 				++i_loc_expr)
@@ -1335,6 +1336,7 @@ namespace dwarf
 				expr.hipc = i_int->first.upper();
 				fresh_l.push_back(expr);
 			}
+			//std::clog << "Rewrote to: " << fresh_l << std::endl;
 			return fresh_l;
 		}
 		

@@ -42,7 +42,7 @@ namespace dwarf
 			regs *p_regs,
 			opt<Dwarf_Signed> frame_base,
 			const std::stack<Dwarf_Unsigned>& initial_stack)
-		: m_stack(initial_stack), spec(spec), p_regs(p_regs), tos_is_value(false), frame_base(frame_base)
+		: m_stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
 		{
 			// sanity check while I suspect stack corruption
 			assert(vaddr < 0x00008000000000ULL
@@ -96,6 +96,8 @@ namespace dwarf
 		
 		void evaluator::eval()
 		{
+			std::ostringstream s;
+			s << expr << std::endl;
 			if (i != expr.end() && i != expr.begin())
 			{
 				/* This happens when we stopped at a DW_OP_piece argument. 
@@ -106,8 +108,6 @@ namespace dwarf
 			opt<std::string> error_detail;
 			while (i != expr.end())
 			{
-				// FIXME: be more descriminate -- do we want to propagate valueness? probably not
-				tos_is_value = false;
 				switch(i->lr_atom)
 				{
 					case DW_OP_const1u:
@@ -282,7 +282,7 @@ namespace dwarf
 						/* This means that the object has no address, but that the 
 						 * DWARF evaluator has just computed its *value*. We record
 						 * this. */
-						tos_is_value = true;
+						m_stack.mark_tos_as_value();
 						break;
 					case DW_OP_deref_size:
 					case DW_OP_deref:
