@@ -3159,11 +3159,27 @@ namespace dwarf
 /* from spec::structure_type_die */
 		opt<Dwarf_Unsigned> structure_type_die::calculate_byte_size() const
 		{
-			// HACK: for now, do nothing
-			// We should make this more reliable,
-			// but it's difficult because overall size of a struct is
-			// language- and implementation-dependent.
-			return this->type_die::calculate_byte_size();
+			/* The overall size of a struct is language- and implementation-dependent.
+			 * Even if the DWARF tells us a size, it may not be accurate according to
+			 * the rules of the language. For example, GNU C or C99 variable-length arrays
+			 * tend to come out with a specific size in DWARF, even though it's wrong.
+			 * We need to special-case this, and recursively: if our last member does
+			 * not have a definite size, then we ignore whatever size we have.
+			 * This needs to be recursive, to handle the case where the last member is
+			 * a struct. PROBLEM: what about other languages that might allow data-
+			 * dependent array lengths in the middle of a structure? We should probably
+			 * check all members.
+			 */
+			auto default_answer = this->type_die::calculate_byte_size();
+			auto members = this->children().subseq_of<member_die>();
+			// FIXME: guard on language? check only last member for C?
+			for (auto i_memb = members.first; i_memb != members.second; ++i_memb)
+			{
+				auto t = i_memb->get_type();
+				auto opt_byte_size = t->calculate_byte_size();
+				if (!opt_byte_size) return opt<Dwarf_Unsigned>();
+			}
+			return default_answer; // just does get_byte_size()
 		}
 /* from spec::with_data_members_die */
 		bool with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
