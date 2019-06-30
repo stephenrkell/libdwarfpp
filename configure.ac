@@ -62,13 +62,13 @@ AC_ARG_WITH([libdwarf-includes],
             [ac_libdwarf_includes=${LIBDWARF_INCLUDE_DIR:-/usr/include}])
 AC_ARG_WITH([libdwarf-libs],
             [AS_HELP_STRING([--with-libdwarf-libs=DIR],
-              [where to find libdwarf.a])],
+              [linker options for including libdwarf.a in the link])],
             [
-                if test -d "$withval"
+                if test -n "$withval"
                 then
                         ac_libdwarf_libs="$withval"
                 else
-                        AC_MSG_ERROR(--with-libdwarf-libs expected directory name)
+                        AC_MSG_ERROR(--with-libdwarf-libs expected linker options argument)
                 fi
             ],
             [ac_libdwarf_libs="${LIBDWARF_LIB_DIR:+-L${LIBDWARF_LIB_DIR}} -ldwarf"])
