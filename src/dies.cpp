@@ -265,7 +265,9 @@ namespace dwarf
 		std::ostream& array_type_die::print_abstract_name(std::ostream& s) const
 		{
 			opt<Dwarf_Unsigned> element_count = find_self().as_a<array_type_die>()->element_count();
-			s << "__ARR" << (element_count ? *element_count : 0) << "_";
+			s << "__ARR";
+			if (element_count) s << *element_count;
+			s << "_";
 			return print_type_abstract_name(s, get_type());
 		}
 		std::ostream& subrange_type_die::print_abstract_name(std::ostream& s) const
