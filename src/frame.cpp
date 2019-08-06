@@ -560,6 +560,80 @@ namespace dwarf
 			}
 		}
 
+		void FrameSection::init_eh_frame_hdr()
+		{
+			/* The frame hdr is the first content in the GNU_EH_FRAME
+			 * program header. So let's find it.
+			 *
+			 * Sadly we are basically duplicating the libdwarf / libdw
+			 * code that parses this segment and reads the table... they
+			 * chose not to expose the table itself. I believe the search
+			 * table should be exposed (e.g. right now I'm debugging a
+			 * problem that might be a bug in one of these tables). */
+			::Elf *e = get_elf();
+			GElf_Ehdr ehdr;
+			GElf_Ehdr *ret_ehdr = gelf_getehdr(e, &ehdr);
+			assert(ret_ehdr); if (!ret_ehdr) abort();
+			unsigned phnum = ehdr.e_phnum;
+			GElf_Phdr phdr;
+			unsigned i;
+			size_t fileoff;
+			Elf_Scn *scn;
+			for (i = 0; i < phnum; ++i)
+			{
+				GElf_Phdr *ret_phdr;
+				ret_phdr = gelf_getphdr(e, i, &phdr);
+				assert(ret_phdr); if (!ret_phdr) abort();
+				if (phdr.p_type == PT_GNU_EH_FRAME)
+				{
+					break;
+				}
+			}
+			if (i == phnum) goto out_no_eh_frame;
+			fileoff = phdr.p_offset;
+			/* Now we know the file offset, but not the length. Ideally we'd
+			 * use the section headers to get this. But start with an
+			 * overapproximation. */
+			// off_t fileoff_end_max = phdr.p_offset + phdr.p_filesz;
+			/* If we have section headers (likely), use them. */
+			scn = gelf_offscn(e, fileoff);
+			if (scn)
+			{
+				// sanity check: get the shdr
+				GElf_Shdr shdr;
+				bzero(&shdr, sizeof shdr);
+				if (!gelf_getshdr(scn, &shdr)) throw No_entry(); // HMM, better reporting needed
+				// FIXME: what if there's a zero-length section preceding .eh.frame_hdr?
+				Elf_Data *d;
+				if (NULL == (d = elf_rawdata(scn, NULL))) throw No_entry(); // HMM, better reporting needed
+				assert(shdr.sh_offset == fileoff);
+				assert(shdr.sh_size > 0);
+				assert(shdr.sh_size <= phdr.p_filesz);
+				assert(d->d_size >= shdr.sh_size);
+				// fileoff_end_max = phdr.p_offset + shdr.sh_size;
+				this->hdr_data = reinterpret_cast<char*>(d->d_buf);
+				this->hdr_nbytes = shdr.sh_size;
+			}
+			// FIXME: do we need some kind of fallback that mmaps the
+			// file using fileoff_end_max? For now pretend we have no ifno.
+			else goto out_no_eh_frame;
+			// sanity check on the info we got
+			assert(hdr_nbytes > sizeof (hdr_ident));
+			memcpy(&eh_frame_hdr_ident, hdr_data, sizeof (hdr_ident));
+			if (eh_frame_hdr_ident.version != 1)
+			{
+				debug(0) << "Did not understand .eh_frame_hdr section, version "
+					<< (int) eh_frame_hdr_ident.version << endl;
+				goto out_no_eh_frame;
+			}
+			// success
+			return;
+
+		out_no_eh_frame:
+			this->hdr_data = nullptr;
+			this->hdr_nbytes = 0;
+		}
+
 		void Fde::init_augmentation_bytes()
 		{
 			/* 

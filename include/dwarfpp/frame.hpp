@@ -44,11 +44,22 @@ namespace dwarf
 			const Debug& dbg;
 			bool using_eh;
 			bool is_64bit;
+			/* If we're using eh_frame, we may have an eh_frame_hdr whose first
+			 * bytes look like this. See Linux Standard Base 1.3 chapter 6. */
+			struct hdr_ident
+			{
+				unsigned char version;
+				unsigned char eh_frame_ptr_enc;
+				unsigned char fde_count_enc;
+				unsigned char table_enc;
+			} eh_frame_hdr_ident;
 			
 			Dwarf_Cie *cie_data;
 			Dwarf_Signed cie_element_count;
 			Dwarf_Fde *fde_data;
 			Dwarf_Signed fde_element_count;
+			char *hdr_data;
+			unsigned hdr_nbytes;
 			
 			map<lib::Dwarf_Off, set<lib::Dwarf_Off> > fde_offsets_by_cie_offset;
 			map<int, int> cie_offsets_by_index;
@@ -93,6 +104,17 @@ namespace dwarf
 			inline fde_iterator begin();
 			inline fde_iterator end();
 
+			struct hdr_iterator
+			{
+				/* These iterators need to know how big the element size is. */
+				unsigned encoding;
+				void *pos;
+			};
+			inline hdr_iterator hdr_begin() const;
+			inline hdr_iterator hdr_end() const;
+			inline hdr_iterator hdr_begin();
+			inline hdr_iterator hdr_end();
+
 			inline FrameSection(const Debug& dbg, bool use_eh = false);
 		
 		private:
@@ -100,6 +122,7 @@ namespace dwarf
 			inline FrameSection(const FrameSection& arg)
 			: dbg(arg.dbg), fde_transformer(*this), cie_transformer(*this)
 			{ assert(false); }
+			void init_eh_frame_hdr();
 		public:
 			
 			virtual ~FrameSection()
@@ -521,6 +544,8 @@ namespace dwarf
 				fde_data = nullptr;
 				cie_element_count = 0;
 				cie_data = nullptr;
+				hdr_nbytes = 0;
+				hdr_data = nullptr;
 			}
 
 			/* Since libdwarf doesn't let us get the CIE offset, do a pass
@@ -541,6 +566,11 @@ namespace dwarf
 					}
 				}
 			}
+
+			/* libdwarf also doesn't expose the .eh_frame_hdr section. We only look
+			 * for it if we're using .eh_frame. */
+			if (using_eh) init_eh_frame_hdr();
+			else { hdr_data = nullptr; hdr_nbytes = 0; }
 
 			// do we have any orphan CIEs? we might do, if we had mangled entries, so comment out
 			// assert(cie_offsets_by_index.size() == (unsigned) cie_element_count);
