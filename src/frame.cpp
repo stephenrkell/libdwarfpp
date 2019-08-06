@@ -425,9 +425,10 @@ namespace dwarf
 					case 'P': { // personality encoding
 						int personality_encoding = *i_byte++;
 						// skip over the personality pointer too
-						i_byte += Cie::encoding_nbytes(personality_encoding, 
+						i_byte += get_owner().encoding_nbytes(personality_encoding,
 							reinterpret_cast<unsigned char const *>(&*i_byte), 
-							reinterpret_cast<unsigned char const *>(&*augbytes.end()));
+							reinterpret_cast<unsigned char const *>(&*augbytes.end()),
+							get_address_size());
 					} break;
 					default:
 						assert(false);
@@ -452,7 +453,7 @@ namespace dwarf
 			{
 				assert(version == 1 || version == 3);
 				// we have to guess it's an ELF file
-				auto e_machine = owner.get_elf_machine();
+				auto e_machine = get_owner().get_elf_machine();
 				return (e_machine == EM_X86_64) ? 8 : (e_machine == EM_386) ? 4 : (assert(false), 4);
 			}
 		}
@@ -518,17 +519,17 @@ namespace dwarf
 			assert(augbytes.size() == expected_data_length);
 		}
 		
-		unsigned Cie::encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit) const
+		unsigned FrameSection::encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit, unsigned address_size) const
 		{
 			if (encoding == 0xff) return 0; // skip
 			
 			unsigned char const *tmp_bytes = bytes;
-			/*Dwarf_Unsigned ret = */ read_with_encoding(encoding, &tmp_bytes, limit, true); // FIXME: use target byte-order, not host
+			/*Dwarf_Unsigned ret = */ read_with_encoding(encoding, &tmp_bytes, limit, address_size, true); // FIXME: use target byte-order, not host
 			return tmp_bytes - bytes;
 		}
 		
 		Dwarf_Unsigned 
-		Cie::read_with_encoding(unsigned char encoding, unsigned char const **pos, unsigned char const *limit, bool use_host_byte_order) const
+		FrameSection::read_with_encoding(unsigned char encoding, unsigned char const **pos, unsigned char const *limit, unsigned address_size, bool use_host_byte_order) const
 		{
 			bool read_be = host_is_little_endian() ^ use_host_byte_order;
 			
@@ -537,16 +538,16 @@ namespace dwarf
 			switch (encoding & ~0xf0) // low-order bytes only
 			{
 				case DW_EH_PE_absptr:
-					if (get_address_size() == 8) goto udata8;
-					else { assert(get_address_size() == 4); goto udata4; }
+					if (address_size == 8) goto udata8;
+					else { assert(address_size == 4); goto udata4; }
 				case DW_EH_PE_omit: assert(false); // handled above
 				case DW_EH_PE_uleb128: return encap::read_uleb128(pos, limit);
 				/* udata2 */ case DW_EH_PE_udata2: return (read_be ? read_2byte_be : read_2byte_le)(pos, limit);
 				udata4:      case DW_EH_PE_udata4: return (read_be ? read_4byte_be : read_4byte_le)(pos, limit);
 				udata8:      case DW_EH_PE_udata8: return (read_be ? read_8byte_be : read_8byte_le)(pos, limit);
 				case /* DW_EH_PE_signed */ 0x8: 
-					if (get_address_size() == 8) goto sdata8;
-					else { assert(get_address_size() == 4); goto sdata4; }
+					if (address_size == 8) goto sdata8;
+					else { assert(address_size == 4); goto sdata4; }
 				case DW_EH_PE_sleb128: return encap::read_sleb128(pos, limit);
 				/* sdata2 */ case DW_EH_PE_sdata2: return (read_be ? read_2byte_be : read_2byte_le)(pos, limit);
 				sdata4:      case DW_EH_PE_sdata4: return (read_be ? read_4byte_be : read_4byte_le)(pos, limit);
@@ -586,12 +587,12 @@ namespace dwarf
 			pos += 4; // id is always 32 bits
 			
 			// skip the FDE starting address // FIXME: is it safe to call get_fde_encoding() here?
-			unsigned startaddr_encoded_nbytes = cie.encoding_nbytes(cie.get_fde_encoding(), pos, instrs_start);
+			unsigned startaddr_encoded_nbytes = cie.get_owner().encoding_nbytes(cie.get_fde_encoding(), pos, instrs_start, cie.get_address_size());
 			pos += startaddr_encoded_nbytes;
 			
 			// read the FDE length-in-bytes and sanity-check
 			// const unsigned char *pos_saved = pos;
-			Dwarf_Unsigned fde_length = cie.read_with_encoding(cie.get_fde_encoding(), &pos, instrs_start, true); // FIXME: use target byte-order, not host
+			Dwarf_Unsigned fde_length = cie.get_owner().read_with_encoding(cie.get_fde_encoding(), &pos, instrs_start, cie.get_address_size(), true); // FIXME: use target byte-order, not host
 			// unsigned fde_length_encoded_length = pos - pos_saved;
 			assert(fde_length == get_func_length());
 			
@@ -632,10 +633,10 @@ namespace dwarf
 			else if (found_lsda == cie.get_augmentation_bytes().end())
 			{
 				// assume the default, which is DW_EH_absptr
-				return cie.read_with_encoding(DW_EH_PE_absptr, nullptr, nullptr, true); // HACK
+				return cie.get_owner().read_with_encoding(DW_EH_PE_absptr, nullptr, nullptr, cie.get_address_size(), true); // HACK
 			} else {
 				// do what it says
-				return cie.read_with_encoding(*found_lsda, &pos, end, true); // HACK: use target encoding
+				return cie.get_owner().read_with_encoding(*found_lsda, &pos, end, cie.get_address_size(), true); // HACK: use target encoding
 			}
 		}
 		

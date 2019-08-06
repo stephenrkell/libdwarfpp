@@ -127,6 +127,8 @@ namespace dwarf
 			     dwarf_get_cie_index (claimed "little used")
 			     dwarf_expand_frame_instructions (expensive? encap-like)
 			 */	
+			unsigned encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit, unsigned address_size) const;
+			Dwarf_Unsigned  read_with_encoding(unsigned char encoding, unsigned char const **pos, unsigned char const *limit, unsigned address_size, bool use_host_byte_order) const;
 			
 			inline fde_iterator find_fde_for_pc(Dwarf_Addr pc) const;
 			struct register_def
@@ -274,8 +276,6 @@ namespace dwarf
 			char * get_augmenter() const { return augmenter; };
 			std::vector<Dwarf_Small>::const_iterator find_augmentation_element(char marker) const;
 			int get_fde_encoding() const;
-			unsigned encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit) const;
-			Dwarf_Unsigned  read_with_encoding(unsigned char encoding, unsigned char const **pos, unsigned char const *limit, bool use_host_byte_order) const;
 			std::vector<Dwarf_Small> const& get_augmentation_bytes() const { return augbytes; }
 			unsigned char get_address_size() const;
 			unsigned char get_segment_size() const;
