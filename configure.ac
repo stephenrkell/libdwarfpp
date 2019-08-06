@@ -91,6 +91,8 @@ AC_HAVE_LIBRARY(boost_system, [], [AC_MSG_FAILURE([boost::system is required])])
 
 AC_CHECK_LIB([elf], [elf_new], [])
 AC_CHECK_LIB([dwarf], [dwarf_init], [])
+AC_CHECK_TYPE(Dwarf_Frame_Op3, HAVE_DWARF_FRAME_OP3=1, HAVE_DWARF_FRAME_OP3=0, [#include "$ac_libdwarf_includes/libdwarf.h"])
+AC_SUBST(HAVE_DWARF_FRAME_OP3)
 
 # If the user (sanely) supplied _CXXFLAGS, and not _CFLAGS, 
 # duplicate the latter to the former.  See rant about pkg-config in Makefile.am.
@@ -111,4 +113,4 @@ PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES([LIBCXXFILENO], [libcxxfileno])
 PKG_CHECK_MODULES([LIBSRK31CXX], [libsrk31cxx])
 
-AC_OUTPUT([Makefile libdwarfpp.pc config.mk])
+AC_OUTPUT([Makefile libdwarfpp.pc config.mk config.h])

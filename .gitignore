@@ -29,7 +29,27 @@ Makefile.in
 /config.log
 /ltmain.sh
 /libtool
+/config.h
 
+# contrib stuff
+/contrib/config.mk
+/contrib/config.site
+/contrib/env.sh
+
+# generated headers
+include/dwarfpp/dwarf-current-adt.h
+include/dwarfpp/dwarf-current-factory.h
+include/dwarfpp/dwarf-ext-GNU.h
+include/dwarfpp/dwarf-lib.h
+include/dwarfpp/dwarf-onlystd-v2.h
+include/dwarfpp/dwarf-onlystd.h
+
+# built example programs
+examples/core-query
+examples/dwarfppdump
+examples/print_spec
+examples/sranges
+examples/subseq
 
 # Compiled Object files
 *.slo

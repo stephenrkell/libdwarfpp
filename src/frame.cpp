@@ -104,7 +104,7 @@ namespace dwarf
 
 			while (pos < limit)
 			{
-				Dwarf_Frame_Op3 decoded = { 0, 0, 0, 0, 0, 0 };
+				frame_op decoded = { 0, 0, 0, 0, 0, 0 };
 				/* See DWARF4 page 181 for the summary of opcode encoding and arguments. 
 				 * This macro masks out any argument part of the basic opcodes. */
 #define opcode_from_byte(b) (((b) & 0xc0) ? (b) & 0xc0 : (b))
