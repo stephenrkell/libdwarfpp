@@ -29,7 +29,7 @@ Makefile.in
 /config.log
 /ltmain.sh
 /libtool
-/config.h
+/include/dwarfpp/config.h
 
 # contrib stuff
 /contrib/config.mk

@@ -1,41 +1,62 @@
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 root := $(realpath $(dir $(THIS_MAKEFILE))/..)
+# config.mk puts the libc++fileno and libsrk31c++ flags in CXXFLAGS and LDFLAGS/LDLIBS
 include $(root)/config.mk
-$(warning PATH is ${PATH})
-$(warning LD_LIBRARY_PATH is ${LD_LIBRARY_PATH})
-CXXFLAGS += -I$(root)/include
-CXXFLAGS += -g
-CXXFLAGS += -std=c++14
-LDFLAGS += -L$(root)/lib -Wl,-rpath,$(root)/lib
-LDLIBS += -ldwarfpp -ldwarf -lelf -lsrk31c++ -lc++fileno -lboost_system -lz
-
-export CXXFLAGS
-export LDFLAGS
-export LDLIBS
-$(warning PATH is ${PATH})
-$(warning LD_LIBRARY_PATH is ${LD_LIBRARY_PATH})
 
 cases := $(filter-out makefile,$(wildcard [a-z]*))
+$(info cases is $(cases))
 
-default:
-	for case in $(cases); do \
-            $(MAKE) run-$$case || break; \
-        done
+CXXFLAGS += -I$(root)/include -g -std=c++14
+LDFLAGS += -L$(root)/lib -Wl,-rpath,$(root)/lib
+LDLIBS += -ldwarfpp -lelf $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lboost_system -lboost_regex -lz
 
+.PHONY: default
+default: all
+
+# these should be statically linked because they test multi-CU features
+grandchildren: LDFLAGS += -pthread -static
+visible-named: LDFLAGS += -pthread -static
+
+# declare the dep, to ensure we don't test a stale binary
+grandchildren: $(root)/lib/libdwarfpp.a
+visible-named: $(root)/lib/libdwarfpp.a
+
+# HACK: manually link these with libdwarf for now, because unlike the .so,
+# the .a does not include it. And we must append -lelf and -lz... sigh.
+grandchildren: LDLIBS += $(LIBDWARF_LIBS) -lelf -lz
+visible-named: LDLIBS += $(LIBDWARF_LIBS) -lelf -lz
+
+# test case build recipes call back to us using $(MAKE) -f ../Makefile
+# ... here we allow each case to define an include.mk for extra rules
+-include include.mk
+
+.PHONY: all
+all: $(foreach c,$(cases),run-$(c))
+
+# quick hack for a status report
+.PHONY: report
+report:
+	$(MAKE) -k 2>&1 | grep '^make:.*Error'
+
+.PHONY: clean
 clean:
 	for case in $(cases); do \
             $(MAKE) clean-$$case; \
         done
 
+.PHONY: clean-%
 clean-%: 
 	rm -f $*/$*
 
+.PHONY: build-%
 build-%:
 	$(MAKE) -C "$*" -f ../Makefile "$*"
 
+.PHONY: run-%
 run-%: # run the test case with itself as input
 	$(MAKE) -C "$*" -f ../Makefile "$*" && ( cd "$*" && ./$* ./$* )
-	
+
+.PHONY: profile-%
 profile-%:
 	$(MAKE) -C "$*" "$*" && \
         sudo opcontrol --deinit && \
@@ -48,14 +69,14 @@ profile-%:
         opreport -l --callgraph $(root)/src/libdwarfpp.so $*/$* && \
         opreport -l $(root)/src/libdwarfpp.so $*/$* | head -n15
 
+.PHONY: gdbrun-%
 gdbrun-%: # run the test case with itself as input
 	$(MAKE) -C "$*" -f ../Makefile "$*" && ( cd "$*" && gdb --args ./$* ./$* )
 
+.PHONY: cleanrun-%
 cleanrun-%:
 	rm -f $*/$* && $(MAKE) run-$*
 
+.PHONY: gdbcleanrun-%
 gdbcleanrun-%:
 	rm -f $*/$* && $(MAKE) gdbrun-$*
-
-grandchildren: LDFLAGS += -pthread -static
-visible-named: LDFLAGS += -pthread -static

@@ -21,7 +21,7 @@ dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.
   include/dwarfpp/iter-inl.hpp \
   include/dwarfpp/dies-inl.hpp \
   include/dwarfpp/libdwarf-handles.hpp include/dwarfpp/libdwarf.hpp \
-  include/dwarfpp/dwarf-lib.h
+  include/dwarfpp/dwarf-lib.h include/dwarfpp/config.h
 
 lib_LTLIBRARIES = src/libdwarfpp.la
 src_libdwarfpp_la_SOURCES = src/libdwarf.cpp src/libdwarf-handles.cpp src/libdwarf-data.cpp src/expr.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp src/root.cpp src/abstract.cpp src/iter.cpp src/dies.cpp
@@ -84,7 +84,10 @@ lib/libdwarfpp.so: $(lib_LTLIBRARIES)
 lib/libdwarfpp.so.0: $(lib_LTLIBRARIES)
 	mkdir -p lib && cd lib && ln -sf ../src/.libs/libdwarfpp.so.0 .
 
-all: lib/libdwarfpp.so lib/libdwarfpp.so.0
+lib/libdwarfpp.a: $(lib_LTLIBRARIES)
+	mkdir -p lib && cd lib && ln -sf ../src/.libs/libdwarfpp.a .
+
+all: lib/libdwarfpp.so lib/libdwarfpp.so.0  lib/libdwarfpp.a
 
 # pkg-config doesn't understand PKG_CXXFLAGS, but I'm buggered
 # if I'm going to have my Makefiles use _CFLAGS to mean _CXXFLAGS.

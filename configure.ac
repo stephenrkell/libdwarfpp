@@ -10,18 +10,6 @@ AM_INIT_AUTOMAKE([foreign subdir-objects -Wno-portability])
 AM_MAINTAINER_MODE
 AC_PROG_CXX
 AX_CXX_COMPILE_STDCXX_14([ext], [optional])
-
-CFLAGS='-I${prefix}/include '"$CFLAGS"
-CXXFLAGS='-I${prefix}/include '"$CXXFLAGS"
-LDFLAGS='-L${prefix}/lib '"$LDFLAGS"
-export CFLAGS CXXFLAGS LDFLAGS
-
-PKG_CONFIG_PATH='${prefix}/lib/pkgconfig:'"$PKG_CONFIG_PATH"
-export PKG_CONFIG_PATH
-
-CXXFLAGS="-std=c++14 $CXXFLAGS"
-export CXXFLAGS
-
 AC_CHECK_HEADER_STDBOOL
 AC_C_INLINE
 AC_TYPE_SIZE_T
@@ -113,4 +101,4 @@ PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES([LIBCXXFILENO], [libcxxfileno])
 PKG_CHECK_MODULES([LIBSRK31CXX], [libsrk31cxx])
 
-AC_OUTPUT([Makefile libdwarfpp.pc config.mk config.h])
+AC_OUTPUT([Makefile libdwarfpp.pc config.mk include/dwarfpp/config.h])
