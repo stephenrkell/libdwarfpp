@@ -50,6 +50,7 @@ examples/dwarfppdump
 examples/print_spec
 examples/sranges
 examples/subseq
+examples/eh-frame-hdr
 
 # Compiled Object files
 *.slo

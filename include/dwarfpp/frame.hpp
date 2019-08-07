@@ -18,6 +18,7 @@
 #include <boost/optional.hpp>
 #include <boost/icl/interval_map.hpp>
 #include <boost/iterator/transform_iterator.hpp>
+#include <boost/iterator/iterator_adaptor.hpp>
 #include "util.hpp"
 #include "spec.hpp"
 #include "opt.hpp"
@@ -44,22 +45,33 @@ namespace dwarf
 			const Debug& dbg;
 			bool using_eh;
 			bool is_64bit;
-			/* If we're using eh_frame, we may have an eh_frame_hdr whose first
-			 * bytes look like this. See Linux Standard Base 1.3 chapter 6. */
+
+			Dwarf_Cie *cie_data;
+			Dwarf_Signed cie_element_count;
+			Dwarf_Fde *fde_data;
+			Dwarf_Signed fde_element_count;
+
+			Dwarf_Addr eh_frame_section_start; // decoded version of eh_frame_ptr
+			Dwarf_Unsigned hdr_tbl_fde_count; // decoded version of fde_count
 			struct hdr_ident
 			{
 				unsigned char version;
 				unsigned char eh_frame_ptr_enc;
 				unsigned char fde_count_enc;
 				unsigned char table_enc;
-			} eh_frame_hdr_ident;
-			
-			Dwarf_Cie *cie_data;
-			Dwarf_Signed cie_element_count;
-			Dwarf_Fde *fde_data;
-			Dwarf_Signed fde_element_count;
-			char *hdr_data;
-			unsigned hdr_nbytes;
+			} m_hdr_ident;
+			const unsigned char *hdr_tbl; // the data of the table
+			unsigned hdr_tbl_nbytes;
+			unsigned hdr_tbl_encoding;
+			unsigned hdr_tbl_encoded_value_size;
+			Dwarf_Addr hdr_vaddr;
+			/* From the LSB:
+			 * "A binary search table containing fde_count entries.
+			 * Each entry of the table consist of two encoded values,
+			 * the initial location, and the address.
+			 * The entries are sorted in an increasing order by the initial location value."
+			 * i.e. *both* values are encoded as specified by table_enc.
+			 */
 			
 			map<lib::Dwarf_Off, set<lib::Dwarf_Off> > fde_offsets_by_cie_offset;
 			map<int, int> cie_offsets_by_index;
@@ -104,16 +116,91 @@ namespace dwarf
 			inline fde_iterator begin();
 			inline fde_iterator end();
 
-			struct hdr_iterator
+			struct hdr_tbl_iterator : public boost::iterator_adaptor<
+				hdr_tbl_iterator /* Derived */,
+				const unsigned char * /* Base */ ,
+				pair<Dwarf_Unsigned, Dwarf_Unsigned> /* Value */,
+				boost::use_default,
+				pair<Dwarf_Unsigned, Dwarf_Unsigned> /* Reference */
+			>
 			{
-				/* These iterators need to know how big the element size is. */
-				unsigned encoding;
-				void *pos;
+				/* These iterators need to know how big the element size is.
+				 * This is always a fixed size, because the idea is to allow
+				 * binary search. Values are *pairs*. */
+				const FrameSection *owner;
+				unsigned get_encoded_value_size() const
+				{ return owner->hdr_tbl_encoded_value_size; }
+				void increment()
+				{ base_reference() += 2 * get_encoded_value_size(); }
+				void decrement()
+				{ base_reference() -= 2 * get_encoded_value_size(); }
+				void advance(typename iterator_adaptor::difference_type n)
+				{ base_reference() += 2 * n * get_encoded_value_size(); }
+				pair<Dwarf_Unsigned, Dwarf_Unsigned> dereference_raw() const
+				{
+					const unsigned char *pos = base();
+					Dwarf_Unsigned initial_location_raw = owner->read_with_encoding(
+						owner->hdr_tbl_encoding,
+						&pos, owner->hdr_tbl + owner->hdr_tbl_nbytes,
+						owner->get_address_size(), true); // FIXME: use target byte-order, not host
+					Dwarf_Unsigned addr = owner->read_with_encoding(
+						owner->hdr_tbl_encoding,
+						&pos, owner->hdr_tbl + owner->hdr_tbl_nbytes,
+						owner->get_address_size(), true); // FIXME: use target byte-order, not host
+					return make_pair(initial_location_raw, addr);
+				}
+				pair<Dwarf_Unsigned, Dwarf_Unsigned> dereference() const
+				{
+					auto p = dereference_raw();
+					Dwarf_Unsigned initial_location_raw = p.first;
+					Dwarf_Unsigned addr = p.second;
+					unsigned char interp = owner->hdr_tbl_encoding & 0xf0;
+					Dwarf_Unsigned initial_location;
+					switch (interp)
+					{
+						case DW_EH_PE_absptr: // the easy one
+							initial_location = initial_location_raw;
+							break;
+						case DW_EH_PE_datarel: { // relative to the beginning of eh_frame_hdr
+							Dwarf_Signed delta;
+							// despite appearances, the value is actually signed
+							switch (get_encoded_value_size())
+							{
+							case 8:
+								delta = static_cast<int64_t>(initial_location_raw);
+								break;
+							case 4:
+								delta = static_cast<int32_t>(initial_location_raw);
+								break;
+							case 2:
+								delta = static_cast<int16_t>(initial_location_raw);
+								break;
+							case 1:
+								delta = static_cast<int8_t>(initial_location_raw);
+								break;
+							default: abort();
+							}
+							initial_location = owner->hdr_vaddr + delta;
+						} break;
+						case DW_EH_PE_pcrel: // relative to the current program counter -- which?
+						case DW_EH_PE_omit:
+						default:
+							abort();
+					}
+					return make_pair(initial_location, addr);
+				}
+				hdr_tbl_iterator(const unsigned char *base, const FrameSection *owner)
+				 : iterator_adaptor_(base), owner(owner){}
 			};
-			inline hdr_iterator hdr_begin() const;
-			inline hdr_iterator hdr_end() const;
-			inline hdr_iterator hdr_begin();
-			inline hdr_iterator hdr_end();
+			inline hdr_tbl_iterator hdr_tbl_begin() const
+			{ return hdr_tbl_iterator(hdr_tbl, this); }
+			inline hdr_tbl_iterator hdr_tbl_end() const
+			{ return hdr_tbl_iterator(hdr_tbl + hdr_tbl_nbytes, this); }
+			inline hdr_tbl_iterator hdr_tbl_begin()
+			{ return hdr_tbl_iterator(hdr_tbl, this); }
+			inline hdr_tbl_iterator hdr_tbl_end()
+			{ return hdr_tbl_iterator(hdr_tbl + hdr_tbl_nbytes, this); }
+			unsigned char get_address_size(unsigned cie_version = 1) const;
 
 			inline FrameSection(const Debug& dbg, bool use_eh = false);
 		
@@ -544,8 +631,11 @@ namespace dwarf
 				fde_data = nullptr;
 				cie_element_count = 0;
 				cie_data = nullptr;
-				hdr_nbytes = 0;
-				hdr_data = nullptr;
+				hdr_tbl = nullptr;
+				hdr_tbl_nbytes = 0;
+				hdr_tbl_encoding = DW_EH_PE_omit;
+				hdr_tbl_encoded_value_size = 0;
+				hdr_vaddr = 0;
 			}
 
 			/* Since libdwarf doesn't let us get the CIE offset, do a pass
@@ -570,7 +660,14 @@ namespace dwarf
 			/* libdwarf also doesn't expose the .eh_frame_hdr section. We only look
 			 * for it if we're using .eh_frame. */
 			if (using_eh) init_eh_frame_hdr();
-			else { hdr_data = nullptr; hdr_nbytes = 0; }
+			else
+			{
+				hdr_tbl = nullptr;
+				hdr_tbl_nbytes = 0;
+				hdr_tbl_encoding = DW_EH_PE_omit;
+				hdr_tbl_encoded_value_size = 0;
+				hdr_vaddr = 0;
+			}
 
 			// do we have any orphan CIEs? we might do, if we had mangled entries, so comment out
 			// assert(cie_offsets_by_index.size() == (unsigned) cie_element_count);

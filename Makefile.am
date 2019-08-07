@@ -34,7 +34,7 @@ CLEANFILES = $(BUILT_SOURCES)
 
 examplesdir = examples
 examples_PROGRAMS = examples/core-query examples/dwarfppdump \
-  examples/print_spec examples/sranges examples/subseq
+  examples/print_spec examples/sranges examples/subseq examples/eh-frame-hdr
 
 -include config.mk
 
@@ -55,6 +55,9 @@ examples_sranges_LDADD = $(EXAMPLE_LDADD_INS)
 examples_subseq_SOURCES = examples/subseq.cpp
 examples_subseq_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_subseq_LDADD = $(EXAMPLE_LDADD_INS)
+examples_eh_frame_hdr_SOURCES = examples/eh-frame-hdr.cpp
+examples_eh_frame_hdr_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
+examples_eh_frame_hdr_LDADD = $(EXAMPLE_LDADD_INS)
 
 # launder the exit code of grep through "cat"
 include/dwarfpp/dwarf-onlystd.h: $(libdwarf_includes)/dwarf.h

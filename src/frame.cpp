@@ -445,17 +445,17 @@ namespace dwarf
 			
 			return *found;
 		}
-		
+		unsigned char FrameSection::get_address_size(unsigned version /* = 1 */) const
+		{
+			assert(version == 1 || version == 3);
+			// we have to guess it's an ELF file
+			auto e_machine = get_elf_machine();
+			return (e_machine == EM_X86_64) ? 8 : (e_machine == EM_386) ? 4 : (assert(false), 4);
+		}
 		unsigned char Cie::get_address_size() const
 		{
 			if (address_size_in_dwarf > 0) return address_size_in_dwarf;
-			else 
-			{
-				assert(version == 1 || version == 3);
-				// we have to guess it's an ELF file
-				auto e_machine = get_owner().get_elf_machine();
-				return (e_machine == EM_X86_64) ? 8 : (e_machine == EM_386) ? 4 : (assert(false), 4);
-			}
+			return get_owner().get_address_size(version);
 		}
 		unsigned char Cie::get_segment_size() const
 		{
@@ -579,6 +579,9 @@ namespace dwarf
 			unsigned i;
 			size_t fileoff;
 			Elf_Scn *scn;
+			const unsigned char *scn_data = nullptr;
+			const unsigned char *pos;
+			unsigned scn_nbytes = 0;
 			for (i = 0; i < phnum; ++i)
 			{
 				GElf_Phdr *ret_phdr;
@@ -611,27 +614,56 @@ namespace dwarf
 				assert(shdr.sh_size <= phdr.p_filesz);
 				assert(d->d_size >= shdr.sh_size);
 				// fileoff_end_max = phdr.p_offset + shdr.sh_size;
-				this->hdr_data = reinterpret_cast<char*>(d->d_buf);
-				this->hdr_nbytes = shdr.sh_size;
+				scn_data = reinterpret_cast<unsigned char*>(d->d_buf);
+				scn_nbytes = shdr.sh_size;
 			}
 			// FIXME: do we need some kind of fallback that mmaps the
-			// file using fileoff_end_max? For now pretend we have no ifno.
+			// file using fileoff_end_max? For now pretend we have no info.
 			else goto out_no_eh_frame;
 			// sanity check on the info we got
-			assert(hdr_nbytes > sizeof (hdr_ident));
-			memcpy(&eh_frame_hdr_ident, hdr_data, sizeof (hdr_ident));
-			if (eh_frame_hdr_ident.version != 1)
+			/* If we're using eh_frame, we may have an eh_frame_hdr whose first
+			 * bytes look like this. See Linux Standard Base 1.3 chapter 6. */
+			assert(scn_nbytes > sizeof (hdr_ident));
+			memcpy(&m_hdr_ident, scn_data, sizeof (hdr_ident));
+			if (m_hdr_ident.version != 1)
 			{
 				debug(0) << "Did not understand .eh_frame_hdr section, version "
-					<< (int) eh_frame_hdr_ident.version << endl;
+					<< (int) m_hdr_ident.version << endl;
 				goto out_no_eh_frame;
 			}
+			/* After the four byte fields, we have two encoded fields (eh_frame_ptr
+			 * and fde_count) and then the encoded binary search table. */
+			pos = scn_data + sizeof (hdr_ident);
+			eh_frame_section_start = read_with_encoding(
+				m_hdr_ident.eh_frame_ptr_enc,
+				&pos,
+				scn_data + scn_nbytes,
+				get_address_size(),
+				true /* HACK: use host byte order. */
+			);
+			hdr_tbl_fde_count = read_with_encoding(
+				m_hdr_ident.fde_count_enc,
+				&pos,
+				scn_data + scn_nbytes,
+				get_address_size(),
+				true /* HACK: use host byte order. */
+			);
+			this->hdr_tbl = pos;
+			this->hdr_tbl_nbytes = scn_nbytes - (pos - scn_data);
+			this->hdr_tbl_encoding = m_hdr_ident.table_enc;
+			this->hdr_tbl_encoded_value_size = encoding_nbytes(
+				m_hdr_ident.table_enc, hdr_tbl, hdr_tbl + hdr_tbl_nbytes, get_address_size());
+			this->hdr_vaddr = phdr.p_vaddr;
 			// success
 			return;
 
 		out_no_eh_frame:
-			this->hdr_data = nullptr;
-			this->hdr_nbytes = 0;
+			bzero(&this->m_hdr_ident, sizeof this->m_hdr_ident);
+			this->hdr_tbl = nullptr;
+			this->hdr_tbl_nbytes = 0;
+			this->hdr_tbl_encoding = DW_EH_PE_omit;
+			this->hdr_tbl_encoded_value_size = 0;
+			this->hdr_vaddr = 0;
 		}
 
 		void Fde::init_augmentation_bytes()
