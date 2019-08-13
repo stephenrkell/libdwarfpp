@@ -68,7 +68,7 @@ namespace dwarf
 		
 		const int FAKE_CFA_REGISTER = DW_FRAME_CFA_COL3;
 	}
-	/* libdwarf-tainted stuff continues.... */
+	/* end of libdwarf-specific stuff I think */
 	namespace encap
 	{
 		std::ostream& operator<<(std::ostream& s, const frame_instr& arg) 
@@ -245,8 +245,6 @@ namespace dwarf
 #undef opcode_from_byte
 			} // end while
 		}
-		/* end of libdwarf-specific stuff I think */
-		
 		std::ostream& operator<<(std::ostream& s, const frame_instrlist& arg)
 		{
 			s << "[";
@@ -771,9 +769,9 @@ namespace dwarf
 			 * it seems to be DWARF2-specific, and I don't want to use too many more 
 			 * libdwarf calls. So use our own frame_instrlist. */
 			encap::frame_instrlist instrlist(cie, cie.get_address_size(), 
-				make_pair(reinterpret_cast<unsigned char *>(instrs), 
-					      reinterpret_cast<unsigned char *>(instrs) + instrs_len),
-					      /* use_host_byte_order -- FIXME */ true);
+			make_pair(reinterpret_cast<unsigned char *>(instrs),
+					  reinterpret_cast<unsigned char *>(instrs) + instrs_len),
+					  /* use_host_byte_order -- FIXME */ true);
 			
 			// create container for return values & working storage
 			instrs_results result;
