@@ -167,13 +167,13 @@ namespace dwarf
 						break;
 						
 					case DW_CFA_offset_extended: goto uleb128_register_and_factored_offset;
-					case DW_CFA_register: goto uleb128_register_and_factored_offset;
-					uleb128_register_and_factored_offset:// FIXME: second register goes where? I've put it in fp_offset_or_block_len
+					uleb128_register_and_factored_offset:
 						decoded.fp_register = read_uleb128(&pos, limit);
 						decoded.fp_offset_or_block_len = cie.get_data_alignment_factor() * read_uleb128(&pos, limit);
 						break;
 					
 					case DW_CFA_def_cfa: goto uleb128_register_and_offset;
+					case DW_CFA_register: goto uleb128_register_and_offset;
 					uleb128_register_and_offset:// FIXME: second register goes where? I've put it in fp_offset_or_block_len
 						decoded.fp_register = read_uleb128(&pos, limit);
 						decoded.fp_offset_or_block_len = read_uleb128(&pos, limit);
@@ -265,40 +265,27 @@ namespace dwarf
 			do 
 			{
 				assert(*cur < limit);
-				
+				// the bit offset is 7 * the number of bytes we've already read
 				int n7bits = *cur - start;
 				// add in the low-order 7 bits
 				working |= ((**cur) & ~0x80) << (7 * n7bits);
 				
 			} while (*(*cur)++ & 0x80);
-			
+			unsigned nbits_read = 7 * (*cur - start);
+			assert(nbits_read < 8 * sizeof (Dwarf_Unsigned));
 			return working;
 		}
 		Dwarf_Signed read_sleb128(unsigned char const **cur, unsigned char const *limit)
 		{
-			Dwarf_Signed working = 0;
 			unsigned char const *start = *cur;
-			unsigned char byte_read = 0;
-			do 
-			{
-				assert(*cur < limit);
-				
-				int n7bits = *cur - start;
-				// add in the low-order 7 bits
-				byte_read = **cur;
-				working |= (byte_read & ~0x80) << (7 * n7bits);
-				
-			} while (*(*cur)++ & 0x80);
-			
-			// sign-extend the result
+			Dwarf_Unsigned working = read_uleb128(cur, limit);
+			// sign-extend the result...
 			unsigned nbits_read = 7 * (*cur - start);
-			if (nbits_read < 8 * sizeof (Dwarf_Signed) 
-				&& byte_read >= 0x80)
-			{
-				working |= -(1 << nbits_read);
-			}
-			
-			return working;
+			unsigned top_bits = 8 * (sizeof (Dwarf_Signed)) - nbits_read;
+			// ... by shifting up so that we have a 1 in the top position...
+			Dwarf_Signed scaled_up = (Dwarf_Signed) (working << top_bits);
+			// ... then shifting back down, now as a *signed* number
+			return scaled_up >> top_bits;
 		}
 		uint64_t read_8byte_le(unsigned char const **cur, unsigned char const *limit)
 		{
@@ -879,7 +866,8 @@ namespace dwarf
 						current_row_defs[i_op->fp_register].val_is_offset_from_cfa_w() = i_op->fp_offset_or_block_len;
 						break;
 					case DW_CFA_register: // FIXME: second register goes where? I've put it in fp_offset_or_block_len
-						current_row_defs[i_op->fp_register].register_plus_offset_w() = make_pair(i_op->fp_offset_or_block_len, 0);
+						current_row_defs[i_op->fp_register].register_plus_offset_w()
+						 = make_pair(i_op->fp_offset_or_block_len, 0);
 						break;
 					case DW_CFA_expression:
 						current_row_defs[i_op->fp_register].saved_at_expr_w() = encap::loc_expr(get_dbg().raw_handle(), i_op->fp_expr_block, i_op->fp_offset_or_block_len);
