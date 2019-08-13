@@ -752,7 +752,7 @@ namespace dwarf
 			/* Add any unfinished row, using the FDE high pc */
 			if (final_result.rows.size() > 0)
 			{
-				final_result.add_unfinished_row(get_low_pc() + get_func_length());
+				final_result.add_unfinished_row(get_low_pc() + get_func_length() + 1);
 			}
 			
 			// that's it! (no unfinished rows now)
@@ -1132,7 +1132,7 @@ namespace dwarf
 					i_fde != fs.fde_end() && (!end_fde_is_valid || i_fde <= end_fde); ++i_fde)
 				{
 					Dwarf_Addr fde_lopc = i_fde->get_low_pc();
-					Dwarf_Addr fde_hipc = i_fde->get_low_pc() + i_fde->get_func_length();
+					Dwarf_Addr fde_hipc = i_fde->get_low_pc() + i_fde->get_func_length() + 1;
 
 					assert(i_fde->get_low_pc() >= prev_fde_lopc); // I have seen the == case
 
