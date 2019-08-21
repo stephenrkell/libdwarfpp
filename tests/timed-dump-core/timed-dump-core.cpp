@@ -13,7 +13,7 @@ int main(int argc, char **argv)
 	std::ifstream in(argv[0]);
 	core::root_die root(fileno(in));
 
-	int status0 = system("./exit-deciseconds.sh sh -c 'dwarfdump ../../examples/dwarfppdump >/dev/null 2>/dev/null'");
+	int status0 = system("./exit-deciseconds.sh sh -c '../../contrib/libdwarf/prefix/bin/dwarfdump ../../examples/dwarfppdump >/dev/null 2>/dev/null'");
 	int status1 = system("./exit-deciseconds.sh sh -c 'readelf -wi ../../examples/dwarfppdump >/dev/null 2>/dev/null'");
 	int status2 = system("./exit-deciseconds.sh sh -c '../../examples/dwarfppdump ../../examples/dwarfppdump >/dev/null 2>/dev/null'");
 	
