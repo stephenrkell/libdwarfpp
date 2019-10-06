@@ -41,7 +41,8 @@ int main(int argc, char **argv)
 	assert(ret != 0);
 	elf_machine = ehdr.e_machine;
 	
-	core::FrameSection fs(root.get_dbg(), true);
+	// quick HACK: use .debug_frame if USE_DEBUG_FRAME is in environ
+	core::FrameSection fs(root.get_dbg(), !getenv("USE_DEBUG_FRAME"));
 	
 	ostringstream s;
 	print_in_readelf_style(s, fs, root);
@@ -93,11 +94,12 @@ void print_in_readelf_style(std::ostream& s, const core::Cie& cie)
 		<< "  Augmentation:          \"" << cie.get_augmenter() << "\""  << endl
 		<< "  Code alignment factor: " << cie.get_code_alignment_factor() << endl
 		<< "  Data alignment factor: " << cie.get_data_alignment_factor() << endl
-		<< "  Return address column: " << cie.get_return_address_register_rule() << endl
-		<< "  Augmentation data:     ";
+		<< "  Return address column: " << cie.get_return_address_register_rule() << endl;
 	auto augbytes = cie.get_augmentation_bytes();
+	bool output_leader = false;
 	for (auto i_byte = augbytes.begin(); i_byte != augbytes.end(); ++i_byte)
 	{
+		if (!output_leader) { s << "  Augmentation data:     "; output_leader = true; }
 		if (i_byte != augbytes.begin()) s << ' ';
 		s << std::hex << setw(2) << setfill('0') << (unsigned) *i_byte;
 	}
@@ -306,7 +308,7 @@ void print_in_readelf_style(std::ostream& s, const core::FrameSection& fs, core:
 		return arg1->get_offset() < arg2->get_offset();
 	});
 
-	s << "Contents of the .eh_frame section:\n\n\n";
+	s << "Contents of the " << (fs.using_eh ? ".eh_frame" : ".debug_frame") << " section:\n\n\n";
 	auto i_i_cie = cies.begin();
 	auto i_i_fde = fdes.begin();
 	lib::Dwarf_Off cur_off = 0;

@@ -426,9 +426,8 @@ namespace dwarf
 		int Cie::get_fde_encoding() const
 		{
 			auto found = find_augmentation_element('R');
-			assert(found != get_augmentation_bytes().end());
-			
-			return *found;
+			if (found != get_augmentation_bytes().end()) return *found;
+			else return DW_EH_PE_absptr; // is this the default?
 		}
 		unsigned char FrameSection::get_address_size(unsigned version /* = 1 */) const
 		{
