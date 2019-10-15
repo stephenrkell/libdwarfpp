@@ -571,7 +571,7 @@ namespace dwarf
 				GElf_Phdr *ret_phdr;
 				ret_phdr = gelf_getphdr(e, i, &phdr);
 				assert(ret_phdr); if (!ret_phdr) abort();
-				if (phdr.p_type == PT_GNU_EH_FRAME)
+				if (phdr.p_type == PT_GNU_EH_FRAME && phdr.p_filesz > 0)
 				{
 					break;
 				}
