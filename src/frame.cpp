@@ -503,17 +503,21 @@ namespace dwarf
 			assert(augbytes.size() == expected_data_length);
 		}
 		
-		unsigned FrameSection::encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit, unsigned address_size) const
+		unsigned
+		FrameSection::encoding_nbytes(unsigned char encoding, unsigned char const *bytes,
+			unsigned char const *limit, unsigned address_size) const
 		{
 			if (encoding == 0xff) return 0; // skip
 			
 			unsigned char const *tmp_bytes = bytes;
-			/*Dwarf_Unsigned ret = */ read_with_encoding(encoding, &tmp_bytes, limit, address_size, true); // FIXME: use target byte-order, not host
+			/*Dwarf_Unsigned ret = */ read_with_encoding(encoding, &tmp_bytes, limit, address_size,
+				true); // FIXME: use target byte-order, not host
 			return tmp_bytes - bytes;
 		}
 		
-		Dwarf_Unsigned 
-		FrameSection::read_with_encoding(unsigned char encoding, unsigned char const **pos, unsigned char const *limit, unsigned address_size, bool use_host_byte_order) const
+		Dwarf_Unsigned
+		FrameSection::read_with_encoding(unsigned char encoding, unsigned char const **pos,
+			unsigned char const *limit, unsigned address_size, bool use_host_byte_order) const
 		{
 			bool read_be = host_is_little_endian() ^ use_host_byte_order;
 			
