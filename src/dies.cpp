@@ -4365,6 +4365,47 @@ namespace dwarf
 			}
 		}
 
+		unsigned compile_unit_die::alignment_of_type(iterator_df<type_die> t) const
+		{
+			/* The alignment is actually something the compiler should
+			 * document for us, but doesn't. It is largely a function of
+			 * the language and ABI pair. So we should really do a
+			 * switch on this pair. For now, a gross approximation:
+			 * it's MAX(size, word-size). FIXME: this is just wrong. */
+			switch (get_language())
+			{
+				default:
+				// case DW_LANG_C:
+				// case DW_LANG_C89:
+				// case DW_LANG_C_plus_plus:
+				// case DW_LANG_C99:
+					/* Our default behaviour is true of C-family languages.
+					 * PROBLEM: this is impl-defined but the DWARF does not
+					 * describe it explicitly. */
+// 					if (t.is_a<qualified_type_die>())
+// 					{
+// 						// C11 6.2.5 pt 27
+// 						return alignment_of_type(t.as_a<qualified_type_die>()->find_type());
+// 						// FIXME: not true of atomics
+// 					}
+// 					if (t.is_a<with_data_members_die>())
+// 					{
+// 						// look for the biggest alignment of any member
+// 						
+// 					}
+					{
+						auto maybe_array_element_type = t.is_a<array_type_die>() ?
+						    t.as_a<array_type_die>()->ultimate_element_type()
+						    : opt<iterator_df<type_die>>();
+						auto maybe_byte_size =
+						    (maybe_array_element_type ? maybe_array_element_type : t)
+							->calculate_byte_size();
+						if (!maybe_byte_size) return 0; // FIXME: better error report
+						return std::max<unsigned>(get_address_size(), *maybe_byte_size);
+					}
+			}
+		}
+
 		opt<Dwarf_Unsigned> compile_unit_die::implicit_array_base() const
 		{
 			switch(get_language())

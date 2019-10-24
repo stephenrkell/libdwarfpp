@@ -924,6 +924,7 @@ Dwarf_Half get_offset_size() const { return offset_size; } \
 Dwarf_Half get_extension_size() const { return extension_size; } \
 Dwarf_Unsigned get_next_cu_header() const { return next_cu_header; } \
 opt<Dwarf_Unsigned> implicit_array_base() const; \
+unsigned alignment_of_type(iterator_df<type_die>) const; \
 mutable iterator_df<type_die> cached_implicit_enum_base_type; \
 iterator_df<type_die> implicit_enum_base_type() const; \
 mutable iterator_df<type_die> cached_implicit_subrange_base_type; \
