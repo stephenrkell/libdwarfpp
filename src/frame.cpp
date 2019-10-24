@@ -38,6 +38,33 @@ using boost::icl::interval;
 using srk31::host_is_little_endian;
 using srk31::host_is_big_endian;
 
+#ifndef HAVE_GELF_OFFSCN
+extern "C" {
+static Elf_Scn *gelf_offscn(Elf *e, size_t offset)
+{
+	GElf_Ehdr ehdr;
+	bzero(&ehdr, sizeof ehdr);
+	GElf_Ehdr *ret = gelf_getehdr(e, &ehdr);
+	assert(ret);
+	for (unsigned n = 1; n < ehdr.e_shnum; ++n)
+	{
+		Elf_Scn *scn = elf_getscn(e, n);
+		GElf_Shdr shdr;
+		bzero(&shdr, sizeof shdr);
+		GElf_Shdr *ret = gelf_getshdr(scn, &shdr);
+		assert(ret);
+		if (shdr.sh_offset <= offset &&
+			shdr.sh_offset + shdr.sh_size > offset &&
+			shdr.sh_size > 0)
+		{
+			return scn;
+		}
+	}
+	return NULL;
+}
+}
+#endif /* !defined(HAVE_GELF_OFFSCN) */
+
 static bool debug;
 static void init() __attribute__((constructor));
 static void init()
