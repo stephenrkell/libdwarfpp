@@ -17,7 +17,7 @@ AC_CHECK_TYPES([ptrdiff_t])
 AC_PROG_LN_S
 AC_PROG_INSTALL
 
-AC_CHECK_HEADERS([algorithm cassert cstdlib elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector], [], [AC_MSG_FAILURE([required standard headers: algorithm cassert cstdlib dwarf.h elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector])])
+AC_CHECK_HEADERS([algorithm cassert cstdlib elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector], [], [AC_MSG_FAILURE([required standard headers: algorithm cassert cstdlib elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector])])
 
 AC_CHECK_HEADERS([elf.h libelf.h], [], [AC_MSG_FAILURE([required headers: elf.h libelf.h])])
 
