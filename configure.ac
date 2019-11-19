@@ -77,10 +77,17 @@ AC_HAVE_LIBRARY(boost_serialization, [], [AC_MSG_FAILURE([boost::serialization i
 AC_CHECK_HEADER([boost/system/api_config.hpp], [], [AC_MSG_FAILURE([boost::system is required])])
 AC_HAVE_LIBRARY(boost_system, [], [AC_MSG_FAILURE([boost::system is required])])
 
-AC_CHECK_LIB([elf], [elf_new], [])
-AC_CHECK_LIB([dwarf], [dwarf_init], [])
+dnl AC_CHECK_LIB([elf], [elf_new], [])
+AC_HAVE_LIBRARY(elf, [], [AC_MSG_FAILURE([libelf is required])])
+dnl AC_CHECK_LIB([dwarf], [dwarf_init], [])
+AC_HAVE_LIBRARY(dwarf, [AC_MSG_FAILURE([libelf is required])])
 AC_CHECK_TYPE(Dwarf_Frame_Op3, HAVE_DWARF_FRAME_OP3=1, HAVE_DWARF_FRAME_OP3=0, [#include "$ac_libdwarf_includes/libdwarf.h"])
 AC_SUBST(HAVE_DWARF_FRAME_OP3)
+
+AC_LANG_PUSH([C])
+AX_CHECK_FUNC_IN([gelf.h], gelf_offscn, HAVE_GELF_OFFSCN=1, HAVE_GELF_OFFSCN=0)
+AC_LANG_POP
+AC_SUBST(HAVE_GELF_OFFSCN)
 
 # If the user (sanely) supplied _CXXFLAGS, and not _CFLAGS, 
 # duplicate the latter to the former.  See rant about pkg-config in Makefile.am.
