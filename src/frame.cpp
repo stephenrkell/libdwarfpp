@@ -38,7 +38,7 @@ using boost::icl::interval;
 using srk31::host_is_little_endian;
 using srk31::host_is_big_endian;
 
-#ifndef HAVE_GELF_OFFSCN
+#if ! HAVE_GELF_OFFSCN
 extern "C" {
 static Elf_Scn *gelf_offscn(Elf *e, size_t offset)
 {
@@ -63,7 +63,7 @@ static Elf_Scn *gelf_offscn(Elf *e, size_t offset)
 	return NULL;
 }
 }
-#endif /* !defined(HAVE_GELF_OFFSCN) */
+#endif /* ! HAVE_GELF_OFFSCN */
 
 static bool debug;
 static void init() __attribute__((constructor));
