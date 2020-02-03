@@ -312,13 +312,28 @@ namespace dwarf
 			vector<Dwarf_Loc> expr;
 			const ::dwarf::spec::abstract_def& spec;
 			regs *p_regs; // optional set of register values, for DW_OP_breg*
-			bool tos_is_value; // whether we saw a DW_OP_stack_value hence have calculated a value not an addr
+			/* Various features have been shoehorned into the DWARF location
+			 * expression machine which change the meaning of what's on the
+			 * stack or what has been evaluated. In particular, DW_OP_stack_value
+			 * says "actually it's the value not its address" and DW_OP_implicit_pointer
+			 * says "there's no address but there's a value and an offset within that
+			 * value" (given as arguments to the DW_OP_implicit_pointer operation).
+			 * Therefore we keep a "tos_state" which is initially ADDRESS but which
+			 * can transition to one of the others if those opcodes occur. */
+			enum tos_state_t
+			{
+				ADDRESS = 1,
+				VALUE = 2,
+				IMPLICIT_POINTER = 4,
+				TOS_STATE_MAX = 8
+			} tos_state;
+			opt<pair< Dwarf_Off, Dwarf_Signed >> implicit_pointer; // whether we saw a DW_OP_stack_value hence have calculated a value not an addr
 			opt<Dwarf_Signed> frame_base;
 			vector<Dwarf_Loc>::iterator i;
 			void eval();
 		public:
 			evaluator(const vector<unsigned char> expr, 
-				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0), tos_is_value(false)
+				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0), tos_state(ADDRESS)
 			{
 				//i = expr.begin();
 				assert(false);
@@ -333,7 +348,7 @@ namespace dwarf
 			evaluator(const vector<Dwarf_Loc>& loc_desc,
 				const ::dwarf::spec::abstract_def& spec,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>())
-				: m_stack(initial_stack), spec(spec), p_regs(0), tos_is_value(false)
+				: m_stack(initial_stack), spec(spec), p_regs(0), tos_state(ADDRESS)
 			{
 				expr = loc_desc;
 				i = expr.begin();
@@ -344,7 +359,7 @@ namespace dwarf
 				regs& regs,
 				Dwarf_Signed frame_base,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(&regs), tos_is_value(false)
+				: m_stack(initial_stack), spec(spec), p_regs(&regs), tos_state(ADDRESS)
 			{
 				expr = loc_desc;
 				i = expr.begin();
@@ -356,7 +371,7 @@ namespace dwarf
 				const ::dwarf::spec::abstract_def& spec,
 				Dwarf_Signed frame_base,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(0), tos_is_value(false)
+				: m_stack(initial_stack), spec(spec), p_regs(0), tos_state(ADDRESS)
 			{
 				//if (av.get_form() != dwarf::encap::attribute_value::LOCLIST) throw "not a DWARF expression";
 				//if (av.get_loclist().size() != 1) throw "only support singleton loclists for now";
@@ -366,13 +381,13 @@ namespace dwarf
 				this->frame_base = frame_base;
 				eval();
 			}
-			
-			Dwarf_Unsigned tos() const { return m_stack.top(); }
-			Dwarf_Unsigned tos(bool may_be_value) const { // FIXME: more complete+orthogonal interface
-				if (may_be_value) return m_stack.top();
-				if (!tos_is_value && !may_be_value) return m_stack.top();
-				throw No_entry();
+			Dwarf_Unsigned tos(unsigned wanted_states) const {
+				if (!(wanted_states & tos_state)) throw No_entry();
+				if (tos_state != IMPLICIT_POINTER) return m_stack.top();
+				assert(tos_state == IMPLICIT_POINTER);
+				return 0;
 			}
+			Dwarf_Unsigned tos() const { return tos(TOS_STATE_MAX-1); }
 			bool finished() const { return i == expr.end(); }
 			Dwarf_Loc current() const { return *i; }
 		};

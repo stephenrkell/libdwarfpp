@@ -4400,8 +4400,9 @@ namespace dwarf
 						auto maybe_byte_size =
 						    (maybe_array_element_type ? maybe_array_element_type : t)
 							->calculate_byte_size();
-						if (!maybe_byte_size) return 0; // FIXME: better error report
-						return std::max<unsigned>(get_address_size(), *maybe_byte_size);
+						if (!maybe_byte_size) return 1; // FIXME: better error report
+						return std::max<unsigned>(get_address_size(),
+							std::min<Dwarf_Unsigned>(1, *maybe_byte_size));
 					}
 			}
 		}
