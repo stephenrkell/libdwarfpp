@@ -77,10 +77,8 @@ AC_HAVE_LIBRARY(boost_serialization, [], [AC_MSG_FAILURE([boost::serialization i
 AC_CHECK_HEADER([boost/system/api_config.hpp], [], [AC_MSG_FAILURE([boost::system is required])])
 AC_HAVE_LIBRARY(boost_system, [], [AC_MSG_FAILURE([boost::system is required])])
 
-dnl AC_CHECK_LIB([elf], [elf_new], [])
-AC_HAVE_LIBRARY(elf, [], [AC_MSG_FAILURE([libelf is required])])
-dnl AC_CHECK_LIB([dwarf], [dwarf_init], [])
-AC_HAVE_LIBRARY(dwarf, [AC_MSG_FAILURE([libelf is required])])
+AC_CHECK_LIB(elf, [elf_begin], [], [AC_MSG_FAILURE([libelf is required])])
+AC_CHECK_LIB(dwarf, [dwarf_init], [], [AC_MSG_FAILURE([libdwarf is required])])
 AC_CHECK_TYPE(Dwarf_Frame_Op3, HAVE_DWARF_FRAME_OP3=1, HAVE_DWARF_FRAME_OP3=0, [#include "$ac_libdwarf_includes/libdwarf.h"])
 AC_SUBST(HAVE_DWARF_FRAME_OP3)
 
