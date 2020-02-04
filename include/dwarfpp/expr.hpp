@@ -320,13 +320,16 @@ namespace dwarf
 			 * value" (given as arguments to the DW_OP_implicit_pointer operation).
 			 * Therefore we keep a "tos_state" which is initially ADDRESS but which
 			 * can transition to one of the others if those opcodes occur. */
+		public:
 			enum tos_state_t
 			{
 				ADDRESS = 1,
 				VALUE = 2,
 				IMPLICIT_POINTER = 4,
 				TOS_STATE_MAX = 8
-			} tos_state;
+			};
+		private:
+			tos_state_t tos_state;
 			opt<pair< Dwarf_Off, Dwarf_Signed >> implicit_pointer; // whether we saw a DW_OP_stack_value hence have calculated a value not an addr
 			opt<Dwarf_Signed> frame_base;
 			vector<Dwarf_Loc>::iterator i;
