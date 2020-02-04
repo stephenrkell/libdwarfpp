@@ -329,14 +329,14 @@ namespace dwarf
 				TOS_STATE_MAX = 8
 			};
 		private:
-			tos_state_t tos_state;
+			tos_state_t m_tos_state;
 			opt<pair< Dwarf_Off, Dwarf_Signed >> implicit_pointer; // whether we saw a DW_OP_stack_value hence have calculated a value not an addr
 			opt<Dwarf_Signed> frame_base;
 			vector<Dwarf_Loc>::iterator i;
 			void eval();
 		public:
 			evaluator(const vector<unsigned char> expr, 
-				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0), tos_state(ADDRESS)
+				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0), m_tos_state(ADDRESS)
 			{
 				//i = expr.begin();
 				assert(false);
@@ -351,7 +351,7 @@ namespace dwarf
 			evaluator(const vector<Dwarf_Loc>& loc_desc,
 				const ::dwarf::spec::abstract_def& spec,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>())
-				: m_stack(initial_stack), spec(spec), p_regs(0), tos_state(ADDRESS)
+				: m_stack(initial_stack), spec(spec), p_regs(0), m_tos_state(ADDRESS)
 			{
 				expr = loc_desc;
 				i = expr.begin();
@@ -362,7 +362,7 @@ namespace dwarf
 				regs& regs,
 				Dwarf_Signed frame_base,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(&regs), tos_state(ADDRESS)
+				: m_stack(initial_stack), spec(spec), p_regs(&regs), m_tos_state(ADDRESS)
 			{
 				expr = loc_desc;
 				i = expr.begin();
@@ -374,7 +374,7 @@ namespace dwarf
 				const ::dwarf::spec::abstract_def& spec,
 				Dwarf_Signed frame_base,
 				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
-				: m_stack(initial_stack), spec(spec), p_regs(0), tos_state(ADDRESS)
+				: m_stack(initial_stack), spec(spec), p_regs(0), m_tos_state(ADDRESS)
 			{
 				//if (av.get_form() != dwarf::encap::attribute_value::LOCLIST) throw "not a DWARF expression";
 				//if (av.get_loclist().size() != 1) throw "only support singleton loclists for now";
@@ -385,12 +385,13 @@ namespace dwarf
 				eval();
 			}
 			Dwarf_Unsigned tos(unsigned wanted_states) const {
-				if (!(wanted_states & tos_state)) throw No_entry();
-				if (tos_state != IMPLICIT_POINTER) return m_stack.top();
-				assert(tos_state == IMPLICIT_POINTER);
+				if (!(wanted_states & m_tos_state)) throw No_entry();
+				if (m_tos_state != IMPLICIT_POINTER) return m_stack.top();
+				assert(m_tos_state == IMPLICIT_POINTER);
 				return 0;
 			}
-			Dwarf_Unsigned tos() const { return tos(TOS_STATE_MAX-1); }
+			Dwarf_Unsigned tos() const { return tos(TOS_STATE_MAX-1); /* "all states" bitmask */ }
+			tos_state_t tos_state() const { return m_tos_state; }
 			bool finished() const { return i == expr.end(); }
 			Dwarf_Loc current() const { return *i; }
 		};
