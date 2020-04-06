@@ -3179,7 +3179,11 @@ namespace dwarf
 			{
 				auto t = i_memb->get_type();
 				auto opt_byte_size = t->calculate_byte_size();
-				if (!opt_byte_size) return opt<Dwarf_Unsigned>();
+				if (!opt_byte_size)
+				{
+					// keep on a separate line for breakpointability
+					return opt<Dwarf_Unsigned>();
+				}
 			}
 			return default_answer; // just does get_byte_size()
 		}
@@ -3603,7 +3607,8 @@ namespace dwarf
 						{
 							iterator_df<type_die> t = r.find(found_type->second.get_ref().off);
 							auto calculated_byte_size = t->calculate_byte_size();
-							assert(calculated_byte_size);
+							// VLAs won't tell us how big they are
+							if (!calculated_byte_size) goto out;
 							opt_byte_size = *calculated_byte_size; // assign to *another* opt
 						}
 					}
