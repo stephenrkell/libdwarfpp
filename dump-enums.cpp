@@ -14,9 +14,40 @@ extern "C" {
 #include "libdw.h"
 }
 #include <err.h>
-//#include "util.hpp"
 
-/* Use a flowery name to avoid conflicts */
+/* This program works reflectively, so ensure its own debug info
+ * contains the types behind the libdw-defined constants. */
+static auto access __attribute__((used)) = DW_ACCESS_public;
+static auto attribute __attribute__((used)) = DW_AT_sibling;
+static auto encoding __attribute__((used)) = DW_ATE_void;
+static auto calling __attribute__((used)) = DW_CC_normal;
+static auto cfa __attribute__((used)) = DW_CFA_nop;
+static auto children __attribute__((used)) = DW_CHILDREN_no;
+static auto cie_id __attribute__((used)) = DW_CIE_ID_32;
+static auto defaulted __attribute__((used)) = DW_DEFAULTED_no;
+static auto ds __attribute__((used)) = DW_DS_unsigned;
+static auto dsc __attribute__((used)) = DW_DSC_label;
+static auto eh_pe __attribute__((used)) = DW_EH_PE_absptr;
+static auto end __attribute__((used)) = DW_END_default;
+static auto form __attribute__((used)) = DW_FORM_addr;
+static auto id __attribute__((used)) = DW_ID_case_sensitive;
+static auto inl __attribute__((used)) = DW_INL_not_inlined;
+static auto lang __attribute__((used)) = DW_LANG_C89;
+static auto lle __attribute__((used)) = DW_LLE_end_of_list;
+static auto lnct __attribute__((used)) = DW_LNCT_path;
+static auto lne __attribute__((used)) = DW_LNE_end_sequence;
+static auto lns __attribute__((used)) = DW_LNS_copy;
+static auto macinfo __attribute__((used)) = DW_MACINFO_define;
+static auto macro __attribute__((used)) = DW_MACRO_define;
+static auto op __attribute__((used)) = DW_OP_addr;
+static auto ord __attribute__((used)) = DW_ORD_row_major;
+static auto rle __attribute__((used)) = DW_RLE_end_of_list;
+static auto tag __attribute__((used)) = DW_TAG_array_type;
+static auto ut __attribute__((used)) = DW_UT_compile;
+static auto virtuality __attribute__((unused)) = DW_VIRTUALITY_none;
+static auto vis __attribute__((unused)) = DW_VIS_local;
+
+/* Use a verbose name to avoid conflicts with the identifier 'debug' */
 static _Bool do_debug_output;
 #define debug_print(...) do { if (do_debug_output) { fprintf(stderr, __VA_ARGS__); } } while (0)
 
@@ -95,7 +126,7 @@ static void do_visit(Dwarf *debug, Dwarf_Die *pos)
 								assert(0); // shouldn't be of string class
 						}
 						debug_print("Got a value? 0x%lx\n", (long) value);
-						printf("#define %-32s 0x%ld\n", string, (long) value);
+						printf("#define %-32s 0x%lx\n", string, (long) value);
 					}
 				}
 			}
