@@ -21,11 +21,11 @@ dwarfpp_include_HEADERS = include/dwarfpp/dwarf-all.h \
   include/dwarfpp/abstract-inl.hpp \
   include/dwarfpp/iter-inl.hpp \
   include/dwarfpp/dies-inl.hpp \
-  include/dwarfpp/libdwarf-handles.hpp include/dwarfpp/libdwarf.hpp \
+  include/dwarfpp/dwarflib-handles.hpp include/dwarfpp/dwarflib.hpp \
   include/dwarfpp/dwarf-lib.h include/dwarfpp/config.h
 
 lib_LTLIBRARIES = src/libdwarfpp.la
-src_libdwarfpp_la_SOURCES = src/libdwarf.cpp src/libdwarf-handles.cpp src/libdwarf-data.cpp src/expr.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp src/root.cpp src/abstract.cpp src/iter.cpp src/dies.cpp
+src_libdwarfpp_la_SOURCES = src/libdwarf.cpp src/dwarflib-handles.cpp src/dwarflib-data.cpp src/expr.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp src/root.cpp src/abstract.cpp src/iter.cpp src/dies.cpp
 src_libdwarfpp_la_LIBADD = $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lsupc++
 # FIXME: instead of static-linking the archive, consider making libdwarfpp.so a linker script
 #  that adds libdw1.so to the link

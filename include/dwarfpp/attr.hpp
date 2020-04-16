@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "spec.hpp"
-#include "libdwarf.hpp" /* includes libdwarf.h, Error, No_entry, some fwddecls */
+#include "dwarflib.hpp"
 
 #include <boost/optional.hpp>
 #include <srk31/util.hpp> /* for forward_constructors */

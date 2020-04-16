@@ -39,7 +39,7 @@
 #include "expr.hpp"
 
 #include "abstract.hpp"
-#include "libdwarf-handles.hpp" /* we use only libdwarf for backing, for now */
+#include "dwarflib-handles.hpp"
 
 #include "root.hpp"
 #include "iter.hpp"

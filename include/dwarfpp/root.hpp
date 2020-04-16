@@ -22,8 +22,8 @@
 #include "util.hpp"
 #include "spec.hpp"
 #include "abstract.hpp"
-#include "libdwarf.hpp"
-#include "libdwarf-handles.hpp"
+#include "dwarflib.hpp"
+#include "dwarflib-handles.hpp"
 
 namespace dwarf
 {

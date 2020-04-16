@@ -1,14 +1,14 @@
 /* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
  * 
- * libdwarf-handles.hpp: basic C++ wrapping of libdwarf C API (info section).
+ * dwarflib-handles.hpp: basic C++ wrapping of libdwarf/libdw C API (info section).
  *
- * Copyright (c) 2008--17, Stephen Kell.
+ * Copyright (c) 2008--20, Stephen Kell.
  */
 
 #ifndef DWARFPP_PRIVATE_LIBDWARF_HANDLES_HPP_
 #define DWARFPP_PRIVATE_LIBDWARF_HANDLES_HPP_
 
-#include "dwarfpp/libdwarf.hpp"
+#include "dwarfpp/dwarflib.hpp"
 #include "dwarfpp/abstract.hpp"
 
 #include <iostream>

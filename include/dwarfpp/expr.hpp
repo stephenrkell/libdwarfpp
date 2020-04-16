@@ -14,8 +14,8 @@
 #include <boost/icl/interval_map.hpp>
 #include <strings.h> // for bzero
 #include "spec.hpp"
-#include "libdwarf.hpp"
-#include "libdwarf-handles.hpp"
+#include "dwarflib.hpp"
+#include "dwarflib-handles.hpp"
 #include "abstract.hpp"
 #include "opt.hpp"
 

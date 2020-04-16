@@ -1,18 +1,14 @@
 /* dwarfpp: C++ binding for a useful subset of libdwarf, plus extra goodies.
  * 
- * libdwarf-handles.cpp: short libdwarf-specific handle methods
+ * dwarflib-handles.cpp: short libdwarf/libdw-specific handle methods
  *
  * Copyright (c) 2008--17, Stephen Kell. For licensing information, see the
  * LICENSE file in the root of the libdwarfpp tree.
  */
-// remember the goal here: to allow easy rebasing of the library
-// (with a bit of #ifdef'ing)
-// ... onto DWARF libraries that aren't libdwarf.
-// ... consider libdw1, LLVM stuff, etc..
 
 #include "dwarfpp/abstract.hpp"
 #include "dwarfpp/abstract-inl.hpp"
-#include "dwarfpp/libdwarf-handles.hpp"
+#include "dwarfpp/dwarflib-handles.hpp"
 #include "dwarfpp/root.hpp"
 #include "dwarfpp/root-inl.hpp"
 #include "dwarfpp/iter.hpp"

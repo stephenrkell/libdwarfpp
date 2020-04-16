@@ -14,7 +14,7 @@
 #include "opt.hpp"
 #include "attr.hpp"
 
-#include "libdwarf.hpp"
+#include "dwarflib.hpp"
 
 namespace dwarf
 {
