@@ -11,6 +11,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <libdwarf.hpp>
 
 namespace dwarf
 {
@@ -25,6 +26,19 @@ namespace dwarf
 		}
 		#define debug_expensive(lvl, args...) \
 			((debug_level >= (lvl)) ? (debug(lvl) args) : (debug(lvl)))
+	}
+	namespace util
+	{
+		Dwarf_Unsigned read_uleb128(unsigned char const **cur, unsigned char const *limit);
+		Dwarf_Signed read_sleb128(unsigned char const **cur, unsigned char const *limit);
+		uint64_t read_8byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint32_t read_4byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint16_t read_2byte_le(unsigned char const **cur, unsigned char const *limit);
+		uint64_t read_8byte_be(unsigned char const **cur, unsigned char const *limit);
+		uint32_t read_4byte_be(unsigned char const **cur, unsigned char const *limit);
+		uint16_t read_2byte_be(unsigned char const **cur, unsigned char const *limit);
+		Dwarf_Addr read_addr(int addrlen, unsigned char const **cur, unsigned char const *limit,
+			bool use_host_byte_order);
 	}
 }
 
