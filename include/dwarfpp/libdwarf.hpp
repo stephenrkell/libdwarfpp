@@ -15,9 +15,13 @@ namespace dwarf
 			// HACK: libdwarf.h declares struct Elf opaquely, and we don't
 			// want it in the dwarf::lib namespace, so preprocess this.
 			// FIXME: this should be #ifdef'd to affect only DA's libdwarf
+#if 0
 			#define Elf Elf_opaque_in_libdwarf
+#endif
 			#include "dwarf-lib.h"
+#if 0
 			#undef Elf
+#endif
 		}
 		// forward decls
 		struct loclist;
