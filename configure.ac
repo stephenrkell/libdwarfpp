@@ -21,51 +21,51 @@ AC_CHECK_HEADERS([algorithm cassert cstdlib elf.h functional iostream iterator l
 
 AC_CHECK_HEADERS([elf.h libelf.h], [], [AC_MSG_FAILURE([required headers: elf.h libelf.h])])
 
-#AC_CHECK_HEADERS([dwarf.h libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h])])
-dnl Ways we can get libdwarf includes and libs:
+dnl Ways we can get elfutils includes and libs:
 dnl (1) from system directories
-dnl (2) from arguments to ./configure, setting ac_libdwarf_includes etc.
-dnl (3) from the environment variable LIBDWARF_LIBS, set e.g. in contrib/env.sh
+dnl (2) from arguments to ./configure, setting ac_elfutils_includes etc.
+dnl (3) from the environment variable ELFUTILS_LIBS, set e.g. in contrib/env.sh
 dnl (4) from guesswork here.
 dnl How does option 3 work? Currently it seems not to.
-dnl Let's try using the env vars to initialize ac_libdwarf_{includes,libs}.
+dnl Let's try using the env vars to initialize ac_elfutils_{includes,libs}.
 dnl PROBLEM: those are pathnames, but what we get are compiler flags.
-dnl PROBLEM: we need the exact path to dwarf.h because it's a prerequisite
+dnl PROBLEM: we need the exact path to known-dwarf.h because it's a prerequisite
 dnl of our makefiles. So we can't just rely on the compiler picking it up
 dnl from standard header directories -- we need to find its location here.
+dnl (NOTE: it isn't a prereq any more. But I'm keeping this recipe for now.)
 dnl PROBLEM: use our contrib only if the user opted in (by . contrib/env.sh)
-dnl SOLUTION: get rid of LIBDWARF_{LIBS,CFLAGS}.
-dnl SOLUTION: use LIBDWARF_INCLUDE_DIR and LIBDWARF_LIB_DIR
-AC_ARG_WITH([libdwarf-includes],
-            [AS_HELP_STRING([--with-libdwarf-includes=DIR],
-              [where to find libdwarf headers])],
+dnl SOLUTION: get rid of ELFUTILS_{LIBS,CFLAGS}.
+dnl SOLUTION: use ELFUTILS_INCLUDE_DIR and ELFUTILS_LIB_DIR
+AC_ARG_WITH([elfutils-includes],
+            [AS_HELP_STRING([--with-elfutils-includes=DIR],
+              [where to find elfutils headers])],
             [
                 if test -d "$withval"
                 then
-                        ac_libdwarf_includes="$withval"
+                        ac_elfutils_includes="$withval"
                 else
-                        AC_MSG_ERROR(--with-libdwarf-includes expected directory name)
+                        AC_MSG_ERROR(--with-elfutils-includes expected directory name)
                 fi
             ],
-            [ac_libdwarf_includes=${LIBDWARF_INCLUDE_DIR:-/usr/include}])
-AC_ARG_WITH([libdwarf-libs],
-            [AS_HELP_STRING([--with-libdwarf-libs=DIR],
-              [linker options for including libdwarf.a in the link])],
+            [ac_elfutils_includes=${ELFUTILS_INCLUDE_DIR:-/usr/include}])
+AC_ARG_WITH([elfutils-libs],
+            [AS_HELP_STRING([--with-elfutils-libs=DIR],
+              [linker options for including libdw in the link])],
             [
                 if test -n "$withval"
                 then
-                        ac_libdwarf_libs="$withval"
+                        ac_elfutils_libs="$withval"
                 else
-                        AC_MSG_ERROR(--with-libdwarf-libs expected linker options argument)
+                        AC_MSG_ERROR(--with-elfutils-libs expected linker options argument)
                 fi
             ],
-            [ac_libdwarf_libs="${LIBDWARF_LIB_DIR:+-L${LIBDWARF_LIB_DIR}} -ldwarf"])
+            [ac_elfutils_libs="${ELFUTILS_LIB_DIR:+-L${ELFUTILS_LIB_DIR}} -ldw"])
 
-# we check for dwarf.h mainly to ensure we got a single directory as $ac_libdwarf_includes,
+# we check for dwarf.h mainly to ensure we got a single directory as $ac_elfutils_includes,
 # otherwise strange things happen when multiple filenames get subst'd into makefile commands....
-AC_CHECK_HEADERS([${ac_libdwarf_includes}/dwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h (looked in $ac_libdwarf_includes)])])
-AC_SUBST([libdwarf_libs], [$ac_libdwarf_libs])
-AC_SUBST([libdwarf_includes], [$ac_libdwarf_includes])
+AC_CHECK_HEADERS([${ac_elfutils_includes}/known-dwarf.h], [], [AC_MSG_FAILURE([required headers: known-dwarf.h (looked in $ac_elfutils_includes)])])
+AC_SUBST([elfutils_libs], [$ac_elfutils_libs])
+AC_SUBST([elfutils_includes], [$ac_elfutils_includes])
 AX_BOOST_BASE
 
 AC_CHECK_HEADER([boost/iostreams/filtering_stream.hpp], [], [AC_MSG_FAILURE([boost::iostreams is required])])
@@ -78,10 +78,13 @@ AC_CHECK_HEADER([boost/system/api_config.hpp], [], [AC_MSG_FAILURE([boost::syste
 AC_HAVE_LIBRARY(boost_system, [], [AC_MSG_FAILURE([boost::system is required])])
 
 AC_CHECK_LIB(elf, [elf_begin], [], [AC_MSG_FAILURE([libelf is required])])
-AC_CHECK_TYPE(Dwarf_Frame_Op3, HAVE_DWARF_FRAME_OP3=1, HAVE_DWARF_FRAME_OP3=0, [#include "$ac_libdwarf_includes/libdwarf.h"])
+dnl AC_CHECK_TYPE(Dwarf_Frame_Op3, HAVE_DWARF_FRAME_OP3=1, HAVE_DWARF_FRAME_OP3=0, [#include "$ac_libdwarf_includes/libdwarf.h"])
+HAVE_DWARF_FRAME_OP3=0
 AC_SUBST(HAVE_DWARF_FRAME_OP3)
 
 AC_LANG_PUSH([C])
+dnl HACK: now I seem to have two copies of "-lelf" in LIBS, but if I omit this it doesn't work...
+LIBS="${LIBS:+${LIBS} }-lelf"
 AX_CHECK_FUNC_IN([gelf.h], gelf_offscn, HAVE_GELF_OFFSCN=1, HAVE_GELF_OFFSCN=0)
 AC_LANG_POP
 AC_SUBST(HAVE_GELF_OFFSCN)

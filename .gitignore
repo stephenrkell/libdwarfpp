@@ -43,6 +43,7 @@ include/dwarfpp/dwarf-ext-GNU.h
 include/dwarfpp/dwarf-lib.h
 include/dwarfpp/dwarf-onlystd-v2.h
 include/dwarfpp/dwarf-onlystd.h
+include/dwarfpp/dwarf-all.h
 
 # built library symlinks
 /lib/

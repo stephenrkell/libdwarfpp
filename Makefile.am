@@ -1,12 +1,13 @@
 ACLOCAL_AMFLAGS = -I m4
-AM_CXXFLAGS = -fno-omit-frame-pointer -std=c++1y -ggdb3 -fvar-tracking-assignments -O2 -fkeep-inline-functions -Wall -Wno-deprecated-declarations -Iinclude -Iinclude/dwarfpp $(LIBSRK31CXX_CFLAGS) $(LIBCXXFILENO_CFLAGS)
+AM_CXXFLAGS = -fno-omit-frame-pointer -std=c++1y -ggdb3 -fvar-tracking-assignments -O2 -fkeep-inline-functions -Wall -Wno-deprecated-declarations -I$(elfutils_includes) -Iinclude -Iinclude/dwarfpp $(LIBSRK31CXX_CFLAGS) $(LIBCXXFILENO_CFLAGS)
 
 extra_DIST = libdwarfpp.pc.in
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libdwarfpp.pc
 
 dwarfpp_includedir = $(includedir)/dwarfpp
-dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.hpp \
+dwarfpp_include_HEADERS = include/dwarfpp/dwarf-all.h \
+  include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.hpp \
   include/dwarfpp/attr.hpp include/dwarfpp/dwarf-onlystd-v2.h include/dwarfpp/lib.hpp \
   include/dwarfpp/opt.hpp include/dwarfpp/dwarf-current-adt.h include/dwarfpp/regs.hpp \
   include/dwarfpp/dwarf-current-factory.h include/dwarfpp/dwarf-ext-GNU.h \
@@ -26,10 +27,12 @@ dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.
 lib_LTLIBRARIES = src/libdwarfpp.la
 src_libdwarfpp_la_SOURCES = src/libdwarf.cpp src/libdwarf-handles.cpp src/libdwarf-data.cpp src/expr.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp src/root.cpp src/abstract.cpp src/iter.cpp src/dies.cpp
 src_libdwarfpp_la_LIBADD = $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lsupc++
-src_libdwarfpp_la_LDFLAGS = -Wl,--whole-archive $(libdwarf_libs) -Wl,--no-whole-archive
+# FIXME: instead of static-linking the archive, consider making libdwarfpp.so a linker script
+#  that adds libdw1.so to the link
+src_libdwarfpp_la_LDFLAGS = -Wl,--whole-archive $(elfutils_libs) -Wl,--no-whole-archive
 
 INC_PP = include/dwarfpp
-BUILT_SOURCES = $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)/dwarf-ext-GNU.h $(INC_PP)/dwarf-current-adt.h $(INC_PP)/dwarf-current-factory.h $(INC_PP)/dwarf-lib.h
+BUILT_SOURCES = $(INC_PP)/dwarf-all.h $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)/dwarf-ext-GNU.h $(INC_PP)/dwarf-current-adt.h $(INC_PP)/dwarf-current-factory.h $(INC_PP)/dwarf-lib.h
 CLEANFILES = $(BUILT_SOURCES)
 
 examplesdir = examples
@@ -59,15 +62,25 @@ examples_eh_frame_hdr_SOURCES = examples/eh-frame-hdr.cpp
 examples_eh_frame_hdr_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_eh_frame_hdr_LDADD = $(EXAMPLE_LDADD_INS)
 
+noinst_PROGRAMS = dump-enums
+dump_enums_SOURCES = dump-enums.cpp
+dump_enums_LDADD = $(elfutils_libs)
+
+# FIXME: add -g -fno-eliminate-unused-debug-types
+# (I've a feeling we need to define a whole new makerule,
+# rather than being able to add to the flags specifically.)
+include/dwarfpp/dwarf-all.h: dump-enums
+	./$< > $@ || (rm -f $@; false)
+
 # launder the exit code of grep through "cat"
-include/dwarfpp/dwarf-onlystd.h: $(libdwarf_includes)/dwarf.h
+include/dwarfpp/dwarf-onlystd.h: include/dwarfpp/dwarf-all.h
 	cat "$<" | egrep -v 'DW_[A-Z]+_(GNU|SUN|HP|APPLE|INTEL|ARM|upc|PGI|ALTIUM|MIPS|CPQ|VMS|GNAT)' | \
 		egrep -v '/\* (SGI|GNU)( \*/|\. )' | egrep -v 'LANG_Mips|LANG_Upc' | egrep -v '_use_GNAT' | egrep -v 'ATCF entries start at|DW_LANG_UPC instead.' | cat > "$@"
 
 include/dwarfpp/dwarf-onlystd-v2.h: include/dwarfpp/dwarf-onlystd.h
 	cat "$<" | grep -v 'DWARF[^2]' | cat > "$@"
 
-include/dwarfpp/dwarf-ext-GNU.h: $(libdwarf_includes)/dwarf.h
+include/dwarfpp/dwarf-ext-GNU.h: include/dwarfpp/dwarf-all.h
 	cat "$<" | egrep '(_|/\* |, )GNU' | egrep -vi conflict | egrep -vi '^[[:blank:]]*/\*' | cat > "$@"
 
 include/dwarfpp/dwarf-current-adt.h: spec/gen-adt-cpp.py spec/dwarf_current.py
@@ -77,8 +90,8 @@ include/dwarfpp/dwarf-current-factory.h: spec/gen-factory-cpp.py spec/dwarf_curr
 	python2 spec/gen-factory-cpp.py > "$@"
 
 # to avoid propagating libdwarf CFLAGS into all clients, symlink the libdwarf.h we use
-# FIXME: support libdw1 as an alternative
-include/dwarfpp/dwarf-lib.h: $(libdwarf_includes)/libdwarf.h
+# FIXME: simultaneous support for both libdwarf and elfutils? Need configure-time magic....
+include/dwarfpp/dwarf-lib.h: $(elfutils_includes)/libdw.h
 	(cd $(dir $@) && ln -s "$(realpath $<)" "$(notdir $@)" )
 
 lib/libdwarfpp.so: $(lib_LTLIBRARIES)
