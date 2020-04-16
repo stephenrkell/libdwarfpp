@@ -109,6 +109,7 @@ tests/visible-named/visible-named
 *.exe
 *.out
 *.app
+dump-enums
 
 # Backup files
 *~
