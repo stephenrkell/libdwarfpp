@@ -9,6 +9,7 @@ default: env.sh config.mk config.site \
 build-libsrk31c++ build-libc++fileno build-libdwarf
 
 .PHONY: clean default
+include config.mk
 
 # ----------------------------other libs that are autotools'd
 # ----------------------------libc++fileno
@@ -86,13 +87,26 @@ LIBSRK31CXX_CXXFLAGS LIBSRK31CXX_LIBS \
 LIBDWARF_INCLUDE_DIR LIBDWARF_LIB_DIR \
 CONFIG_SITE
 
-CONFIG_MK += \n\nenv.sh:\n\tprintf '"'"'$(foreach var,$(varlist),export $(var)="$$($(var))"; )'"'"' >"$$@" || (rm -f "$$@"; false)
-
-config.mk:
-	printf '$(CONFIG_MK)' > "$@" || (rm -f "$@"; false)
-
-env.sh: config.mk
-	$(MAKE) -f "$<" "$@"
-
+# ----------------------------config.mk
+# If the user nukes a sub-config.mk that our config.mk depends on,
+# we'd like to be able to rebuild it. So we include a generic rule
+# for rebuilding config.mks.
+config.mk: $(subconfigs)
+	(printf '%%/config.mk:\n\t$$(MAKE) -C $$* config.mk\n\n'; \
+	printf "$(foreach cfg,$(subconfigs),\ninclude $(CONTRIB)/$(cfg))"; \
+	printf '$(CONFIG_MK)'; echo) > "$@" || (rm -f "$@"; false)
+# env.sh exports some vars
+env.sh $(CONTRIB)/env.sh: $(foreach cfg,$(subconfigs),$(dir $(CONTRIB)/$(cfg))env.sh)
+	(printf "$(foreach cfg,$(subconfigs),\n. $$(dirname $(CONTRIB)/$(cfg))/env.sh)"; \
+	printf '$(foreach var,$(varlist),\nexport $(var)="$($(var))")'; echo )>"$@" || (rm -f "$@"; false)
+# Similarly when we make an env.sh, have Make ensure existence of
+# its depended-on env.sh too, so that we don't get 'source'-time
+# failures of sub-env.sh.
+$(foreach cfg,$(subconfigs),$(dir $(CONTRIB)/$(cfg))env.sh): %/env.sh:
+	$(MAKE) -C $* env.sh
 clean::
-	rm -f config.mk env.sh config.site
+	rm -f config.mk env.sh
+
+# ----------------------------config.site
+clean::
+	rm -f config.site

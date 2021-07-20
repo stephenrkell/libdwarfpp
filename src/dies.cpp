@@ -265,7 +265,9 @@ namespace dwarf
 		std::ostream& array_type_die::print_abstract_name(std::ostream& s) const
 		{
 			opt<Dwarf_Unsigned> element_count = find_self().as_a<array_type_die>()->element_count();
-			s << "__ARR" << (element_count ? *element_count : 0) << "_";
+			s << "__ARR";
+			if (element_count) s << *element_count;
+			s << "_";
 			return print_type_abstract_name(s, get_type());
 		}
 		std::ostream& subrange_type_die::print_abstract_name(std::ostream& s) const
@@ -3159,11 +3161,31 @@ namespace dwarf
 /* from spec::structure_type_die */
 		opt<Dwarf_Unsigned> structure_type_die::calculate_byte_size() const
 		{
-			// HACK: for now, do nothing
-			// We should make this more reliable,
-			// but it's difficult because overall size of a struct is
-			// language- and implementation-dependent.
-			return this->type_die::calculate_byte_size();
+			/* The overall size of a struct is language- and implementation-dependent.
+			 * Even if the DWARF tells us a size, it may not be accurate according to
+			 * the rules of the language. For example, GNU C or C99 variable-length arrays
+			 * tend to come out with a specific size in DWARF, even though it's wrong.
+			 * We need to special-case this, and recursively: if our last member does
+			 * not have a definite size, then we ignore whatever size we have.
+			 * This needs to be recursive, to handle the case where the last member is
+			 * a struct. PROBLEM: what about other languages that might allow data-
+			 * dependent array lengths in the middle of a structure? We should probably
+			 * check all members.
+			 */
+			auto default_answer = this->type_die::calculate_byte_size();
+			auto members = this->children().subseq_of<member_die>();
+			// FIXME: guard on language? check only last member for C?
+			for (auto i_memb = members.first; i_memb != members.second; ++i_memb)
+			{
+				auto t = i_memb->get_type();
+				auto opt_byte_size = t->calculate_byte_size();
+				if (!opt_byte_size)
+				{
+					// keep on a separate line for breakpointability
+					return opt<Dwarf_Unsigned>();
+				}
+			}
+			return default_answer; // just does get_byte_size()
 		}
 /* from spec::with_data_members_die */
 		bool with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
@@ -3585,7 +3607,8 @@ namespace dwarf
 						{
 							iterator_df<type_die> t = r.find(found_type->second.get_ref().off);
 							auto calculated_byte_size = t->calculate_byte_size();
-							assert(calculated_byte_size);
+							// VLAs won't tell us how big they are
+							if (!calculated_byte_size) goto out;
 							opt_byte_size = *calculated_byte_size; // assign to *another* opt
 						}
 					}
@@ -4344,6 +4367,48 @@ namespace dwarf
 							|| t.as_a<base_type_die>()->get_encoding() == DW_ATE_unsigned_char));
 				default:
 					return opt<Dwarf_Unsigned>();
+			}
+		}
+
+		unsigned compile_unit_die::alignment_of_type(iterator_df<type_die> t) const
+		{
+			/* The alignment is actually something the compiler should
+			 * document for us, but doesn't. It is largely a function of
+			 * the language and ABI pair. So we should really do a
+			 * switch on this pair. For now, a gross approximation:
+			 * it's MAX(size, word-size). FIXME: this is just wrong. */
+			switch (get_language())
+			{
+				default:
+				// case DW_LANG_C:
+				// case DW_LANG_C89:
+				// case DW_LANG_C_plus_plus:
+				// case DW_LANG_C99:
+					/* Our default behaviour is true of C-family languages.
+					 * PROBLEM: this is impl-defined but the DWARF does not
+					 * describe it explicitly. */
+// 					if (t.is_a<qualified_type_die>())
+// 					{
+// 						// C11 6.2.5 pt 27
+// 						return alignment_of_type(t.as_a<qualified_type_die>()->find_type());
+// 						// FIXME: not true of atomics
+// 					}
+// 					if (t.is_a<with_data_members_die>())
+// 					{
+// 						// look for the biggest alignment of any member
+// 						
+// 					}
+					{
+						auto maybe_array_element_type = t.is_a<array_type_die>() ?
+						    t.as_a<array_type_die>()->ultimate_element_type()
+						    : opt<iterator_df<type_die>>();
+						auto maybe_byte_size =
+						    (maybe_array_element_type ? maybe_array_element_type : t)
+							->calculate_byte_size();
+						if (!maybe_byte_size) return 1; // FIXME: better error report
+						return std::max<unsigned>(get_address_size(),
+							std::min<Dwarf_Unsigned>(1, *maybe_byte_size));
+					}
 			}
 		}
 

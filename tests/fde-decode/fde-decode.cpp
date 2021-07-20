@@ -102,6 +102,17 @@ void print_in_readelf_style(std::ostream& s, const Cie& cie)
 		<< "\"" << cie.get_augmenter() << "\" cf=" << cie.get_code_alignment_factor()
 		<< " df=" << cie.get_data_alignment_factor()
 		<< " ra=" << cie.get_return_address_register_rule() << endl;
+
+	/* If the CIE insrtuctions are empty or consist only of nops, print nothing (like readelf). */
+	bool saw_non_nop_byte = false;
+	for (unsigned char* i_instr = reinterpret_cast<unsigned char *>(cie.get_initial_instructions());
+		i_instr != reinterpret_cast<unsigned char *>(cie.get_initial_instructions())
+			+ cie.get_initial_instructions_length();
+		++i_instr)
+	{
+		if (*i_instr != DW_CFA_nop) { saw_non_nop_byte = true; break; }
+	}
+	if (!saw_non_nop_byte) return;
 	
 	/* Now we need to print the "initial instructions" in decoded form. */
 	auto result = cie.get_owner().interpret_instructions(
@@ -172,9 +183,10 @@ void print_in_readelf_style(std::ostream& s, const FrameSection::instrs_results&
 	// print the column headers
 	visitor_function column_header_visitor = [all_columns, ra_rule_number, &s]
 		(int col, optional< pair<int, FrameSection::register_def> > unused) -> void {
-		if (col == DW_FRAME_CFA_COL3) s << "CFA    ";
-		else if (col == ra_rule_number) s << setw(0) << "  ra    ";
-		else s << setw(5) << dwarf_regnames_for_elf_machine(elf_machine)[col] << ' ';
+		if (col == DW_FRAME_CFA_COL3) s << setfill(' ') << setw(9) << std::left << "CFA";
+		else if (col == ra_rule_number) s << setw(0) << "ra    ";
+		else s << setfill(' ') << setw(5) << std::left << dwarf_regnames_for_elf_machine(elf_machine)[col] << ' ';
+		s << std::right;
 	};
 	
 	visit_columns(column_header_visitor, /* nullptr */ optional<const set<pair<int, FrameSection::register_def> > &>());
@@ -182,8 +194,8 @@ void print_in_readelf_style(std::ostream& s, const FrameSection::instrs_results&
 	
 	visitor_function print_row_column_visitor = [all_columns, ra_rule_number, &s]
 		(int col, optional< pair<int, FrameSection::register_def> > found_col)  -> void {
-		
-		s << setfill(' ') << setw(col == DW_FRAME_CFA_COL3 ? 8 : col == ra_rule_number ? 6 : 5);
+		unsigned w = (col == DW_FRAME_CFA_COL3) ? 8 : 6;
+		s << setfill(' ') << setw(w);
 		if (!found_col) s << std::left << "u" << std::right;
 		else
 		{
@@ -201,9 +213,10 @@ void print_in_readelf_style(std::ostream& s, const FrameSection::instrs_results&
 					if (regnum == DW_FRAME_CFA_COL3) regname = "X"; // should not happen? 
 						// DON'T confuse this case with 'c', which means SAVED_AT_OFFSET_FROM_CFA
 					else regname = dwarf_regnames_for_elf_machine(elf_machine)[regnum];
-					exprs << regname << std::showpos << std::dec << setw(0) << (int) found_col->second.register_plus_offset_r().second;
-					
-					s << std::left << exprs.str() << std::right;
+					int offset = (int) found_col->second.register_plus_offset_r().second;
+					if (offset == 0 && col != DW_FRAME_CFA_COL3) exprs << "r" << regnum << " (" << regname << ") ";
+					else exprs << regname << std::showpos << std::dec << setw(0) << offset;
+					s << setfill(' ') << setw(w) << std::left << exprs.str() << std::right;
 				} break;
 
 				case FrameSection::register_def::SAVED_AT_OFFSET_FROM_CFA: {
@@ -222,7 +235,7 @@ void print_in_readelf_style(std::ostream& s, const FrameSection::instrs_results&
 			}
 		}
 		
-		if (col != ra_rule_number) s << ' ';
+		if (col == DW_FRAME_CFA_COL3) s << ' ';
 	};
 	
 	// print the row contents
@@ -264,9 +277,6 @@ void print_in_readelf_style(std::ostream& s, const encap::loc_expr& expr)
 }
 void print_in_readelf_style(std::ostream& s, const Fde& fde)
 {
-	// auto decoded = decode_fde(dbg, fde);
-	// don't decode -- that's for -wF
-
 	// first line is section-offset, length-not-including-length-field, id, "FDE"
 	s.width(8);
 	s.fill('0');
@@ -282,8 +292,18 @@ void print_in_readelf_style(std::ostream& s, const Fde& fde)
 		<< ".." 
 		<< setw(16) << setfill('0') << std::hex << (fde.get_low_pc() + fde.get_func_length())
 		<< endl;
-		
-	/* Now we need to print the "initial instructions" in decoded form. */
+
+	/* If the FDE is empty or consists only of nops, print nothing (like readelf). */
+	bool saw_non_nop_byte = false;
+	pair<unsigned char *, unsigned char *> instr_bytes_seq = fde.instr_bytes_seq();
+	for (unsigned char* i_instr = instr_bytes_seq.first;
+		i_instr != instr_bytes_seq.second;
+		++i_instr)
+	{
+		if (*i_instr != DW_CFA_nop) { saw_non_nop_byte = true; break; }
+	}
+	if (!saw_non_nop_byte) return;
+	/* Now we need to print the instructions in decoded form. */
 	auto result = fde.decode();
 	result.add_unfinished_row(fde.get_low_pc() + fde.get_func_length());
 

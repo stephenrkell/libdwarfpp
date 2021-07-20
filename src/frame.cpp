@@ -38,6 +38,33 @@ using boost::icl::interval;
 using srk31::host_is_little_endian;
 using srk31::host_is_big_endian;
 
+#if ! HAVE_GELF_OFFSCN
+extern "C" {
+static Elf_Scn *gelf_offscn(Elf *e, size_t offset)
+{
+	GElf_Ehdr ehdr;
+	bzero(&ehdr, sizeof ehdr);
+	GElf_Ehdr *ret = gelf_getehdr(e, &ehdr);
+	assert(ret);
+	for (unsigned n = 1; n < ehdr.e_shnum; ++n)
+	{
+		Elf_Scn *scn = elf_getscn(e, n);
+		GElf_Shdr shdr;
+		bzero(&shdr, sizeof shdr);
+		GElf_Shdr *ret = gelf_getshdr(scn, &shdr);
+		assert(ret);
+		if (shdr.sh_offset <= offset &&
+			shdr.sh_offset + shdr.sh_size > offset &&
+			shdr.sh_size > 0)
+		{
+			return scn;
+		}
+	}
+	return NULL;
+}
+}
+#endif /* ! HAVE_GELF_OFFSCN */
+
 static bool debug;
 static void init() __attribute__((constructor));
 static void init()
@@ -68,7 +95,7 @@ namespace dwarf
 		
 		const int FAKE_CFA_REGISTER = DW_FRAME_CFA_COL3;
 	}
-	/* libdwarf-tainted stuff continues.... */
+	/* end of libdwarf-specific stuff I think */
 	namespace encap
 	{
 		std::ostream& operator<<(std::ostream& s, const frame_instr& arg) 
@@ -104,7 +131,7 @@ namespace dwarf
 
 			while (pos < limit)
 			{
-				Dwarf_Frame_Op3 decoded = { 0, 0, 0, 0, 0, 0 };
+				frame_op decoded = { 0, 0, 0, 0, 0, 0 };
 				/* See DWARF4 page 181 for the summary of opcode encoding and arguments. 
 				 * This macro masks out any argument part of the basic opcodes. */
 #define opcode_from_byte(b) (((b) & 0xc0) ? (b) & 0xc0 : (b))
@@ -167,13 +194,13 @@ namespace dwarf
 						break;
 						
 					case DW_CFA_offset_extended: goto uleb128_register_and_factored_offset;
-					case DW_CFA_register: goto uleb128_register_and_factored_offset;
-					uleb128_register_and_factored_offset:// FIXME: second register goes where? I've put it in fp_offset_or_block_len
+					uleb128_register_and_factored_offset:
 						decoded.fp_register = read_uleb128(&pos, limit);
 						decoded.fp_offset_or_block_len = cie.get_data_alignment_factor() * read_uleb128(&pos, limit);
 						break;
 					
 					case DW_CFA_def_cfa: goto uleb128_register_and_offset;
+					case DW_CFA_register: goto uleb128_register_and_offset;
 					uleb128_register_and_offset:// FIXME: second register goes where? I've put it in fp_offset_or_block_len
 						decoded.fp_register = read_uleb128(&pos, limit);
 						decoded.fp_offset_or_block_len = read_uleb128(&pos, limit);
@@ -245,8 +272,6 @@ namespace dwarf
 #undef opcode_from_byte
 			} // end while
 		}
-		/* end of libdwarf-specific stuff I think */
-		
 		std::ostream& operator<<(std::ostream& s, const frame_instrlist& arg)
 		{
 			s << "[";
@@ -265,40 +290,27 @@ namespace dwarf
 			do 
 			{
 				assert(*cur < limit);
-				
+				// the bit offset is 7 * the number of bytes we've already read
 				int n7bits = *cur - start;
 				// add in the low-order 7 bits
 				working |= ((**cur) & ~0x80) << (7 * n7bits);
 				
 			} while (*(*cur)++ & 0x80);
-			
+			unsigned nbits_read = 7 * (*cur - start);
+			assert(nbits_read < 8 * sizeof (Dwarf_Unsigned));
 			return working;
 		}
 		Dwarf_Signed read_sleb128(unsigned char const **cur, unsigned char const *limit)
 		{
-			Dwarf_Signed working = 0;
 			unsigned char const *start = *cur;
-			unsigned char byte_read = 0;
-			do 
-			{
-				assert(*cur < limit);
-				
-				int n7bits = *cur - start;
-				// add in the low-order 7 bits
-				byte_read = **cur;
-				working |= (byte_read & ~0x80) << (7 * n7bits);
-				
-			} while (*(*cur)++ & 0x80);
-			
-			// sign-extend the result
+			Dwarf_Unsigned working = read_uleb128(cur, limit);
+			// sign-extend the result...
 			unsigned nbits_read = 7 * (*cur - start);
-			if (nbits_read < 8 * sizeof (Dwarf_Signed) 
-				&& byte_read >= 0x80)
-			{
-				working |= -(1 << nbits_read);
-			}
-			
-			return working;
+			unsigned top_bits = 8 * (sizeof (Dwarf_Signed)) - nbits_read;
+			// ... by shifting up so that we have a 1 in the top position...
+			Dwarf_Signed scaled_up = (Dwarf_Signed) (working << top_bits);
+			// ... then shifting back down, now as a *signed* number
+			return scaled_up >> top_bits;
 		}
 		uint64_t read_8byte_le(unsigned char const **cur, unsigned char const *limit)
 		{
@@ -425,9 +437,10 @@ namespace dwarf
 					case 'P': { // personality encoding
 						int personality_encoding = *i_byte++;
 						// skip over the personality pointer too
-						i_byte += Cie::encoding_nbytes(personality_encoding, 
+						i_byte += get_owner().encoding_nbytes(personality_encoding,
 							reinterpret_cast<unsigned char const *>(&*i_byte), 
-							reinterpret_cast<unsigned char const *>(&*augbytes.end()));
+							reinterpret_cast<unsigned char const *>(&*augbytes.end()),
+							get_address_size());
 					} break;
 					default:
 						assert(false);
@@ -440,21 +453,20 @@ namespace dwarf
 		int Cie::get_fde_encoding() const
 		{
 			auto found = find_augmentation_element('R');
-			assert(found != get_augmentation_bytes().end());
-			
-			return *found;
+			if (found != get_augmentation_bytes().end()) return *found;
+			else return DW_EH_PE_absptr; // is this the default?
 		}
-		
+		unsigned char FrameSection::get_address_size(unsigned version /* = 1 */) const
+		{
+			assert(version == 1 || version == 3);
+			// we have to guess it's an ELF file
+			auto e_machine = get_elf_machine();
+			return (e_machine == EM_X86_64) ? 8 : (e_machine == EM_386) ? 4 : (assert(false), 4);
+		}
 		unsigned char Cie::get_address_size() const
 		{
 			if (address_size_in_dwarf > 0) return address_size_in_dwarf;
-			else 
-			{
-				assert(version == 1 || version == 3);
-				// we have to guess it's an ELF file
-				auto e_machine = owner.get_elf_machine();
-				return (e_machine == EM_X86_64) ? 8 : (e_machine == EM_386) ? 4 : (assert(false), 4);
-			}
+			return get_owner().get_address_size(version);
 		}
 		unsigned char Cie::get_segment_size() const
 		{
@@ -518,17 +530,21 @@ namespace dwarf
 			assert(augbytes.size() == expected_data_length);
 		}
 		
-		unsigned Cie::encoding_nbytes(unsigned char encoding, unsigned char const *bytes, unsigned char const *limit) const
+		unsigned
+		FrameSection::encoding_nbytes(unsigned char encoding, unsigned char const *bytes,
+			unsigned char const *limit, unsigned address_size) const
 		{
 			if (encoding == 0xff) return 0; // skip
 			
 			unsigned char const *tmp_bytes = bytes;
-			/*Dwarf_Unsigned ret = */ read_with_encoding(encoding, &tmp_bytes, limit, true); // FIXME: use target byte-order, not host
+			/*Dwarf_Unsigned ret = */ read_with_encoding(encoding, &tmp_bytes, limit, address_size,
+				true); // FIXME: use target byte-order, not host
 			return tmp_bytes - bytes;
 		}
 		
-		Dwarf_Unsigned 
-		Cie::read_with_encoding(unsigned char encoding, unsigned char const **pos, unsigned char const *limit, bool use_host_byte_order) const
+		Dwarf_Unsigned
+		FrameSection::read_with_encoding(unsigned char encoding, unsigned char const **pos,
+			unsigned char const *limit, unsigned address_size, bool use_host_byte_order) const
 		{
 			bool read_be = host_is_little_endian() ^ use_host_byte_order;
 			
@@ -537,16 +553,16 @@ namespace dwarf
 			switch (encoding & ~0xf0) // low-order bytes only
 			{
 				case DW_EH_PE_absptr:
-					if (get_address_size() == 8) goto udata8;
-					else { assert(get_address_size() == 4); goto udata4; }
+					if (address_size == 8) goto udata8;
+					else { assert(address_size == 4); goto udata4; }
 				case DW_EH_PE_omit: assert(false); // handled above
 				case DW_EH_PE_uleb128: return encap::read_uleb128(pos, limit);
 				/* udata2 */ case DW_EH_PE_udata2: return (read_be ? read_2byte_be : read_2byte_le)(pos, limit);
 				udata4:      case DW_EH_PE_udata4: return (read_be ? read_4byte_be : read_4byte_le)(pos, limit);
 				udata8:      case DW_EH_PE_udata8: return (read_be ? read_8byte_be : read_8byte_le)(pos, limit);
 				case /* DW_EH_PE_signed */ 0x8: 
-					if (get_address_size() == 8) goto sdata8;
-					else { assert(get_address_size() == 4); goto sdata4; }
+					if (address_size == 8) goto sdata8;
+					else { assert(address_size == 4); goto sdata4; }
 				case DW_EH_PE_sleb128: return encap::read_sleb128(pos, limit);
 				/* sdata2 */ case DW_EH_PE_sdata2: return (read_be ? read_2byte_be : read_2byte_le)(pos, limit);
 				sdata4:      case DW_EH_PE_sdata4: return (read_be ? read_4byte_be : read_4byte_le)(pos, limit);
@@ -557,6 +573,112 @@ namespace dwarf
 				unsupported_for_now:
 					assert(false);
 			}
+		}
+
+		void FrameSection::init_eh_frame_hdr()
+		{
+			/* The frame hdr is the first content in the GNU_EH_FRAME
+			 * program header. So let's find it.
+			 *
+			 * Sadly we are basically duplicating the libdwarf / libdw
+			 * code that parses this segment and reads the table... they
+			 * chose not to expose the table itself. I believe the search
+			 * table should be exposed (e.g. right now I'm debugging a
+			 * problem that might be a bug in one of these tables). */
+			::Elf *e = get_elf();
+			GElf_Ehdr ehdr;
+			GElf_Ehdr *ret_ehdr = gelf_getehdr(e, &ehdr);
+			assert(ret_ehdr); if (!ret_ehdr) abort();
+			unsigned phnum = ehdr.e_phnum;
+			GElf_Phdr phdr;
+			unsigned i;
+			size_t fileoff;
+			Elf_Scn *scn;
+			const unsigned char *scn_data = nullptr;
+			const unsigned char *pos;
+			unsigned scn_nbytes = 0;
+			for (i = 0; i < phnum; ++i)
+			{
+				GElf_Phdr *ret_phdr;
+				ret_phdr = gelf_getphdr(e, i, &phdr);
+				assert(ret_phdr); if (!ret_phdr) abort();
+				if (phdr.p_type == PT_GNU_EH_FRAME && phdr.p_filesz > 0)
+				{
+					break;
+				}
+			}
+			if (i == phnum) goto out_no_eh_frame;
+			fileoff = phdr.p_offset;
+			/* Now we know the file offset, but not the length. Ideally we'd
+			 * use the section headers to get this. But start with an
+			 * overapproximation. */
+			// off_t fileoff_end_max = phdr.p_offset + phdr.p_filesz;
+			/* If we have section headers (likely), use them. */
+			scn = gelf_offscn(e, fileoff);
+			if (scn)
+			{
+				// sanity check: get the shdr
+				GElf_Shdr shdr;
+				bzero(&shdr, sizeof shdr);
+				if (!gelf_getshdr(scn, &shdr)) throw No_entry(); // HMM, better reporting needed
+				// FIXME: what if there's a zero-length section preceding .eh.frame_hdr?
+				Elf_Data *d;
+				if (NULL == (d = elf_rawdata(scn, NULL))) throw No_entry(); // HMM, better reporting needed
+				assert(shdr.sh_offset == fileoff);
+				assert(shdr.sh_size > 0);
+				assert(shdr.sh_size <= phdr.p_filesz);
+				assert(d->d_size >= shdr.sh_size);
+				// fileoff_end_max = phdr.p_offset + shdr.sh_size;
+				scn_data = reinterpret_cast<unsigned char*>(d->d_buf);
+				scn_nbytes = shdr.sh_size;
+			}
+			// FIXME: do we need some kind of fallback that mmaps the
+			// file using fileoff_end_max? For now pretend we have no info.
+			else goto out_no_eh_frame;
+			// sanity check on the info we got
+			/* If we're using eh_frame, we may have an eh_frame_hdr whose first
+			 * bytes look like this. See Linux Standard Base 1.3 chapter 6. */
+			assert(scn_nbytes > sizeof (hdr_ident));
+			memcpy(&m_hdr_ident, scn_data, sizeof (hdr_ident));
+			if (m_hdr_ident.version != 1)
+			{
+				debug(0) << "Did not understand .eh_frame_hdr section, version "
+					<< (int) m_hdr_ident.version << endl;
+				goto out_no_eh_frame;
+			}
+			/* After the four byte fields, we have two encoded fields (eh_frame_ptr
+			 * and fde_count) and then the encoded binary search table. */
+			pos = scn_data + sizeof (hdr_ident);
+			eh_frame_section_start = read_with_encoding(
+				m_hdr_ident.eh_frame_ptr_enc,
+				&pos,
+				scn_data + scn_nbytes,
+				get_address_size(),
+				true /* HACK: use host byte order. */
+			);
+			hdr_tbl_fde_count = read_with_encoding(
+				m_hdr_ident.fde_count_enc,
+				&pos,
+				scn_data + scn_nbytes,
+				get_address_size(),
+				true /* HACK: use host byte order. */
+			);
+			this->hdr_tbl = pos;
+			this->hdr_tbl_nbytes = scn_nbytes - (pos - scn_data);
+			this->hdr_tbl_encoding = m_hdr_ident.table_enc;
+			this->hdr_tbl_encoded_value_size = encoding_nbytes(
+				m_hdr_ident.table_enc, hdr_tbl, hdr_tbl + hdr_tbl_nbytes, get_address_size());
+			this->hdr_vaddr = phdr.p_vaddr;
+			// success
+			return;
+
+		out_no_eh_frame:
+			bzero(&this->m_hdr_ident, sizeof this->m_hdr_ident);
+			this->hdr_tbl = nullptr;
+			this->hdr_tbl_nbytes = 0;
+			this->hdr_tbl_encoding = DW_EH_PE_omit;
+			this->hdr_tbl_encoded_value_size = 0;
+			this->hdr_vaddr = 0;
 		}
 
 		void Fde::init_augmentation_bytes()
@@ -586,12 +708,12 @@ namespace dwarf
 			pos += 4; // id is always 32 bits
 			
 			// skip the FDE starting address // FIXME: is it safe to call get_fde_encoding() here?
-			unsigned startaddr_encoded_nbytes = cie.encoding_nbytes(cie.get_fde_encoding(), pos, instrs_start);
+			unsigned startaddr_encoded_nbytes = cie.get_owner().encoding_nbytes(cie.get_fde_encoding(), pos, instrs_start, cie.get_address_size());
 			pos += startaddr_encoded_nbytes;
 			
 			// read the FDE length-in-bytes and sanity-check
 			// const unsigned char *pos_saved = pos;
-			Dwarf_Unsigned fde_length = cie.read_with_encoding(cie.get_fde_encoding(), &pos, instrs_start, true); // FIXME: use target byte-order, not host
+			Dwarf_Unsigned fde_length = cie.get_owner().read_with_encoding(cie.get_fde_encoding(), &pos, instrs_start, cie.get_address_size(), true); // FIXME: use target byte-order, not host
 			// unsigned fde_length_encoded_length = pos - pos_saved;
 			assert(fde_length == get_func_length());
 			
@@ -632,10 +754,10 @@ namespace dwarf
 			else if (found_lsda == cie.get_augmentation_bytes().end())
 			{
 				// assume the default, which is DW_EH_absptr
-				return cie.read_with_encoding(DW_EH_PE_absptr, nullptr, nullptr, true); // HACK
+				return cie.get_owner().read_with_encoding(DW_EH_PE_absptr, nullptr, nullptr, cie.get_address_size(), true); // HACK
 			} else {
 				// do what it says
-				return cie.read_with_encoding(*found_lsda, &pos, end, true); // HACK: use target encoding
+				return cie.get_owner().read_with_encoding(*found_lsda, &pos, end, cie.get_address_size(), true); // HACK: use target encoding
 			}
 		}
 		
@@ -660,7 +782,7 @@ namespace dwarf
 			/* Add any unfinished row, using the FDE high pc */
 			if (final_result.rows.size() > 0)
 			{
-				final_result.add_unfinished_row(get_low_pc() + get_func_length());
+				final_result.add_unfinished_row(get_low_pc() + get_func_length() + 1);
 			}
 			
 			// that's it! (no unfinished rows now)
@@ -677,9 +799,9 @@ namespace dwarf
 			 * it seems to be DWARF2-specific, and I don't want to use too many more 
 			 * libdwarf calls. So use our own frame_instrlist. */
 			encap::frame_instrlist instrlist(cie, cie.get_address_size(), 
-				make_pair(reinterpret_cast<unsigned char *>(instrs), 
-					      reinterpret_cast<unsigned char *>(instrs) + instrs_len),
-					      /* use_host_byte_order -- FIXME */ true);
+			make_pair(reinterpret_cast<unsigned char *>(instrs),
+					  reinterpret_cast<unsigned char *>(instrs) + instrs_len),
+					  /* use_host_byte_order -- FIXME */ true);
 			
 			// create container for return values & working storage
 			instrs_results result;
@@ -772,7 +894,8 @@ namespace dwarf
 						current_row_defs[i_op->fp_register].val_is_offset_from_cfa_w() = i_op->fp_offset_or_block_len;
 						break;
 					case DW_CFA_register: // FIXME: second register goes where? I've put it in fp_offset_or_block_len
-						current_row_defs[i_op->fp_register].register_plus_offset_w() = make_pair(i_op->fp_offset_or_block_len, 0);
+						current_row_defs[i_op->fp_register].register_plus_offset_w()
+						 = make_pair(i_op->fp_offset_or_block_len, 0);
 						break;
 					case DW_CFA_expression:
 						current_row_defs[i_op->fp_register].saved_at_expr_w() = encap::loc_expr(get_dbg().raw_handle(), i_op->fp_expr_block, i_op->fp_offset_or_block_len);
@@ -1040,7 +1163,7 @@ namespace dwarf
 					i_fde != fs.fde_end() && (!end_fde_is_valid || i_fde <= end_fde); ++i_fde)
 				{
 					Dwarf_Addr fde_lopc = i_fde->get_low_pc();
-					Dwarf_Addr fde_hipc = i_fde->get_low_pc() + i_fde->get_func_length();
+					Dwarf_Addr fde_hipc = i_fde->get_low_pc() + i_fde->get_func_length() + 1;
 
 					assert(i_fde->get_low_pc() >= prev_fde_lopc); // I have seen the == case
 

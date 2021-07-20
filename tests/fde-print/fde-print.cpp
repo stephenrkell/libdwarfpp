@@ -11,7 +11,8 @@
 #include <dwarfpp/regs.hpp>
 #include <gelf.h>
 
-using std::cout; 
+using std::cout;
+using std::cerr;
 using std::endl;
 using std::ostringstream;
 using std::setw;
@@ -40,7 +41,8 @@ int main(int argc, char **argv)
 	assert(ret != 0);
 	elf_machine = ehdr.e_machine;
 	
-	core::FrameSection fs(root.get_dbg(), true);
+	// quick HACK: use .debug_frame if USE_DEBUG_FRAME is in environ
+	core::FrameSection fs(root.get_dbg(), !getenv("USE_DEBUG_FRAME"));
 	
 	ostringstream s;
 	print_in_readelf_style(s, fs, root);
@@ -92,17 +94,16 @@ void print_in_readelf_style(std::ostream& s, const core::Cie& cie)
 		<< "  Augmentation:          \"" << cie.get_augmenter() << "\""  << endl
 		<< "  Code alignment factor: " << cie.get_code_alignment_factor() << endl
 		<< "  Data alignment factor: " << cie.get_data_alignment_factor() << endl
-		<< "  Return address column: " << cie.get_return_address_register_rule() << endl
-		<< "  Augmentation data:     ";
+		<< "  Return address column: " << cie.get_return_address_register_rule() << endl;
 	auto augbytes = cie.get_augmentation_bytes();
+	bool output_leader = false;
 	for (auto i_byte = augbytes.begin(); i_byte != augbytes.end(); ++i_byte)
 	{
+		if (!output_leader) { s << "  Augmentation data:     "; output_leader = true; }
 		if (i_byte != augbytes.begin()) s << ' ';
 		s << std::hex << setw(2) << setfill('0') << (unsigned) *i_byte;
 	}
 	s << std::dec << endl;
-	
-	s << endl;
 	
 	/* Now we need to print the "initial instructions". */
 	encap::frame_instrlist initial_instrs(cie, /* FIXME */ 8, cie.initial_instructions_seq());
@@ -161,25 +162,41 @@ void print_in_readelf_style(std::ostream& s, const encap::frame_instrlist& instr
 				goto unsupported_for_now; // FIXME
 				break;
 
-			case DW_CFA_offset_extended_sf: goto register_and_offset;
-			case DW_CFA_def_cfa_sf: goto register_and_offset;
-			case DW_CFA_register: goto register_and_offset;
-			case DW_CFA_offset_extended: goto register_and_offset;
-			case DW_CFA_def_cfa: goto register_and_offset;
-			case DW_CFA_val_offset: goto register_and_offset;
-			case DW_CFA_val_offset_sf: goto register_and_offset;
-			register_and_offset: // FIXME: second register goes where? I've put it in fp_offset_or_block_len
-				s << ": " << reg(i_instr->fp_register) << " ofs " << i_instr->fp_offset_or_block_len;
+			case DW_CFA_def_cfa: goto register_and_offset_ofs;
+			register_and_offset_ofs: // FIXME: second register goes where? I've put it in fp_offset_or_block_len
+				s << ": " << reg(i_instr->fp_register) << " ofs " << (lib::Dwarf_Signed) i_instr->fp_offset_or_block_len;
+				break;
+
+			case DW_CFA_offset_extended_sf: goto register_and_offset_at;
+			case DW_CFA_def_cfa_sf: goto register_and_offset_at;
+			case DW_CFA_offset_extended: goto register_and_offset_at;
+			case DW_CFA_val_offset: goto register_and_offset_at;
+			case DW_CFA_val_offset_sf: goto register_and_offset_at;
+			register_and_offset_at: // FIXME: second register goes where? I've put it in fp_offset_or_block_len
+				s << ": " << reg(i_instr->fp_register) << " at cfa"
+					<< ((((lib::Dwarf_Signed) i_instr->fp_offset_or_block_len) >= 0) ? "+" : "")
+					<<    (lib::Dwarf_Signed) i_instr->fp_offset_or_block_len;
+				break;
+
+			case DW_CFA_register: goto register_and_offset_in;
+			register_and_offset_in: // FIXME: second register goes where? I've put it in fp_offset_or_block_len
+				s << ": " << reg(i_instr->fp_register) << " in " << reg(i_instr->fp_offset_or_block_len);
 				break;
 
 			case DW_CFA_def_cfa_offset_sf: goto offset_only;
 			case DW_CFA_def_cfa_offset: goto offset_only;
+			case DW_CFA_GNU_args_size: goto offset_only;
 			offset_only:
 				s << ": " << i_instr->fp_offset_or_block_len;
 				break;
 
-			case DW_CFA_expression:
-				goto unsupported_for_now; // FIXME
+			case DW_CFA_expression: goto register_and_expression;
+			register_and_expression:
+				s << ": " << reg(i_instr->fp_register)
+					<< " (";
+				print_in_readelf_style(s, encap::loc_expr(dbg, i_instr->fp_expr_block, i_instr->fp_offset_or_block_len));
+				s << ")";
+				break;
 
 			case DW_CFA_def_cfa_expression: goto expression;
 			case DW_CFA_val_expression: goto expression;
@@ -254,7 +271,7 @@ void print_in_readelf_style(std::ostream& s, const core::Fde& fde)
 			if (i_byte != augbytes.begin()) s << ' ';
 			s << std::hex << setw(2) << setfill('0') << (unsigned) *i_byte;
 		}
-		s << endl << endl;
+		s << endl;
 	}
 	s << std::dec;
 	
@@ -291,7 +308,7 @@ void print_in_readelf_style(std::ostream& s, const core::FrameSection& fs, core:
 		return arg1->get_offset() < arg2->get_offset();
 	});
 
-	s << "Contents of the .eh_frame section:\n\n";
+	s << "Contents of the " << (fs.using_eh ? ".eh_frame" : ".debug_frame") << " section:\n\n\n";
 	auto i_i_cie = cies.begin();
 	auto i_i_fde = fdes.begin();
 	lib::Dwarf_Off cur_off = 0;

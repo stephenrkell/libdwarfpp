@@ -1,0 +1,31 @@
+version: 2.0
+jobs:
+  build:
+    docker:
+      - image: ubuntu:18.04
+    steps:
+      - run:
+          name: Install dependencies
+          command: |
+            apt update && apt install -y git build-essential make \
+            autoconf automake libtool pkg-config autoconf-archive \
+            g\+\+ python3 python2.7 python-minimal \
+            libelf-dev libboost-iostreams-dev libboost-regex-dev \
+            libboost-serialization-dev libboost-filesystem-dev
+      - checkout
+      - run:
+          name: Update submodules
+          command: git submodule update --init
+      - run:
+          name: Build submodules
+          command: make -C contrib -j 2
+      - run:
+          name: Build project
+          command: |
+            . contrib/env.sh
+            ./autogen.sh
+            ./configure
+            make -j 2
+      - run:
+          name: Run tests
+          command: make -C tests -j 2

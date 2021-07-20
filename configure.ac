@@ -1,6 +1,5 @@
 AC_CONFIG_MACRO_DIR([m4])
 AC_PREREQ([2.69])
-AC_PREFIX_DEFAULT([/usr/local])
 AC_INIT([libdwarfpp], [0.1], [srk31@cl.cam.ac.uk])
 AC_CONFIG_SRCDIR([include/dwarfpp/lib.hpp])
 LT_INIT
@@ -10,18 +9,6 @@ AM_INIT_AUTOMAKE([foreign subdir-objects -Wno-portability])
 AM_MAINTAINER_MODE
 AC_PROG_CXX
 AX_CXX_COMPILE_STDCXX_14([ext], [optional])
-
-CFLAGS='-I${prefix}/include '"$CFLAGS"
-CXXFLAGS='-I${prefix}/include '"$CXXFLAGS"
-LDFLAGS='-L${prefix}/lib '"$LDFLAGS"
-export CFLAGS CXXFLAGS LDFLAGS
-
-PKG_CONFIG_PATH='${prefix}/lib/pkgconfig:'"$PKG_CONFIG_PATH"
-export PKG_CONFIG_PATH
-
-CXXFLAGS="-std=c++14 $CXXFLAGS"
-export CXXFLAGS
-
 AC_CHECK_HEADER_STDBOOL
 AC_C_INLINE
 AC_TYPE_SIZE_T
@@ -29,7 +16,7 @@ AC_CHECK_TYPES([ptrdiff_t])
 AC_PROG_LN_S
 AC_PROG_INSTALL
 
-AC_CHECK_HEADERS([algorithm cassert cstdlib elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector], [], [AC_MSG_FAILURE([required standard headers: algorithm cassert cstdlib dwarf.h elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector])])
+AC_CHECK_HEADERS([algorithm cassert cstdlib elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector], [], [AC_MSG_FAILURE([required standard headers: algorithm cassert cstdlib elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector])])
 
 AC_CHECK_HEADERS([elf.h libelf.h], [], [AC_MSG_FAILURE([required headers: elf.h libelf.h])])
 
@@ -62,13 +49,13 @@ AC_ARG_WITH([libdwarf-includes],
             [ac_libdwarf_includes=${LIBDWARF_INCLUDE_DIR:-/usr/include}])
 AC_ARG_WITH([libdwarf-libs],
             [AS_HELP_STRING([--with-libdwarf-libs=DIR],
-              [where to find libdwarf.a])],
+              [linker options for including libdwarf.a in the link])],
             [
-                if test -d "$withval"
+                if test -n "$withval"
                 then
                         ac_libdwarf_libs="$withval"
                 else
-                        AC_MSG_ERROR(--with-libdwarf-libs expected directory name)
+                        AC_MSG_ERROR(--with-libdwarf-libs expected linker options argument)
                 fi
             ],
             [ac_libdwarf_libs="${LIBDWARF_LIB_DIR:+-L${LIBDWARF_LIB_DIR}} -ldwarf"])
@@ -89,8 +76,14 @@ AC_HAVE_LIBRARY(boost_serialization, [], [AC_MSG_FAILURE([boost::serialization i
 AC_CHECK_HEADER([boost/system/api_config.hpp], [], [AC_MSG_FAILURE([boost::system is required])])
 AC_HAVE_LIBRARY(boost_system, [], [AC_MSG_FAILURE([boost::system is required])])
 
-AC_CHECK_LIB([elf], [elf_new], [])
-AC_CHECK_LIB([dwarf], [dwarf_init], [])
+AC_CHECK_LIB(elf, [elf_begin], [], [AC_MSG_FAILURE([libelf is required])])
+AC_CHECK_TYPE(Dwarf_Frame_Op3, HAVE_DWARF_FRAME_OP3=1, HAVE_DWARF_FRAME_OP3=0, [#include "$ac_libdwarf_includes/libdwarf.h"])
+AC_SUBST(HAVE_DWARF_FRAME_OP3)
+
+AC_LANG_PUSH([C])
+AX_CHECK_FUNC_IN([gelf.h], gelf_offscn, HAVE_GELF_OFFSCN=1, HAVE_GELF_OFFSCN=0)
+AC_LANG_POP
+AC_SUBST(HAVE_GELF_OFFSCN)
 
 # If the user (sanely) supplied _CXXFLAGS, and not _CFLAGS, 
 # duplicate the latter to the former.  See rant about pkg-config in Makefile.am.
@@ -111,4 +104,4 @@ PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES([LIBCXXFILENO], [libcxxfileno])
 PKG_CHECK_MODULES([LIBSRK31CXX], [libsrk31cxx])
 
-AC_OUTPUT([Makefile libdwarfpp.pc config.mk])
+AC_OUTPUT([Makefile libdwarfpp.pc config.mk include/dwarfpp/config.h])

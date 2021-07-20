@@ -42,7 +42,7 @@ namespace dwarf
 			regs *p_regs,
 			opt<Dwarf_Signed> frame_base,
 			const std::stack<Dwarf_Unsigned>& initial_stack)
-		: m_stack(initial_stack), spec(spec), p_regs(p_regs), frame_base(frame_base)
+		: m_stack(initial_stack), spec(spec), p_regs(p_regs), m_tos_state(ADDRESS), frame_base(frame_base)
 		{
 			// sanity check while I suspect stack corruption
 			assert(vaddr < 0x00008000000000ULL
@@ -108,6 +108,8 @@ namespace dwarf
 			opt<std::string> error_detail;
 			while (i != expr.end())
 			{
+				// FIXME: be more descriminate -- do we want to propagate valueness? probably not
+				m_tos_state = ADDRESS;
 				switch(i->lr_atom)
 				{
 					case DW_OP_const1u:
@@ -282,7 +284,22 @@ namespace dwarf
 						/* This means that the object has no address, but that the 
 						 * DWARF evaluator has just computed its *value*. We record
 						 * this. */
-						m_stack.mark_tos_as_value();
+						m_tos_state = VALUE;
+						break;
+#ifdef DW_OP_implicit_pointer
+					case DW_OP_implicit_pointer:
+#endif
+					case DW_OP_GNU_implicit_pointer:
+						/* Two operands: a reference to the debugging information entry
+						 * that describes the dereferenced object's value, and a signed
+						 * number that is treated as a byte offset from the start of that
+						 * object.
+						 * Since the evaluator is asked to produce an address, which by
+						 * definition an "implicit pointer" is not, we simply have to
+						 * record the state that is in the instruction. */
+						m_tos_state = IMPLICIT_POINTER;
+						implicit_pointer = make_pair(i->lr_number,
+							static_cast<Dwarf_Signed>(i->lr_number2));
 						break;
 					case DW_OP_deref_size:
 					case DW_OP_deref:

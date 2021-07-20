@@ -1,5 +1,5 @@
 ACLOCAL_AMFLAGS = -I m4
-AM_CXXFLAGS = -fno-omit-frame-pointer -std=c++14 -ggdb3 -fvar-tracking-assignments -O2 -fkeep-inline-functions -Wall -Wno-deprecated-declarations -Iinclude -Iinclude/dwarfpp $(LIBSRK31CXX_CFLAGS) $(LIBCXXFILENO_CFLAGS)
+AM_CXXFLAGS = -fno-omit-frame-pointer -std=c++1y -ggdb3 -fvar-tracking-assignments -O2 -fkeep-inline-functions -Wall -Wno-deprecated-declarations -Iinclude -Iinclude/dwarfpp $(LIBSRK31CXX_CFLAGS) $(LIBCXXFILENO_CFLAGS)
 
 extra_DIST = libdwarfpp.pc.in
 pkgconfigdir = $(libdir)/pkgconfig
@@ -21,7 +21,7 @@ dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.
   include/dwarfpp/iter-inl.hpp \
   include/dwarfpp/dies-inl.hpp \
   include/dwarfpp/libdwarf-handles.hpp include/dwarfpp/libdwarf.hpp \
-  include/dwarfpp/dwarf-lib.h
+  include/dwarfpp/dwarf-lib.h include/dwarfpp/config.h
 
 lib_LTLIBRARIES = src/libdwarfpp.la
 src_libdwarfpp_la_SOURCES = src/libdwarf.cpp src/libdwarf-handles.cpp src/libdwarf-data.cpp src/expr.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp src/root.cpp src/abstract.cpp src/iter.cpp src/dies.cpp
@@ -34,7 +34,7 @@ CLEANFILES = $(BUILT_SOURCES)
 
 examplesdir = examples
 examples_PROGRAMS = examples/core-query examples/dwarfppdump \
-  examples/print_spec examples/sranges examples/subseq
+  examples/print_spec examples/sranges examples/subseq examples/eh-frame-hdr
 
 -include config.mk
 
@@ -55,6 +55,9 @@ examples_sranges_LDADD = $(EXAMPLE_LDADD_INS)
 examples_subseq_SOURCES = examples/subseq.cpp
 examples_subseq_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_subseq_LDADD = $(EXAMPLE_LDADD_INS)
+examples_eh_frame_hdr_SOURCES = examples/eh-frame-hdr.cpp
+examples_eh_frame_hdr_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
+examples_eh_frame_hdr_LDADD = $(EXAMPLE_LDADD_INS)
 
 # launder the exit code of grep through "cat"
 include/dwarfpp/dwarf-onlystd.h: $(libdwarf_includes)/dwarf.h
@@ -84,7 +87,10 @@ lib/libdwarfpp.so: $(lib_LTLIBRARIES)
 lib/libdwarfpp.so.0: $(lib_LTLIBRARIES)
 	mkdir -p lib && cd lib && ln -sf ../src/.libs/libdwarfpp.so.0 .
 
-all: lib/libdwarfpp.so lib/libdwarfpp.so.0
+lib/libdwarfpp.a: $(lib_LTLIBRARIES)
+	mkdir -p lib && cd lib && ln -sf ../src/.libs/libdwarfpp.a .
+
+all: lib/libdwarfpp.so lib/libdwarfpp.so.0  lib/libdwarfpp.a
 
 # pkg-config doesn't understand PKG_CXXFLAGS, but I'm buggered
 # if I'm going to have my Makefiles use _CFLAGS to mean _CXXFLAGS.

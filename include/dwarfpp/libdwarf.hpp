@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <libelf.h>
+#include "config.h" /* our configure-generated header, for HAVE_DWARF_FRAME_OP3 */
 
 namespace dwarf
 {
@@ -48,6 +49,20 @@ namespace dwarf
 		bool operator==(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
 		bool operator!=(const Dwarf_Ranges& e1, const Dwarf_Ranges& e2);
 		std::ostream& operator<<(std::ostream& s, const Dwarf_Ranges& e);
+
+#if HAVE_DWARF_FRAME_OP3
+		/* Avoid introducing a new/distinct type unnecessarily. */
+		typedef Dwarf_Frame_Op3 frame_op;
+#else
+		struct frame_op {
+			Dwarf_Small fp_base_op;
+			Dwarf_Small fp_extended_op;
+			Dwarf_Half fp_register;
+			Dwarf_Unsigned fp_offset_or_block_len;
+			Dwarf_Small *fp_expr_block;
+			Dwarf_Off fp_instr_offset;
+		};
+#endif
 	}
 }
 

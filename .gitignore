@@ -1,18 +1,17 @@
 /Makefile
 
+# Python
 __pycache__/
 *.py[cod]
 
+# libtool
 .deps/
 .libs/
 
-
 # http://www.gnu.org/software/automake
-
 Makefile.in
 
 # http://www.gnu.org/software/autoconf
-
 .dirstamp
 /autom4te.cache
 /aclocal.m4
@@ -27,9 +26,53 @@ Makefile.in
 /config.sub
 /config.status
 /config.log
+/config.mk
 /ltmain.sh
 /libtool
+/include/dwarfpp/config.h
 
+# contrib stuff
+/contrib/config.mk
+/contrib/config.site
+/contrib/env.sh
+
+# generated headers
+include/dwarfpp/dwarf-current-adt.h
+include/dwarfpp/dwarf-current-factory.h
+include/dwarfpp/dwarf-ext-GNU.h
+include/dwarfpp/dwarf-lib.h
+include/dwarfpp/dwarf-onlystd-v2.h
+include/dwarfpp/dwarf-onlystd.h
+
+# built library symlinks
+/lib/
+
+# built example programs
+examples/core-query
+examples/dwarfppdump
+examples/print_spec
+examples/sranges
+examples/subseq
+examples/eh-frame-hdr
+
+# built test programs
+# Use `git status -s | grep '?? tests' | cut -c 4- >> .gitignore` to add new tests
+tests/all-sccs/all-sccs
+tests/core-bfs/core-bfs
+tests/core-variadic/core-variadic
+tests/coretest/coretest
+tests/fde-decode/fde-decode
+tests/fde-print/fde-print
+tests/grandchildren/grandchildren
+tests/live-dies/live-dies
+tests/make-dies/make-dies
+tests/resolve/resolve
+tests/siblings-core/siblings-core
+tests/timed-dump-core/timed-dump-core
+tests/type-equality/type-equality
+tests/type-iterators/type-iterators
+tests/type-scc/type-scc
+tests/visible-named/visible-named
 
 # Compiled Object files
 *.slo
@@ -37,6 +80,7 @@ Makefile.in
 *.o
 *.obj
 
+# pkg-config
 *.pc
 
 # Dependencies
@@ -65,14 +109,12 @@ Makefile.in
 *.out
 *.app
 
-
 # Backup files
 *~
 \#*\#
 .\#*
 
 # WTF Dropbox
-
 .fuse_hidden*
 .nfs*
 .dropbox*
