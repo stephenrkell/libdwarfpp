@@ -20,7 +20,7 @@ AC_CHECK_HEADERS([algorithm cassert cstdlib elf.h functional iostream iterator l
 
 AC_CHECK_HEADERS([elf.h libelf.h], [], [AC_MSG_FAILURE([required headers: elf.h libelf.h])])
 
-#AC_CHECK_HEADERS([dwarf.h libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h])])
+dnl AC_CHECK_HEADERS([dwarf.h libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h])])
 dnl Ways we can get libdwarf includes and libs:
 dnl (1) from system directories
 dnl (2) from arguments to ./configure, setting ac_libdwarf_includes etc.
