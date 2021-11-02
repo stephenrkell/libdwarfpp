@@ -780,11 +780,7 @@ namespace dwarf
 			auto final_result = owner.interpret_instructions(cie, initial_result.unfinished_row_addr,
 				instr_bytes_begin, instr_bytes_end - instr_bytes_begin, initial_result);
 			/* Add any unfinished row, using the FDE high pc */
-			if (final_result.rows.size() > 0)
-			{
-				final_result.add_unfinished_row(get_low_pc() + get_func_length() + 1);
-			}
-			
+			final_result.add_unfinished_row(get_low_pc() + get_func_length() + 1);
 			// that's it! (no unfinished rows now)
 			return final_result;
 		}
