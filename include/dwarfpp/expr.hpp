@@ -81,6 +81,7 @@ namespace dwarf
 
 		struct loc_expr : public vector<expr_instr>
 		{
+			using vector::vector;
 			/* We used to have NO_LOCATION here. But we don't need it! Recap: 
 			 * In DWARF, hipc == 0 && lopc == 0 means an "end of list entry".
 			 * BUT libdwarf abstracts this so that we don't see end-of-list
@@ -228,6 +229,7 @@ namespace dwarf
 			}
 			friend std::ostream& operator<<(std::ostream& s, const loc_expr& e);
 		};
+		std::ostream& operator<<(std::ostream& s, const loc_expr& e);
 		
 		struct loclist : public vector<loc_expr>
 		{
@@ -308,8 +310,20 @@ namespace dwarf
 		using std::stack;
 		using std::ostream;
 		class evaluator {
-			std::stack<Dwarf_Unsigned> m_stack;
-			vector<Dwarf_Loc> expr;
+			class eval_stack : private std::stack<Dwarf_Unsigned> {
+				friend class dwarf::expr::evaluator;
+				bool tos_is_value;  // whether our client saw a DW_OP_stack_value hence has calculated a value not an addr
+			public:
+				Dwarf_Unsigned top() const { return stack::top(); }
+				void pop() { stack::pop(); tos_is_value = false; }
+				void push(Dwarf_Unsigned v) { stack::push(v); tos_is_value = false; }
+				bool empty() const { return stack::empty(); }
+				void mark_tos_as_value() { tos_is_value = true; }
+				using stack::stack;
+				eval_stack(const std::stack<Dwarf_Unsigned>& s) : stack(s), tos_is_value(false) {}
+				eval_stack() : tos_is_value(false) {}
+			} m_stack;
+			encap::loc_expr expr;
 			const ::dwarf::spec::abstract_def& spec;
 			regs *p_regs; // optional set of register values, for DW_OP_breg*
 			/* Various features have been shoehorned into the DWARF location
@@ -335,6 +349,7 @@ namespace dwarf
 			vector<Dwarf_Loc>::iterator i;
 			void eval();
 		public:
+			void eval_next() { assert(i != expr.end() && i != expr.begin()); eval(); }
 			evaluator(const vector<unsigned char> expr, 
 				const ::dwarf::spec::abstract_def& spec) : spec(spec), p_regs(0), m_tos_state(ADDRESS)
 			{

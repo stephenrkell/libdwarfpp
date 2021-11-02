@@ -96,6 +96,8 @@ namespace dwarf
 		
 		void evaluator::eval()
 		{
+			std::ostringstream s;
+			s << expr << std::endl;
 			if (i != expr.end() && i != expr.begin())
 			{
 				/* This happens when we stopped at a DW_OP_piece argument. 
