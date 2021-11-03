@@ -25,7 +25,7 @@ dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.
 
 lib_LTLIBRARIES = src/libdwarfpp.la
 src_libdwarfpp_la_SOURCES = src/libdwarf.cpp src/libdwarf-handles.cpp src/libdwarf-data.cpp src/expr.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp src/root.cpp src/abstract.cpp src/iter.cpp src/dies.cpp
-src_libdwarfpp_la_LIBADD = $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lsupc++
+src_libdwarfpp_la_LIBADD = $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lsupc++ -lboost_filesystem
 src_libdwarfpp_la_LDFLAGS = -Wl,--whole-archive $(libdwarf_libs) -Wl,--no-whole-archive
 
 INC_PP = include/dwarfpp
@@ -39,7 +39,7 @@ examples_PROGRAMS = examples/core-query examples/dwarfppdump \
 -include config.mk
 
 EXAMPLE_LDFLAGS_INS = -L$(top_srcdir)/lib -Wl,-rpath,$(realpath $(top_srcdir))/lib
-EXAMPLE_LDADD_INS = -ldwarfpp -lelf -lz $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS)
+EXAMPLE_LDADD_INS = -ldwarfpp -lboost_filesystem -lelf -lz $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS)
 examples_core_query_SOURCES = examples/core-query.cpp
 examples_core_query_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_core_query_LDADD = $(EXAMPLE_LDADD_INS)

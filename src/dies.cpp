@@ -16,8 +16,10 @@
 #include "dwarfpp/dies-inl.hpp"
 
 #include <memory>
+#include <boost/filesystem.hpp>
 #include <boost/regex.hpp>
 #include <srk31/algorithm.hpp>
+
 
 // "return site marker" a.k.a. horrible HACK for debugging -- see below
 //extern "C" {
@@ -653,9 +655,9 @@ namespace dwarf
 				{
 					std::ostringstream s;
 					opt<string> maybe_fqp = find_self().enclosing_cu()->source_file_fq_pathname(*get_decl_file());
-					s << (maybe_fqp ? 
-						*maybe_fqp : 
-						find_self().enclosing_cu()->source_file_name(*get_decl_file())) 
+					s << (maybe_fqp ?
+							boost::filesystem::path(*maybe_fqp).filename().native() :
+							boost::filesystem::path(find_self().enclosing_cu()->source_file_name(*get_decl_file())).filename().native())
 						<< "_" << *get_decl_line();
 					name_to_use = s.str();
 				}
