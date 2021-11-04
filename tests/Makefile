@@ -8,7 +8,7 @@ $(info cases is $(cases))
 
 CXXFLAGS += -I$(root)/include -g -std=c++14
 LDFLAGS += -L$(root)/lib -Wl,-rpath,$(root)/lib
-LDLIBS += -ldwarfpp -lelf $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lboost_system -lboost_regex -lz
+LDLIBS += -ldwarfpp -lelf $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lboost_system -lboost_regex -lboost_filesystem -lz
 
 .PHONY: default
 default: all
