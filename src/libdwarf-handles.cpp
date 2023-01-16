@@ -173,7 +173,7 @@ namespace dwarf
 			Dwarf_Debug returned;
 			int ret = dwarf_init(fd, DW_DLC_READ, exception_error_handler, 
 				nullptr, &returned, &current_dwarf_error);
-			assert(ret == DW_DLV_OK);
+			if (ret != DW_DLV_OK) throw No_entry();
 			this->handle = handle_type(returned);
 		}
 		
@@ -183,7 +183,7 @@ namespace dwarf
 			int ret = dwarf_elf_init(reinterpret_cast<dwarf::lib::Elf_opaque_in_libdwarf*>(elf), 
 				DW_DLC_READ, exception_error_handler, 
 				nullptr, &returned, &current_dwarf_error);
-			assert(ret == DW_DLV_OK);
+			if (ret != DW_DLV_OK) throw No_entry();
 			this->handle = handle_type(returned);
 		}
 		
