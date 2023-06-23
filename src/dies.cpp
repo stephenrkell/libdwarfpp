@@ -2611,7 +2611,12 @@ namespace dwarf
 			set<pair< iterator_df<type_die>, iterator_df<type_die> > > flipped_set;
 			auto& r = get_root();
 			auto self = find_self();
-			
+			opt<uint32_t> this_summary_code;
+			opt<uint32_t> t_summary_code;
+			bool ret;
+			bool t_may_equal_self;
+			bool self_may_equal_t;
+
 			// iterator equality always implies type equality
 			if (self == t) return true;
 			
@@ -2619,32 +2624,100 @@ namespace dwarf
 			{
 				return true;
 			}
-			/* If the two iterators share a root, check the cache */
+			/* If the two iterators share a root, check the cache.
+			 * FIXME: can we use a smarter structure for this cache?
+			 * For the positive results, I think we could use a linked list
+			 * of equivalence classes (sets of offsets), with a map from offsets
+			 * to a pointer to their equivalence class. Then our initial
+			 * cache check is a search in this set. We can still use a
+			 * multimap for the negative results. */
 			if (t && &t.root() == &self.root())
 			{
 				auto found_seq = self.root().equal_to.equal_range(t.offset_here());
+				auto found_other_seq = self.root().equal_to.equal_range(self.offset_here());
 				for (auto i_found = found_seq.first; i_found != found_seq.second; ++i_found)
 				{
-					if (i_found->second.first == self.offset_here())
+					// the 'second' of each pair is a pair <offset, t/f>,
+					// allowing us to cache both positive and negative results
+					auto &ent_offset = i_found->second.first;
+					auto &cached_result = i_found->second.second;
+					if (ent_offset == self.offset_here())
 					{
-						return i_found->second.second;
+#ifdef DEBUG_TYPE_EQUALITY
+						std::cerr << "Hit equal_to cache (size: "
+							<< self.root().equal_to.size() << ") comparing "
+							<< summary() << " with " << t.summary()
+							<< " (result: " << std::boolalpha << cached_result << ")" << endl;
+#endif
+						/* Assert the symmetric result was found. */
+						assert(std::find_if(found_other_seq.first, found_other_seq.second,
+							[&t](decltype(self.root().equal_to)::value_type const& p)
+								{ return p.second.first == t.offset_here(); })
+							!= found_other_seq.second);
+						return cached_result;
 					}
 				}
+				/* Assert the symmetric result was *not* found. */
+				assert(std::find_if(found_other_seq.first, found_other_seq.second,
+					[&t](decltype(self.root().equal_to)::value_type const& p)
+						{ return p.second.first == t.offset_here(); })
+					== found_other_seq.second);
+#ifdef DEBUG_TYPE_EQUALITY
+				std::cerr << "Missed equal_to cache (size: "
+					<< self.root().equal_to.size() << ") comparing "
+					<< summary() << " with " << t.summary() << endl;
+#endif
 			}
-			// we have to find t
-			bool ret;
-			bool t_may_equal_self;
-			bool self_may_equal_t = this->may_equal(t, assuming_equal);
+			else
+			{
+				// FIXME: can remove this message.
+#ifdef DEBUG_TYPE_EQUALITY
+				std::cerr << "Fishy: comparing DIEs from distinct roots" << std::endl;
+#endif
+			}
+			// quick tests that can rule out a match -- all may_equal definitions
+			// should respect this
+			if (t.tag_here() != get_tag()) { ret = false; goto out; }
+			if (t.name_here() && get_name() && *t.name_here() != *get_name())
+			{ ret = false; goto out; }
+
+			// try using summary codes
+			this_summary_code = this->summary_code();
+			t_summary_code = t->summary_code();
+			if (this_summary_code && t_summary_code)
+			{
+				/* HMM. toyed with just using equality, BUT: summary codes may collide,
+				 * and typedefs etc. have the same summary code but are distinct DIEs. */
+				if (*this_summary_code != *t_summary_code)
+				{
+					ret = false;
+					goto out;
+				}
+			}
+			if (!!this_summary_code != !!t_summary_code)
+			{
+				/* If one has a summary code and the other doesn't, it means
+				 * one is incomplete (or dependent on an incomplete) and the
+				 * other is not. */
+#ifdef DEBUG_TYPE_EQUALITY
+				std::cerr << "Interesting: incompleteness mismatch comparing  " << summary() << " with " << t.summary() << endl;
+#endif
+				ret = false;
+				goto out;
+			}
+			
+			self_may_equal_t = this->may_equal(t, assuming_equal);
 			if (!self_may_equal_t) { ret = false; goto out; }
 			
-			// we need to flip our set of pairs
+			// to make the reversed may_equal call, we need to flip our set of pairs
+			// OR just assert it's symmetric.
 			for (auto i_pair = assuming_equal.begin(); i_pair != assuming_equal.end(); ++i_pair)
 			{
 				flipped_set.insert(make_pair(i_pair->second, i_pair->first));
 			}
-			
 			t_may_equal_self = t->may_equal(self, flipped_set);
 			if (!t_may_equal_self) { ret = false; goto out; }
+
 			ret = true;
 			// if we're unequal then we should not be the same DIE (equality is reflexive)
 		out:
@@ -2654,10 +2727,39 @@ namespace dwarf
 			/* If the two iterators share a root, cache the result */
 			if (t && &t.root() == &self.root())
 			{
-				self.root().equal_to.insert(make_pair(self.offset_here(), make_pair(t.offset_here(), ret)));
-				self.root().equal_to.insert(make_pair(t.offset_here(), make_pair(self.offset_here(), ret)));
+				assert(self.offset_here() != t.offset_here());
+				decltype(self.root().equal_to)::value_type p1 = make_pair(self.offset_here(), make_pair(t.offset_here(), ret));
+				decltype(self.root().equal_to)::value_type p2 = make_pair(t.offset_here(), make_pair(self.offset_here(), ret));
+				auto ret1 = self.root().equal_to.insert(p1);
+				auto ret2 = self.root().equal_to.insert(p2);
+#ifdef DEBUG_TYPE_EQUALITY
+				std::cerr << "Installing result in equal_to cache after comparison of "
+					<< summary() << " with " << t.summary()
+					<< " returned " << std::boolalpha << ret
+					<< "; cache size is now " << self.root().equal_to.size() << endl;
+#endif
+#if 0
+				std::cerr << "{";
+				for (auto i_pair = self.root().equal_to.begin();
+					i_pair != self.root().equal_to.end();
+					++i_pair)
+				{
+					if (i_pair != self.root().equal_to.begin()) std::cerr << ", ";
+					std::cerr << "(" << std::hex << i_pair->first
+						<< "," << std::hex << i_pair->second.first
+						<< "," << std::boolalpha << i_pair->second.second
+						<< ")";
+				}
+				std::cerr << "}" << std::endl;
+#endif
 			}
-			
+			else
+			{
+#ifdef DEBUG_TYPE_EQUALITY
+				std::cerr << "Not caching in equal_to cache (different roots!) after comparison of " << summary() << " with " << t.summary() << " returned " << std::boolalpha << ret << endl;
+#endif
+			}
+
 			return ret;
 		}
 		bool type_die::operator==(const dwarf::core::type_die& t) const

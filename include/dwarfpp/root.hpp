@@ -371,7 +371,13 @@ namespace dwarf
 			unordered_map<Dwarf_Off, Dwarf_Off> next_sibling_of;
 			
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
-			map<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
+#if 1
+			multimap<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
+#else
+			multimap<Dwarf_Off, Dwarf_Off > not_equal_to;
+			linked_list<set<Dwarf_Off> > equivalence_classes;
+			map<Dwarf_Off, set<Dwarf_Off> *> equivalence_class_of;
+#endif
 			map<Dwarf_Off, opt<uint32_t> > type_summary_code_cache; // FIXME: delete this after summary_code() uses SCCs
 			opt<Dwarf_Off> synthetic_cu;
 
