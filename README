@@ -35,6 +35,7 @@ What's included:
 - DIEs abstracted into class hierarchy (per-tag data types)
 - ... providing many useful utility methods
 - ... particularly for computing addresses
+- equivalence relations on DIEs that can (e.g.) deduplicate types across CUs
 - can add and modify DIEs in memory (but not write out, yet; see below)
 - frame information support (including eh_frame)
 

@@ -297,12 +297,22 @@ begin_class(type, base_initializations(initialize_base(program_element)), declar
 		opt<BaseType>		 combined_summary_code_using_iterators() const;
 		virtual opt<uint32_t>		 summary_code_using_old_method() const;
 		virtual opt<uint32_t>		 summary_code_using_walk_type() const;
-		virtual bool may_equal(core::iterator_df<core::type_die> t, 
-			const std::set< std::pair<core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
-		bool equal(core::iterator_df<core::type_die> t, 
+		enum equal_result_t { UNEQUAL, EQUAL, EQUAL_BY_ASSUMPTION };
+		/* This "may_equal" function is called by 'equal' and 'operator==' and implements
+		 * the core equality comparison on types, although 'equal' is what handles caching
+		 * etc. Using two symmetric "may_equal" calls allows subclasses to tighten their
+		 * notion of equality relative to a superclass (e.g. typedef_die is tighter than the
+		 * generic type_chain_die, because it requires name equality), without the risk that
+		 * if someone does a->equal(b) they might get the looser semantics if 'a' is of the
+		 * superclass... may_equal always gets called both ways round as part of a full
+		 * equality comparison, so the tighter interpretation prevails. */
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, 
+			const std::set< std::pair<core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const = 0;
+		equal_result_t equal(core::iterator_df<core::type_die> t, 
 			const std::set< std::pair<core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
 		bool operator==(const dwarf::core::type_die& t) const;
 end_class(type)
+std::ostream& operator<<(std::ostream& s, enum type_die::equal_result_t r);
 struct type_edge : public pair< pair<iterator_df<type_die>, iterator_df<program_element_die> >, iterator_df<type_die> >
 {
 	using pair::pair;
@@ -779,14 +789,14 @@ begin_class(type_chain, base_initializations(initialize_base(type)), declare_bas
 		attr_optional(type, refiter_is_type)
 		opt<Dwarf_Unsigned> calculate_byte_size() const;
 		iterator_df<type_die> get_concrete_type() const;
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
 end_class(type_chain)
 /* type_describing_subprogram_die */
 begin_class(type_describing_subprogram, base_initializations(initialize_base(type)), declare_base(type))
 		attr_optional(type, refiter_is_type)
 		virtual iterator_df<type_die> get_return_type() const = 0;
 		virtual bool is_variadic() const;
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
 		bool abstractly_equals(iterator_df<type_die> t) const;
 		std::ostream& print_abstract_name(std::ostream& s) const;
 end_class(type_describing_subprogram)
@@ -812,7 +822,7 @@ protected:
 		// really use boost::optional, to distinguish "cached END" from "no cache"
 public:
 		iterator_base find_definition() const; // for turning declarations into defns
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; 
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; 
 		bool abstractly_equals(iterator_df<type_die> t) const;
 		std::ostream& print_abstract_name(std::ostream& s) const;
 end_class(with_data_members)
@@ -838,12 +848,12 @@ end_class(with_data_members)
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */ \
 		iterator_df<type_die> ultimate_element_type() const; \
 		opt<Dwarf_Unsigned> ultimate_element_count() const; \
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		iterator_df<type_die> get_concrete_type() const; \
 		bool abstractly_equals(iterator_df<type_die> t) const; \
 		std::ostream& print_abstract_name(std::ostream& s) const;
 #define extra_decls_string_type \
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		opt<Dwarf_Unsigned> fixed_length_in_bytes() const; \
 		opt<encap::loclist> dynamic_length_in_bytes() const; \
 		bool abstractly_equals(iterator_df<type_die> t) const; \
@@ -854,7 +864,7 @@ end_class(with_data_members)
 #define extra_decls_reference_type \
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
 #define extra_decls_base_type \
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		opt<Dwarf_Unsigned> calculate_byte_size() const; \
 		pair<Dwarf_Unsigned, Dwarf_Unsigned> bit_size_and_offset() const; \
 		bool is_bitfield_type() const; \
@@ -874,10 +884,10 @@ end_class(with_data_members)
 #define extra_decls_enumeration_type \
 		bool abstractly_equals(iterator_df<type_die> t) const; \
 		std::ostream& print_abstract_name(std::ostream& s) const; \
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */
 #define extra_decls_subrange_type \
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const; \
 		bool abstractly_equals(iterator_df<type_die> t) const; \
 		std::ostream& print_abstract_name(std::ostream& s) const;
 #define extra_decls_set_type \
@@ -889,14 +899,17 @@ end_class(with_data_members)
 #define extra_decls_ptr_to_member_type \
 		bool abstractly_equals(iterator_df<type_die> t) const; \
 		std::ostream& print_abstract_name(std::ostream& s) const; \
-		bool may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
 #define extra_decls_member \
 		iterator_df<type_die> find_or_create_type_handling_bitfields() const;
 #define extra_decls_subroutine_type \
 		/* bool is_rep_compatible(iterator_df<type_die> arg) const; */ \
 		core::iterator_df<core::type_die> get_return_type() const;
 #define extra_decls_unspecified_type \
-		std::ostream& print_abstract_name(std::ostream& s) const;
+		std::ostream& print_abstract_name(std::ostream& s) const; \
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
+#define extra_decls_typedef \
+		virtual equal_result_t may_equal(core::iterator_df<core::type_die> t, const std::set< std::pair< core::iterator_df<core::type_die>, core::iterator_df<core::type_die> > >& assuming_equal) const;
 
 #define extra_decls_compile_unit \
 /* We define fields and getters for the per-CU source file info */ \
@@ -957,6 +970,7 @@ friend class factory;
 #undef extra_decls_ptr_to_member_type
 #undef extra_decls_unspecified_type
 #undef extra_decls_subrange_type
+#undef extra_decls_typedef
 
 #undef has_stack_based_location
 #undef has_object_based_location

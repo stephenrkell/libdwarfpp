@@ -6,6 +6,7 @@
  * LICENSE file in the root of the libdwarfpp tree.
  */
 
+#include <boost/optional/optional_io.hpp> // FIXME: remove when finished debugging
 #include "dwarfpp/abstract.hpp"
 #include "dwarfpp/abstract-inl.hpp"
 #include "dwarfpp/root.hpp"
@@ -1478,7 +1479,7 @@ namespace dwarf
 					t = found.as_a<type_die>();
 					if (!t)
 					{
-						debug(2) << "Detected that we have a declaration with no definition; returning no code" << std::endl;
+						debug_expensive(2, << "Detected that we have a declaration with no definition; returning no code" << std::endl);
 						// NOTE that we will still get a post-visit, just no recursion
 						// so we explicitly clear the output word (HACK)
 						output_word.invalidate();
@@ -2595,91 +2596,159 @@ namespace dwarf
 				return opt<type_scc_t>(**this->opt_cached_scc);
 			} else return opt<type_scc_t>();
 		}
-		bool type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
-		{
-			if (!t) return false;
-			
-			debug_expensive(2, << "Testing type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
-				<< " assuming " << assuming_equal.size() << " pairs equal" << endl);
-			
-			return t.tag_here() == get_tag(); // will be refined in subclasses
-		}
-		bool type_die::equal(iterator_df<type_die> t, 
+		type_die::equal_result_t type_die::equal(iterator_df<type_die> t, 
 			const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal
 			) const
 		{
-			set<pair< iterator_df<type_die>, iterator_df<type_die> > > flipped_set;
+			/* Remember that this is a stricter test than type synonymy, e.g.
+			 * a typedef of 'int' does not equal the real 'int'. */
 			auto& r = get_root();
 			auto self = find_self();
-			opt<uint32_t> this_summary_code;
-			opt<uint32_t> t_summary_code;
-			bool ret;
-			bool t_may_equal_self;
-			bool self_may_equal_t;
+			set< pair< iterator_df<type_die>, iterator_df<type_die> > > new_assuming_equal;
+			new_assuming_equal = assuming_equal;// new_assuming_equal.insert(make_pair(self, t));
+			/* this is our core equality test. */
+			auto equal_nocache = [&new_assuming_equal]
+			(iterator_df<type_die> t1, iterator_df<type_die> t2) -> pair<equal_result_t, string> {
+				auto r1 = t1->may_equal(t2, new_assuming_equal);
+				if (!r1) return make_pair(UNEQUAL, "self may_equal");
+
+				// to make the reversed may_equal call, we no longer need to flip our set of pairs
+				// because we test above for the elements in either order, i.e. it's effectively
+				// a set of *unordered* pairs.
+				auto r2 = t2->may_equal(t1, /*flipped_set*/ new_assuming_equal);
+				if (!r2) return make_pair(UNEQUAL, "t may_equal");
+				if (r1 == EQUAL_BY_ASSUMPTION || r2 == EQUAL_BY_ASSUMPTION) return make_pair(
+					EQUAL_BY_ASSUMPTION, "");
+				return make_pair(EQUAL, "");
+			};
 
 			// iterator equality always implies type equality
-			if (self == t) return true;
+			if (self == t) return EQUAL;
 			
-			if (assuming_equal.find(make_pair(self, t)) != assuming_equal.end())
+			/* We use 'assuming_equal' to break cycles: when recursing from a pair of
+			 * with_data_members types, we assume they are equal. If they can be
+			 * equal given that assumption, they are equal.
+			 *
+			 * This affects caching of results. Right here, we obviously return without
+			 * caching the result: we're just acting on an assumption. But if our
+			 * *caller* is working on the same assumption, it also should refrain from
+			 * caching the result it sees for us. Does this arise naturally? No because
+			 * we're happy to call may_equal passing new_assuming_equal. It is wrong to
+			 * then cache the result of that. See 'goto return_after_cache' below. */
+			if (assuming_equal.find(make_pair(self, t)) != assuming_equal.end()
+			 || assuming_equal.find(make_pair(t, self)) != assuming_equal.end())
 			{
-				return true;
+				return EQUAL_BY_ASSUMPTION;
 			}
+			debug_expensive(5, << "type_die::equal called non-trivially on "
+				<< self << " and " << t << " assuming " << assuming_equal.size()
+				<< " pairs equal" << endl);
+// #define DISABLE_TYPE_EQUALITY_CACHE
+#ifndef DISABLE_TYPE_EQUALITY_CACHE
 			/* If the two iterators share a root, check the cache.
-			 * FIXME: can we use a smarter structure for this cache?
-			 * For the positive results, I think we could use a linked list
-			 * of equivalence classes (sets of offsets), with a map from offsets
-			 * to a pointer to their equivalence class. Then our initial
-			 * cache check is a search in this set. We can still use a
-			 * multimap for the negative results. */
+			 * For positive results, we use a linked list of equivalence classes
+			 * (sets of offsets), with a map from offsets to a pointer to their
+			 * equivalence class. Then our initial cache check is a search in this
+			 * set. A negative result is cached by ensuring equivalence classes
+			 * exist for the two compared DIEs. */
+			auto equiv_class_ptr = [=](iterator_df<type_die> t1) -> opt<list<set<Dwarf_Off>>::iterator> {
+				auto &m = t1.root().equivalence_class_of;
+				auto found = m.find(t1.offset_here());
+				if (found == m.end()) return opt<list<set<Dwarf_Off>>::iterator>();
+				return found->second;
+			};
+			auto check_cached_result = [=](iterator_df<type_die> t1, iterator_df<type_die> t2)
+			 -> opt<bool> {
+				/* Check for positive cached result. Do they both have an equivalence class? */
+				auto eq_class_of_t1 = equiv_class_ptr(t1);
+				auto eq_class_of_t2 = equiv_class_ptr(t2);
+				if (eq_class_of_t1 && eq_class_of_t2 &&
+					eq_class_of_t1 == eq_class_of_t2)
+				{
+					// this is a cached 'true' result
+					debug_expensive(5, << "Hit equivalence-class equality cache positively (size: "
+						<< t1.root().equivalence_class_of.size() << ") comparing "
+						<< t1.summary() << " with " << t2.summary() << endl);
+					return opt<bool>(true);
+				}
+				if (eq_class_of_t1 && eq_class_of_t2 &&
+					eq_class_of_t1 != eq_class_of_t2)
+				{
+					// do we need to merge the classes? only if they have the same root
+					Dwarf_Off t1_rep = *(*eq_class_of_t1)->begin();
+					Dwarf_Off t2_rep = *(*eq_class_of_t2)->begin();
+					if (&t1.root() == &t2.root() &&
+						t1.root().pos(t1_rep).as_a<type_die>() ==
+						t2.root().pos(t2_rep).as_a<type_die>())
+					{
+						// this is a cached 'true' result
+						debug_expensive(5, << "Hit equivalence-class equality cache positively after merging (size: "
+							<< t1.root().equivalence_class_of.size() << ") comparing "
+							<< t1.summary() << " with " << t2.summary() << endl);
+						return opt<bool>(true);
+					}
+					// this is a negative cached result
+					if (summary_code_for_type(self) == summary_code_for_type(t)
+						&& !self.is_a<subprogram_die>()
+						&& self.as_a<type_die>()->get_concrete_type().as_a<basic_die>() == self.as_a<basic_die>()
+						&& t.as_a<type_die>()->get_concrete_type().as_a<basic_die>() == t.as_a<basic_die>())
+					{
+						// this is fishy
+						debug(1) << "Surprising: same summary code("
+							<< std::hex << summary_code_for_type(self)
+							<< "), concrete, but unequal: "
+							<< self.summary() << " and " << t.summary() << std::endl;
+						if (self.is_a<with_data_members_die>())
+						{
+							auto p1 = equal_nocache(self, t);
+							debug(1) << "self equal t? " << std::boolalpha << p1.first
+								<< ", reason " << p1.second << endl;
+						}
+					}
+					debug_expensive(5, << "Hit equivalence-class equality cache negatively (size: "
+						<< self.root().equivalence_class_of.size() << ") comparing "
+						<< summary() << " with " << t.summary()
+						<< " (summary codes " << std::hex << summary_code_for_type(self) << " and "
+							<< std::hex << summary_code_for_type(t) << ")"
+						<< " (equiv classes " << &*eq_class_of_t1 << " (size " << (*eq_class_of_t1)->size()
+						<< ") and "
+						<< &*eq_class_of_t2 << " (size " << (*eq_class_of_t2)->size() << ")" << endl);
+					return opt<bool>(false); // i.e. the cached result
+				}
+				return opt<bool>();
+			}; // end check_cached_result lambda
+			opt<bool> cached = check_cached_result(self, t);
+			if (cached)
+			{
+				opt<bool> reversed = check_cached_result(t, self);
+				assert(reversed.is_initialized());
+				assert(*reversed == *cached);
+				return *cached ? EQUAL : UNEQUAL; // we never cache 'by assumption' results
+			}
 			if (t && &t.root() == &self.root())
 			{
-				auto found_seq = self.root().equal_to.equal_range(t.offset_here());
-				auto found_other_seq = self.root().equal_to.equal_range(self.offset_here());
-				for (auto i_found = found_seq.first; i_found != found_seq.second; ++i_found)
-				{
-					// the 'second' of each pair is a pair <offset, t/f>,
-					// allowing us to cache both positive and negative results
-					auto &ent_offset = i_found->second.first;
-					auto &cached_result = i_found->second.second;
-					if (ent_offset == self.offset_here())
-					{
-#ifdef DEBUG_TYPE_EQUALITY
-						std::cerr << "Hit equal_to cache (size: "
-							<< self.root().equal_to.size() << ") comparing "
-							<< summary() << " with " << t.summary()
-							<< " (result: " << std::boolalpha << cached_result << ")" << endl;
-#endif
-						/* Assert the symmetric result was found. */
-						assert(std::find_if(found_other_seq.first, found_other_seq.second,
-							[&t](decltype(self.root().equal_to)::value_type const& p)
-								{ return p.second.first == t.offset_here(); })
-							!= found_other_seq.second);
-						return cached_result;
-					}
-				}
-				/* Assert the symmetric result was *not* found. */
-				assert(std::find_if(found_other_seq.first, found_other_seq.second,
-					[&t](decltype(self.root().equal_to)::value_type const& p)
-						{ return p.second.first == t.offset_here(); })
-					== found_other_seq.second);
-#ifdef DEBUG_TYPE_EQUALITY
-				std::cerr << "Missed equal_to cache (size: "
-					<< self.root().equal_to.size() << ") comparing "
-					<< summary() << " with " << t.summary() << endl;
-#endif
+				debug_expensive(5, << "Missed equivalence-class equality cache (size: "
+					<< self.root().equivalence_class_of.size() << ") comparing "
+					<< summary() << " with " << t.summary() << endl);
 			}
 			else
 			{
-				// FIXME: can remove this message.
-#ifdef DEBUG_TYPE_EQUALITY
-				std::cerr << "Fishy: comparing DIEs from distinct roots" << std::endl;
-#endif
+				debug_expensive(5, << "Fishy: comparing DIEs from distinct roots" << std::endl);
 			}
+#endif
+			equal_result_t ret;
+			opt<uint32_t> this_summary_code;
+			opt<uint32_t> t_summary_code;
+			pair<equal_result_t, string> retpair;
+			string reason = "";
+			std::function<string(list<set<Dwarf_Off>>::iterator)> print_equivalence_class;
+			opt<bool> re_checked;
+
 			// quick tests that can rule out a match -- all may_equal definitions
 			// should respect this
-			if (t.tag_here() != get_tag()) { ret = false; goto out; }
+			if (t.tag_here() != get_tag()) { ret = UNEQUAL; reason = "tag"; goto return_and_cache; }
 			if (t.name_here() && get_name() && *t.name_here() != *get_name())
-			{ ret = false; goto out; }
+			{ ret = UNEQUAL; reason = "name"; goto return_and_cache; }
 
 			// try using summary codes
 			this_summary_code = this->summary_code();
@@ -2690,8 +2759,8 @@ namespace dwarf
 				 * and typedefs etc. have the same summary code but are distinct DIEs. */
 				if (*this_summary_code != *t_summary_code)
 				{
-					ret = false;
-					goto out;
+					ret = UNEQUAL; reason = "summary content";
+					goto return_and_cache;
 				}
 			}
 			if (!!this_summary_code != !!t_summary_code)
@@ -2699,103 +2768,292 @@ namespace dwarf
 				/* If one has a summary code and the other doesn't, it means
 				 * one is incomplete (or dependent on an incomplete) and the
 				 * other is not. */
-#ifdef DEBUG_TYPE_EQUALITY
-				std::cerr << "Interesting: incompleteness mismatch comparing  " << summary() << " with " << t.summary() << endl;
-#endif
-				ret = false;
-				goto out;
+				debug(5) << "Interesting: incompleteness mismatch comparing  " << summary() << " with " << t.summary() << endl;
+				ret = UNEQUAL; reason = "summary presence";
+				goto return_and_cache;
 			}
-			
-			self_may_equal_t = this->may_equal(t, assuming_equal);
-			if (!self_may_equal_t) { ret = false; goto out; }
-			
-			// to make the reversed may_equal call, we need to flip our set of pairs
-			// OR just assert it's symmetric.
-			for (auto i_pair = assuming_equal.begin(); i_pair != assuming_equal.end(); ++i_pair)
-			{
-				flipped_set.insert(make_pair(i_pair->second, i_pair->first));
-			}
-			t_may_equal_self = t->may_equal(self, flipped_set);
-			if (!t_may_equal_self) { ret = false; goto out; }
-
-			ret = true;
-			// if we're unequal then we should not be the same DIE (equality is reflexive)
-		out:
+			// ran out of shortcuts, so use equal_nocache to call the actual may_equal methods
+			retpair = equal_nocache(self, t);
+			ret = retpair.first;
+			reason = retpair.second;
+			// fall through, joining earlier paths that skipped the equal_nocache
+		return_and_cache:
+			debug_expensive(5, << "type_die::equal() after missing cache found " << self << " and " << t
+				<< (ret ?  " equal" : " not equal, for reason ")
+				<< (ret ? string("") : reason)
+				<< endl);
 			/* If we're returning false, we'd better not be the same DIE. */
 			assert(ret || !t || 
 				!(&t.get_root() == &self.get_root() && t.offset_here() == self.offset_here()));
-			/* If the two iterators share a root, cache the result */
-			if (t && &t.root() == &self.root())
+			/* If we're testing modulo an assumption, the result is not cacheable.
+			 * NOTE: this is not the only way that positive-test pairs get into the
+			 * cache: by merging into equivalence classes we exploit transitivity
+			 * to, in effect, cache many pairs at once.
+			 * XXX: we also never seem to merge into an existing equivalence class. */
+			if (ret == EQUAL_BY_ASSUMPTION)
 			{
-				assert(self.offset_here() != t.offset_here());
-				decltype(self.root().equal_to)::value_type p1 = make_pair(self.offset_here(), make_pair(t.offset_here(), ret));
-				decltype(self.root().equal_to)::value_type p2 = make_pair(t.offset_here(), make_pair(self.offset_here(), ret));
-				auto ret1 = self.root().equal_to.insert(p1);
-				auto ret2 = self.root().equal_to.insert(p2);
-#ifdef DEBUG_TYPE_EQUALITY
-				std::cerr << "Installing result in equal_to cache after comparison of "
-					<< summary() << " with " << t.summary()
-					<< " returned " << std::boolalpha << ret
-					<< "; cache size is now " << self.root().equal_to.size() << endl;
-#endif
-#if 0
-				std::cerr << "{";
-				for (auto i_pair = self.root().equal_to.begin();
-					i_pair != self.root().equal_to.end();
-					++i_pair)
-				{
-					if (i_pair != self.root().equal_to.begin()) std::cerr << ", ";
-					std::cerr << "(" << std::hex << i_pair->first
-						<< "," << std::hex << i_pair->second.first
-						<< "," << std::boolalpha << i_pair->second.second
-						<< ")";
-				}
-				std::cerr << "}" << std::endl;
-#endif
+				debug_expensive(5,
+					<< "Positive result is not cacheable because of assumptions " << std::dec << assuming_equal.size()
+					<< " (first pair: "
+					<< assuming_equal.begin()->first.summary() << " and "
+					<< assuming_equal.begin()->second.summary() << ")"
+					<< endl);
+
+				goto return_after_cache;
 			}
 			else
 			{
-#ifdef DEBUG_TYPE_EQUALITY
-				std::cerr << "Not caching in equal_to cache (different roots!) after comparison of " << summary() << " with " << t.summary() << " returned " << std::boolalpha << ret << endl;
-#endif
+				debug_expensive(5, << (ret ? "Positive" : "Negative") 
+					<< " result is cacheable" << endl);
 			}
+#ifndef DISABLE_TYPE_EQUALITY_CACHE
+			/* If the two iterators share a root, cache the result. One quirk is that
+			 * in the case of recursive types, the may_equal check we did above may
+			 * have already cached us, because it may have run the test we're doing
+			 * a second time. So the cache state may have changed since we first checked.
+			 *
+			 * Perhaps we can avoid this by *always* adding ourselves to the assuming_equal
+			 * set? That will cut off the recursion at the earliest possible repeat.
+			 * Previously we relied on with_data_members_die::may_equal expanding the
+			 * assumed-equal set. We were seeing it take multiple hits to cut off the recursion
+			 * because if we were a pointer-to-struct type, then we might hit ourselves
+			 * as a struct member before we hit the struct itself a second time. The
+			 * struct itself would be compared with an expanded assuming_equal, preventing
+			 * infinite recursion, but our call chain still has two comparisons of the
+			 * pointer type active, and the inner one will cache a result before the
+			 * outer one runs the code below.
+			 *
+			 * Always adding ourselves to the assumed-equal set means any sub-check we
+			 * do will not be cached, now that we have (correctly) fixed the cache
+			 * logic to avoid caching these predicated-on-assumption results. So it is
+			 * not a good value option. Instead the code below needs to be robust to the
+			 * cache having changed. The easiest thing is to re-run the check_cached_result
+			 * test and do nothing if it returns something (anything).
+			 */
+			// there wasn't a result in the cache earlier; is there one now?
+			/* opt<bool> */ re_checked = check_cached_result(self, t);
+			if (re_checked) { assert(*re_checked == ret); goto return_after_cache; }
+			print_equivalence_class = [](list<set<Dwarf_Off>>::iterator i_cl) -> string {
+				std::ostringstream s;
+				s << "{";
+				for (auto i_off = i_cl->begin();
+					i_off != i_cl->end();
+					++i_off)
+				{
+					if (i_off != i_cl->begin()) s << ", ";
+					s << std::hex << *i_off;
+				}
+				s << "}" << std::endl;
+				return s.str();
+			};
+			if (t && &t.root() == &self.root())
+			{
+				assert(self.offset_here() != t.offset_here());
+				opt<list<set<Dwarf_Off>>::iterator> eq_class_of_t = equiv_class_ptr(t);
+				opt<list<set<Dwarf_Off>>::iterator> eq_class_of_self = equiv_class_ptr(self);
+				//if (!ret) assert(!eq_class_of_t || eq_class_of_t != eq_class_of_self);
 
+				/* We index equivalence classes by summary code to help find existing ones.
+				 * See comment below about 'don't rush into creating a new class'. */
+				auto find_or_create_eq_class = [equal_nocache, print_equivalence_class]
+				(iterator_df<type_die> new_rep,
+				 opt<uint32_t> summary_code) -> list<set<Dwarf_Off>>::iterator {
+					/* A small number of equivalence classes (usually 1) will
+					 * apply to type DIEs having this summary code. Identify them. */
+					auto matching_by_summary_code = new_rep.root().
+						equivalence_classes_by_summary_code.equal_range(summary_code);
+					auto i_ent = matching_by_summary_code.first;
+					for (; i_ent != matching_by_summary_code.second; ++i_ent)
+					{
+						auto& iter = i_ent->second;
+						auto& the_set = *iter;
+						Dwarf_Off rep_off = *(*iter).begin();
+						iterator_df<type_die> rep_t = new_rep.root().pos(rep_off);
+						if (equal_nocache(rep_t, new_rep).first) /* found it! */
+						{
+							the_set.insert(new_rep.offset_here());
+							debug_expensive(5, << "Inferred we can merge "
+								<< new_rep << " into existing equivalence class at "
+								<< &*i_ent->second
+								<< " s.t. it is now "
+								<< print_equivalence_class(i_ent->second)
+								<< endl);
+							break;
+							// we want to assert that they all equal rep, not just the first one
+						}
+					}
+					// if we exited the loop early, we're ready to return
+					if (i_ent != matching_by_summary_code.second) return i_ent->second;
+					// otherwise make a new equiv class and index it by summary code
+					auto& new_set = new_rep.root().equivalence_classes.emplace_back(
+						set<Dwarf_Off>({}));
+					auto iter = std::prev(new_rep.root().equivalence_classes.end());
+					new_rep.root().equivalence_classes_by_summary_code.insert(
+						make_pair(
+							summary_code,
+							iter
+						)
+					);
+					debug_expensive(5, << "Created fresh equivalence class at " << &new_set
+						<< " to hold " << new_rep << endl);
+					return iter;
+				}; // end find_or_create_eq_class lambda
+
+				if (UNEQUAL != ret) // cache positive result
+				{
+					/* If either one has an equivalence class already, we simply
+					 * add the other to it *and* associate the first with that eq. */
+#define ASSERT_EQ_CLASS_ABSENT(oi) \
+   do { if ((oi)) { \
+           debug(0) << "Erk: " << &(**(oi)) << endl; \
+           debug(0) << "In type_die::equal of " << self << " and " << t << endl; \
+        } \
+        assert(!(oi)); \
+   } while (0)
+					if (eq_class_of_t)
+					{
+						ASSERT_EQ_CLASS_ABSENT(eq_class_of_self);
+						debug_expensive(5, << "Adding to equivalence class at " << &**eq_class_of_t
+							<< ": " << self << endl);
+						(*eq_class_of_t)->insert(self.offset_here());
+						self.root().equivalence_class_of.insert(make_pair(self.offset_here(), *eq_class_of_t));
+					}
+					else if (eq_class_of_self)
+					{
+						ASSERT_EQ_CLASS_ABSENT(eq_class_of_t);
+						debug(5) << "Adding to equivalence class at " << &**eq_class_of_self
+							<< ": " << t << endl;
+						(*eq_class_of_self)->insert(t.offset_here());
+						t.root().equivalence_class_of.insert(make_pair(t.offset_here(), *eq_class_of_self));
+					}
+					else
+					{
+						/* Don't rush into creating a new class. The equivalence
+						 * class we think we want to create may already exist, just not
+						 * yet having had these DIEs be compared against its members
+						 * i.e. the equality has not yet been discovered.
+						 *
+						 * What to do? Test against all existing classes? Seems slow.
+						 * Just don't cache anything? This omits to cache a positive result.
+						 * Start a new class but allow for lazily coalescing later?
+						 * This omits to cache a negative result, because we can't
+						 * use inequality of equivalence classes as a negative
+						 * result.
+						 *
+						 * Let's use summary codes to narrow down the possible classes
+						 * to test against. */
+						ASSERT_EQ_CLASS_ABSENT(eq_class_of_t);
+						ASSERT_EQ_CLASS_ABSENT(eq_class_of_self);
+						auto new_set_iter = find_or_create_eq_class(self, self.as_a<type_die>()->summary_code());
+						set<Dwarf_Off>& new_set = *new_set_iter;
+						new_set.insert(t.offset_here());
+						new_set.insert(self.offset_here());
+						debug_expensive(5, << "Found-or-created equivalence class at " << &new_set
+							<< " holding " << self << " and " << t << endl);
+						// create one equiv class and add both to it
+						self.root().equivalence_class_of.insert(make_pair(self.offset_here(), new_set_iter));
+						self.root().equivalence_class_of.insert(make_pair(t.offset_here(), new_set_iter));
+					}
+					debug_expensive(5, << "Installed positive result in equality cache after comparison of "
+						<< summary() << " with " << t.summary()
+						<< "; cache size is now " << self.root().equivalence_class_of.size() << endl);
+					opt<bool> cached1 = check_cached_result(self, t);
+					assert(cached1);
+					assert(*cached1);
+					opt<bool> cached2 = check_cached_result(t, self);
+					assert(cached2);
+					assert(*cached2);
+				}
+				else // negative result is cached simply by ensuring distinct equiv classes exist
+				     // We need to do this eagerly because our '<' impl (compare_with_type_equality)
+				     // relies on a total (but arbitrary) ordering existin between equiv classes
+				{
+					auto maybe_fail_on = [&](opt<list<set<Dwarf_Off>>::iterator> should_not_equal_other) {
+						if (!should_not_equal_other) return;
+						if (should_not_equal_other == eq_class_of_self
+						 && should_not_equal_other == eq_class_of_t)
+						{
+							std::cerr << "Internal error: caching negative equality comparison of "
+								 << self.summary() << " and " << t.summary()
+								 << " (reason: " << reason << ")"
+								 << " but both are already in same equivalence class: "
+								 << print_equivalence_class(*should_not_equal_other)
+								 << endl;
+							if (reason == "self may_equal")
+							{
+								// let's re-call may_equal after a delay
+								sleep(10);
+								this->may_equal(t, assuming_equal);
+							}
+							assert(false);
+						}
+					};
+					if (!eq_class_of_t)
+					{
+						auto new_set_iter = find_or_create_eq_class(t, t.as_a<type_die>()->summary_code());
+						set<Dwarf_Off>& new_set = *new_set_iter;
+						new_set.insert(t.offset_here());
+						self.root().equivalence_class_of.insert(make_pair(t.offset_here(), new_set_iter));
+					} else maybe_fail_on(eq_class_of_t); //assert(!eq_class_of_self || eq_class_of_t != eq_class_of_self);
+					if (!eq_class_of_self)
+					{
+						auto new_set_iter = find_or_create_eq_class(self, self.as_a<type_die>()->summary_code());
+						set<Dwarf_Off>& new_set = *new_set_iter;
+						new_set.insert(self.offset_here());
+						self.root().equivalence_class_of.insert(make_pair(self.offset_here(), new_set_iter));
+					} else maybe_fail_on(eq_class_of_self); //assert(!eq_class_of_t || eq_class_of_t != eq_class_of_self);
+					debug_expensive(5, << "Installed negative result in equality cache after comparison of "
+						<< summary() << " with " << t.summary()
+						<< " (reason " << reason << ")"
+						<< "; cache size is now " << self.root().equivalence_class_of.size() << endl);
+					opt<bool> cached1 = check_cached_result(self, t);
+					assert(cached1);
+					assert(!*cached1);
+					opt<bool> cached2 = check_cached_result(t, self);
+					assert(cached2);
+					assert(!*cached2);
+				}
+			}
+			else // not cacheable
+			{
+				debug_expensive(5, << "Not caching in equality result (different roots!)"
+					" after comparison of " << summary()
+					<< " with " << t.summary()
+					<< " returned " << std::boolalpha << ret << endl);
+			}
+#endif /* DISABLE_TYPE_EQUALITY_CACHE */
+		return_after_cache:
 			return ret;
 		}
 		bool type_die::operator==(const dwarf::core::type_die& t) const
 		{ return equal(get_root().find(t.get_offset()), {}); }
 /* from base_type_die */
-		bool base_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t base_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
-			if (!t) return false;
-			
-			if (get_tag() != t.tag_here()) return false;
-
-			if (get_name() != t.name_here()) return false;
-
+			if (!t) return UNEQUAL;
+			if (get_tag() != t.tag_here()) return UNEQUAL;
+			if (get_name() != t.name_here()) return UNEQUAL;
 			auto other_base_t = t.as_a<base_type_die>();
-			
 			bool encoding_equal = get_encoding() == other_base_t->get_encoding();
-			if (!encoding_equal) return false;
-			
+			if (!encoding_equal) return UNEQUAL;
 			bool byte_size_equal = get_byte_size() == other_base_t->get_byte_size();
-			if (!byte_size_equal) return false;
+			if (!byte_size_equal) return UNEQUAL;
 			
 			bool bit_size_equal =
 			// presence equal
 				(!get_bit_size() == !other_base_t->get_bit_size())
 			// and if we have one, it's equal
 			&& (!get_bit_size() || *get_bit_size() == *other_base_t->get_bit_size());
-			if (!bit_size_equal) return false;
+			if (!bit_size_equal) return UNEQUAL;
 			
 			bool bit_offset_equal = 
 			// presence equal
 				(!get_bit_offset() == !other_base_t->get_bit_offset())
 			// and if we have one, it's equal
 			&& (!get_bit_offset() || *get_bit_offset() == *other_base_t->get_bit_offset());
-			if (!bit_offset_equal) return false;
+			if (!bit_offset_equal) return UNEQUAL;
 			
-			return true;
+			return EQUAL;
 		}
 		opt<Dwarf_Unsigned> base_type_die::calculate_byte_size() const
 		{
@@ -2864,35 +3122,44 @@ namespace dwarf
 			// caller
 			else return "__uninterpreted_byte";
 		}
-/* from ptr_to_member_type_die */
-		bool ptr_to_member_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		std::ostream& operator<<(std::ostream& s, enum type_die::equal_result_t r)
 		{
-			if (!t) return false;
+			switch (r)
+			{
+				case type_die::UNEQUAL: s << "unequal"; break;
+				case type_die::EQUAL_BY_ASSUMPTION: s << "equal (by assumption)"; break;
+				case type_die::EQUAL: s << "equal"; break;
+				default: assert(false); abort();
+			}
+			return s;
+		}
+/* from ptr_to_member_type_die */
+		type_die::equal_result_t ptr_to_member_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		{
+			if (!t) return UNEQUAL;
 			
 			debug(2) << "Testing ptr_to_member_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
 			auto other_t = t->get_concrete_type();
 			auto other_t_as_pmem = other_t.as_a<ptr_to_member_type_die>();
-			return other_t.tag_here() == DW_TAG_ptr_to_member_type
-				&& other_t_as_pmem->get_type()->may_equal(get_type(), assuming_equal)
-				&& other_t_as_pmem->get_containing_type()->may_equal(get_containing_type(),
-					assuming_equal);
+			return (other_t.tag_here() == DW_TAG_ptr_to_member_type
+				&& other_t_as_pmem->get_type()->equal(get_type(), assuming_equal)) ? EQUAL : UNEQUAL;
 		}
 /* from array_type_die */
 		iterator_df<type_die> array_type_die::get_concrete_type() const
 		{
 			return find_self();
 		}
-		bool array_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t array_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
-			if (!t) return false;
+			if (!t) return UNEQUAL;
 			
 			debug(2) << "Testing array_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
-			if (get_tag() != t.tag_here()) return false;
-			if (get_name() != t.name_here()) return false;
+			if (get_tag() != t.tag_here()) return UNEQUAL;
+			if (get_name() != t.name_here()) return UNEQUAL;
 
 			// our subrange type(s) should be equal, if we have them
 			auto our_subr_children = children().subseq_of<subrange_type_die>();
@@ -2902,7 +3169,7 @@ namespace dwarf
 				++i_subr, ++i_theirs)
 			{
 				// if they have fewer, we're unequal
-				if (i_theirs == their_subr_children.second) return false;
+				if (i_theirs == their_subr_children.second) return UNEQUAL;
 				
 				bool types_equal = 
 				// presence equal
@@ -2910,16 +3177,16 @@ namespace dwarf
 				// and if we have one, it's equal to theirs
 				&& (!i_subr->get_type() || i_subr->get_type()->equal(i_theirs->get_type(), assuming_equal));
 				
-				if (!types_equal) return false;
+				if (!types_equal) return UNEQUAL;
 			}
 			// if they had more, we're unequal
-			if (i_theirs != their_subr_children.second) return false;
+			if (i_theirs != their_subr_children.second) return UNEQUAL;
 			
 			// our element type(s) should be equal
 			bool types_equal = get_type()->equal(t.as_a<array_type_die>()->get_type(), assuming_equal);
-			if (!types_equal) return false;
+			if (!types_equal) return UNEQUAL;
 			
-			return true;
+			return EQUAL;
 		}
 /* from address_holding_type_die: */
 		pair<unsigned, iterator_df<type_die> > address_holding_type_die::get_ultimate_reached_type() const
@@ -2959,28 +3226,28 @@ namespace dwarf
 		}
 
 /* from string_type_die */
-		bool string_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t string_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
-			if (!t) return false;
+			if (!t) return UNEQUAL;
 			
 			debug(2) << "Testing string_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
-			if (get_tag() != t.tag_here()) return false;
-			if (get_name() != t.name_here()) return false;
+			if (get_tag() != t.tag_here()) return UNEQUAL;
+			if (get_name() != t.name_here()) return UNEQUAL;
 
 			// our has-dynamic-lengthness should be equal
 			bool dynamic_lengthness_equal = (t.as_a<string_type_die>()->get_string_length()
 				== get_string_length());
-			if (!dynamic_lengthness_equal) return false;
+			if (!dynamic_lengthness_equal) return UNEQUAL;
 			// if we don't have dynamic length, any static length should be equal
 			if (!get_string_length())
 			{
 				auto our_opt_byte_size = get_byte_size();
 				auto other_opt_byte_size = t.as_a<string_type_die>()->get_byte_size();
-				if (our_opt_byte_size != other_opt_byte_size) return false;
+				if (our_opt_byte_size != other_opt_byte_size) return UNEQUAL;
 			}
-			return true;
+			return EQUAL;
 		}
 		opt<Dwarf_Unsigned> string_type_die::fixed_length_in_bytes() const
 		{
@@ -2998,15 +3265,13 @@ namespace dwarf
 			return *opt_string_length;
 		}
 /* from subrange_type_die */
-		bool subrange_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t subrange_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
-			if (!t) return false;
+			if (!t) return UNEQUAL;
 			debug(2) << "Testing subrange_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
-			
-			if (get_tag() != t.tag_here()) return false;
-			
-			if (get_name() != t.name_here()) return false;
+			if (get_tag() != t.tag_here()) return UNEQUAL;
+			if (get_name() != t.name_here()) return UNEQUAL;
 
 			auto subr_t = t.as_a<subrange_type_die>();
 			
@@ -3016,30 +3281,30 @@ namespace dwarf
 				(!get_type() == !subr_t->get_type())
 			// if we have one, it should equal theirs
 			&& (!get_type() || get_type()->equal(subr_t->get_type(), assuming_equal));
-			if (!types_equal) return false;
+			if (!types_equal) return UNEQUAL;
 			
 			// our upper bound and lower bound should be equal
 			bool lower_bound_equal = get_lower_bound() == subr_t->get_lower_bound();
-			if (!lower_bound_equal) return false;
+			if (!lower_bound_equal) return UNEQUAL;
 			
 			bool upper_bound_equal = get_upper_bound() == subr_t->get_upper_bound();
-			if (!upper_bound_equal) return false;
+			if (!upper_bound_equal) return UNEQUAL;
 			
 			bool count_equal = get_count() == subr_t->get_count();
-			if (!count_equal) return false;
+			if (!count_equal) return UNEQUAL;
 			
-			return true;
+			return EQUAL;
 		}
 /* from enumeration_type_die */
-		bool enumeration_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t enumeration_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
-			if (!t) return false;
+			if (!t) return UNEQUAL;
 			debug(2) << "Testing enumeration_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
-			if (get_tag() != t.tag_here()) return false;
+			if (get_tag() != t.tag_here()) return UNEQUAL;
 			
-			if (get_name() != t.name_here()) return false;
+			if (get_name() != t.name_here()) return UNEQUAL;
 		
 			auto enum_t = t.as_a<enumeration_type_die>();
 			
@@ -3049,7 +3314,7 @@ namespace dwarf
 				(!get_type() == !enum_t->get_type())
 			// if we have one, it should equal theirs
 			&& (!get_type() || get_type()->equal(enum_t->get_type(), assuming_equal));
-			if (!types_equal) return false;
+			if (!types_equal) return UNEQUAL;
 
 			/* We need like-named, like-valued enumerators. */
 			auto our_enumerator_children = children().subseq_of<enumerator_die>();
@@ -3059,15 +3324,15 @@ namespace dwarf
 				++i_memb, ++i_theirs)
 			{
 				// if they have fewer, we're unequal
-				if (i_theirs == their_enumerator_children.second) return false;
+				if (i_theirs == their_enumerator_children.second) return UNEQUAL;
 
-				if (i_memb->get_name() != i_theirs->get_name()) return false;
+				if (i_memb->get_name() != i_theirs->get_name()) return UNEQUAL;
 				
-				if (i_memb->get_const_value() != i_theirs->get_const_value()) return false;
+				if (i_memb->get_const_value() != i_theirs->get_const_value()) return UNEQUAL;
 			}
-			if (i_theirs != their_enumerator_children.second) return false;
+			if (i_theirs != their_enumerator_children.second) return UNEQUAL;
 			
-			return true;
+			return EQUAL;
 		}
 /* from qualified_type_die */
 		iterator_df<type_die> qualified_type_die::get_unqualified_type() const
@@ -3105,15 +3370,46 @@ namespace dwarf
 				return opt<Dwarf_Unsigned>();
 			}
 		}
-		bool type_chain_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+/* from typedef_die */
+		type_die::equal_result_t typedef_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		{
+			debug(2) << "Testing typedef_die::may_equal() on " << *get_name() << endl;
+			/* This is like type_chain_die but also the names must match. Check that first. */
+			if (!(t.is_a<typedef_die>()
+			 && t.as_a<typedef_die>().name_here()
+			 && *t.as_a<typedef_die>().name_here() == *this->get_name())) return UNEQUAL;
+			// if we got here, it's down to the usual type chaining
+			return this->type_chain_die::may_equal(t, assuming_equal);
+		}
+		type_die::equal_result_t type_chain_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
 			debug(2) << "Testing type_chain_die::may_equal() (default case)" << endl;
-			
-			return get_tag() == t.tag_here() && 
-				(
-					(!get_type() && !t.as_a<type_chain_die>()->get_type())
-				||  (get_type() && t.as_a<type_chain_die>()->get_type() && 
-					get_type()->equal(t.as_a<type_chain_die>()->get_type(), assuming_equal)));
+			equal_result_t ret;
+			equal_result_t sub_equal;
+			string reason;
+			if (!(get_tag() == t.tag_here())) { ret = UNEQUAL; reason = "tag mismatch"; goto ret; }
+			if (!get_type() && !t.as_a<type_chain_die>()->get_type()) { ret = UNEQUAL; goto ret; }
+			if (!get_type() && t.as_a<type_chain_die>()->get_type())
+			{ ret = UNEQUAL; reason = "exactly one is chaining void (1)"; goto ret; }
+			if (!!get_type() && !t.as_a<type_chain_die>()->get_type())
+			{ ret = UNEQUAL; reason = "exactly one is chaining void (2)"; goto ret; }
+			sub_equal = get_type()->equal(t.as_a<type_chain_die>()->get_type(), assuming_equal);
+			if (!sub_equal)
+			{
+				ret = sub_equal;
+				std::ostringstream s; s << "sub-equality of "
+					<< get_type().summary() << " and "
+					<< t.as_a<type_chain_die>()->get_type().summary();
+				reason = s.str();
+				goto ret;
+			}
+			ret = EQUAL;
+		ret:
+			debug(2) << "type_chain_die::may_equal() result was " << ret
+				<< " between " << this->summary() << " and " << t.summary();
+			if (!ret) debug(2) << ", reason: " << reason;
+			debug(2) << endl;
+			return ret;
 		}
 		iterator_df<type_die> type_chain_die::get_concrete_type() const
 		{
@@ -3169,7 +3465,13 @@ namespace dwarf
 			
 			return opt_total_count;
 		}
-		
+		type_die::equal_result_t unspecified_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		{
+			if (!t) return UNEQUAL;
+			if (t->get_tag() == get_tag()) return EQUAL;
+			return UNEQUAL;
+		}
+
 		vector< opt<Dwarf_Unsigned> > array_type_die::dimension_element_counts() const
 		{
 			auto element_type = get_type();
@@ -3292,15 +3594,37 @@ namespace dwarf
 			return default_answer; // just does get_byte_size()
 		}
 /* from spec::with_data_members_die */
-		bool with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
-			if (!t) return false;
+			string reason;
+			equal_result_t ret = EQUAL;
+			if (!t) { reason = "t is void"; ret = UNEQUAL; goto out; }
 			debug(2) << "Testing with_data_members_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
 			
-			if (get_tag() != t.tag_here()) return false;
+			if (get_tag() != t.tag_here()) { reason = "tags"; ret = UNEQUAL; goto out; }
 			
-			if (get_name() != t.name_here()) return false;
+			if (get_name() != t.name_here()) { reason = "name"; ret = UNEQUAL; goto out; }
+			if (!get_name() && !t.name_here())
+			{
+				/* Two anonymous structs with the same types of fields
+				 * should not be deemed the same type. Use source context.
+				 * FIXME: should really be using containment, not raw file coords.
+				 * e.g. if two different elf.h files are included by different
+				 * CUs, the file/line/column coords of their anonymous Elf_* structures
+				 * should not matter. Maybe keep the test below if parents are CUs,
+				 * otherwise need a binary test for "same source context". */
+#define MUST_EQUAL_IF_PRESENT(frag) \
+				if (get_ ## frag () || t->get_ ## frag()) \
+				{ if (!get_ ## frag() || !t->get_ ## frag() || \
+				  *get_##frag() != *t->get_ ##frag()) {\
+				     reason = #frag ; ret = UNEQUAL; goto out; \
+				  }\
+			    }
+				MUST_EQUAL_IF_PRESENT(decl_file);
+				MUST_EQUAL_IF_PRESENT(decl_line);
+				MUST_EQUAL_IF_PRESENT(decl_column);
+			}
 			
 			/* We need like-named, like-located members. 
 			 * GAH. We really need to canonicalise location lists to do this properly. 
@@ -3308,49 +3632,79 @@ namespace dwarf
 			 * structs, it's likely to be that they are identical. */
 			
 			/* Another GAH: recursive structures. What to do about them? */
-			
+			{ /* HACK to allow goto */
 			auto our_member_children = children().subseq_of<member_die>();
 			auto their_member_children = t->children().subseq_of<member_die>();
 			auto i_theirs = their_member_children.first;
+			unsigned i = 0;
 			for (auto i_memb = our_member_children.first; i_memb != our_member_children.second;
-				++i_memb, ++i_theirs)
+				++i_memb, ++i_theirs, ++i)
 			{
 				// if they have fewer, we're unequal
-				if (i_theirs == their_member_children.second) return false;
+				if (i_theirs == their_member_children.second)
+				{ reason = "they have fewer"; ret = UNEQUAL; goto exit_member_loop; }
 				
 				auto this_test_pair = make_pair(
 					find_self().as_a<type_die>(),
 					t
 				);
-				auto recursive_test_set = assuming_equal; recursive_test_set.insert(this_test_pair);
-				
-				bool types_equal = 
-				// presence equal
-					(!i_memb->get_type() == !i_theirs->get_type())
-				// and if we have one, it's equal to theirs
-				&& (!i_memb->get_type() || 
+				/* DW_TAG_member DIEs may have bitfield attributes separate from
+				 * the base type DIE, so ensure these are accounted for. */
+				auto our_type = i_memb->/*get_type*/find_or_create_type_handling_bitfields();
+				auto their_type = i_theirs->/*get_type*/find_or_create_type_handling_bitfields();
+				assert(!!our_type); // member type cannot be void
+				assert(!!their_type);
+				equal_result_t sub_result = UNEQUAL;
 				/* RECURSION: here we may get into an infinite loop 
 				 * if equality of get_type() depends on our own equality. 
-				 * So we use equal_modulo_assumptions()
-				 * which is like operator== but doesn't recurse down 
-				 * grey (partially opened)  */
-					i_memb->get_type()->equal(i_theirs->get_type(), 
-						/* Don't recursively begin the test we're already doing */
-						recursive_test_set));
-				if (!types_equal) return false;
-				
+				 * So we use the 'assuming_equal' set: add the two test
+				 * with_data_members DIEs to it. */
+				auto recursive_test_set = assuming_equal;
+				recursive_test_set.insert(this_test_pair);
+				sub_result = our_type->equal(their_type, recursive_test_set);
+				if (!sub_result)
+				{
+					std::ostringstream s;
+					s << "member type unequal (" << i << ", "
+						<< our_type.summary()
+						<< " and " << their_type.summary() << ")";
+					reason = s.str();
+					ret = UNEQUAL;
+					goto exit_member_loop;
+				}
+				/* How does a member result affect whether we are EQUAL or EQUAL_BY_ASSUMPTION?
+				 * If the only assumption is the one we added,
+				 * or if no assumption was used by the recursive test,
+				 * EQUAL can stay EQUAL.
+				 * If the recursive test relied on an assumption that wasn't
+				 * ours, downgrade to EQUAL_BY_ASSUMPTION. */
+				if (sub_result == EQUAL_BY_ASSUMPTION
+					&&  assuming_equal.size() != 0)
+				{
+					ret = EQUAL_BY_ASSUMPTION;
+				}
+				// otherwise it stays where it was -- either EQUAL or,
+				// if an earlier member downgraded it, EQUAL_BY_ASSUMPTION
 				auto loc1 = i_memb->get_data_member_location();
 				auto loc2 = i_theirs->get_data_member_location();
 				bool locations_equal = 
 					loc1 == loc2;
-				if (!locations_equal) return false;
+				if (!locations_equal)
+				{ reason = "member loc unequal"; ret = UNEQUAL; goto exit_member_loop; }
 				
 				// FIXME: test names too? not for now
 			}
 			// if they had more, we're unequal
-			if (i_theirs != their_member_children.second) return false;
-			
-			return true;
+			if (i_theirs != their_member_children.second) { reason = "they have more"; ret = UNEQUAL; }
+		exit_member_loop: ;
+			} // end hacky extra scope
+		out:
+			if (!ret)
+			{
+				debug_expensive(5, << "with_data_members types " << this->summary() << " and " << t.summary()
+					<< " unequal for reason: " << reason << endl);
+			}
+			return ret;
 		}
 		iterator_base with_data_members_die::find_definition() const
 		{
@@ -4020,29 +4374,27 @@ namespace dwarf
 			auto unspec = children.subseq_of<unspecified_parameters_die>();
 			return unspec.first != unspec.second;
 		}
-		bool type_describing_subprogram_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t type_describing_subprogram_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
 		{
-			if (!t) return false;
+			if (!t) return UNEQUAL;
 			debug(2) << "Testing type_describing_subprogram_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
 				<< " assuming " << assuming_equal.size() << " pairs equal" << endl;
-			
-			if (get_tag() != t.tag_here()) return false;
-			
-			if (get_name() != t.name_here()) return false;
-			
+			if (get_tag() != t.tag_here()) return UNEQUAL;
+			if (get_name() != t.name_here()) return UNEQUAL;
 			auto other_sub_t = t.as_a<type_describing_subprogram_die>();
-			
-			bool return_types_equal = 
-				// presence equal
-					(!get_return_type() == !other_sub_t->get_return_type())
-				// and if we have one, it's equal to theirs
-				&& (!get_return_type() || get_return_type()->equal(other_sub_t->get_return_type(), assuming_equal));
-			if (!return_types_equal) return false;
-			
+			equal_result_t return_types_equal;
+			// presence equal
+			if (!get_return_type() && !other_sub_t->get_return_type()) return_types_equal = EQUAL;
+			else if ((!get_return_type() && !!other_sub_t->get_return_type())
+				|| (!!get_return_type() && !other_sub_t->get_return_type())) return_types_equal = UNEQUAL;
+			else /* it depends on the type */
+			{ return_types_equal = get_return_type()->equal(
+				other_sub_t->get_return_type(), assuming_equal); }
+			if (!return_types_equal) return UNEQUAL;
 			bool variadicness_equal
 			 = is_variadic() == other_sub_t->is_variadic();
-			if (!variadicness_equal) return false;
-			
+			if (!variadicness_equal) return UNEQUAL;
+			equal_result_t ret = return_types_equal;
 			/* We need like-named, like-located fps. 
 			 * GAH. We really need to canonicalise location lists to do this properly. 
 			 * That sounds difficult (impossible in general). */
@@ -4053,26 +4405,23 @@ namespace dwarf
 				++i_fp, ++i_theirs)
 			{
 				// if they have fewer, we're unequal
-				if (i_theirs == their_fps.second) return false;
-				
-				bool types_equal = 
-				// presence equal
-					(!i_fp->get_type() == !i_theirs->get_type())
-				// and if we have one, it's equal to theirs
-				&& (!i_fp->get_type() || i_fp->get_type()->equal(i_theirs->get_type(), assuming_equal));
-				
-				if (!types_equal) return false;
-				
-				bool locations_equal = 
-					(i_fp->get_location() == i_theirs->get_location());
-				if (!locations_equal) return false;
-				
+				if (i_theirs == their_fps.second) return UNEQUAL;
+				auto their_type = i_theirs->get_type();
+				auto our_type = i_fp->get_type();
+				assert(!!their_type);
+				assert(!!our_type);
+				equal_result_t sub_result = their_type->equal(our_type, assuming_equal);
+				/* How does a member result affect whether we are EQUAL or EQUAL_BY_ASSUMPTION?
+				 * See comment for with_data_members_die above. But this case is simpler
+				 * because we never add an assumption (CHECK: can we really not get recursion
+				 * via a subroutine type? Not in C but this might not hold in other languages.) */
+				if (!sub_result) { ret = UNEQUAL; break; }
+				if (sub_result == EQUAL_BY_ASSUMPTION) ret = EQUAL_BY_ASSUMPTION;
 				// FIXME: test names too? not for now
 			}
 			// if they had more, we're unequal
-			if (i_theirs != their_fps.second) return false;
-			
-			return true;
+			if (i_theirs != their_fps.second) return UNEQUAL;
+			return ret;
 		}
 /* from subroutine_type_die */
 		iterator_df<type_die> subroutine_type_die::get_return_type() const

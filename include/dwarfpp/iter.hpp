@@ -435,7 +435,17 @@ namespace dwarf
 				return (arg.is_end_position() && !this->is_end_position())
 					|| (!this->is_end_position() && this->offset_here() < arg.offset_here());
 			}
-			
+			/* A different ordering and equality relation is defined
+			 * using type equality. */
+			struct eq_by_type_equality
+			{
+				bool operator()(const iterator_base& i1, const iterator_base& i2) const;
+			};
+			struct less_by_type_equality
+			{
+				bool operator()(const iterator_base& i1, const iterator_base& i2) const;
+			};
+
 			basic_die& dereference() const 
 			{
 				assert(this->operator bool());

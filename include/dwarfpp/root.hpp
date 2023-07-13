@@ -12,6 +12,8 @@
 #include <iostream>
 #include <utility>
 #include <map>
+#include <set>
+#include <list>
 #include <unordered_map>
 #include <deque>
 #include <boost/intrusive_ptr.hpp>
@@ -29,6 +31,8 @@ namespace dwarf
 {
 	using std::string;
 	using std::map;
+	using std::set;
+	using std::list;
 	using std::unordered_map;
 	using std::pair;
 	using std::make_pair;
@@ -371,13 +375,13 @@ namespace dwarf
 			unordered_map<Dwarf_Off, Dwarf_Off> next_sibling_of;
 			
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
-#if 1
-			multimap<Dwarf_Off, pair< Dwarf_Off, bool> > equal_to;
-#else
-			multimap<Dwarf_Off, Dwarf_Off > not_equal_to;
-			linked_list<set<Dwarf_Off> > equivalence_classes;
-			map<Dwarf_Off, set<Dwarf_Off> *> equivalence_class_of;
-#endif
+			list<set<Dwarf_Off> > equivalence_classes;
+			map<Dwarf_Off, list<set<Dwarf_Off> >::iterator > equivalence_class_of;
+			multimap< opt<uint32_t>, list<set<Dwarf_Off> >::iterator > equivalence_classes_by_summary_code;
+		public:
+			map<Dwarf_Off, list<set<Dwarf_Off> >::iterator > const& equivalence_class_lookup() const
+			{ return equivalence_class_of; }
+		protected:
 			map<Dwarf_Off, opt<uint32_t> > type_summary_code_cache; // FIXME: delete this after summary_code() uses SCCs
 			opt<Dwarf_Off> synthetic_cu;
 
@@ -606,7 +610,7 @@ namespace dwarf
 		inline basic_die::~basic_die()
 		{
 			if (!is_dummy()) get_root().live_dies.erase(get_offset());
-			debug(5) << "Destructed basic DIE object at " << this << std::endl;
+			debug(6) << "Destructed basic DIE object at " << this << std::endl;
 		}
 		
 		struct in_memory_root_die : public root_die
