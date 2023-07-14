@@ -2885,8 +2885,9 @@ namespace dwarf
 					// if we exited the loop early, we're ready to return
 					if (i_ent != matching_by_summary_code.second) return i_ent->second;
 					// otherwise make a new equiv class and index it by summary code
-					auto& new_set = new_rep.root().equivalence_classes.emplace_back(
-						set<Dwarf_Off>({}));
+					new_rep.root().equivalence_classes.emplace_back(
+						set<Dwarf_Off>());
+					auto& new_set = new_rep.root().equivalence_classes.back();
 					auto iter = std::prev(new_rep.root().equivalence_classes.end());
 					new_rep.root().equivalence_classes_by_summary_code.insert(
 						make_pair(
