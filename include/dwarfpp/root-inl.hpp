@@ -257,7 +257,11 @@ namespace dwarf
 			// do we know anything about the first_child_of and next_sibling_of?
 			// NO because we don't know where we are w.r.t. other siblings
 			
-			if (base && referencer) refers_to[*referencer] = base.offset_here();
+			if (base && referencer)
+			{
+				refers_to[*referencer] = base.offset_here();
+				referred_from.insert(make_pair(base.offset_here(), *referencer));
+			}
 			
 			return Iter(std::move(base));
 		}		
@@ -311,13 +315,21 @@ namespace dwarf
 			Iter found_up = find_upwards(off, maybe_ptr);
 			if (found_up != iterator_base::END)
 			{
-				if (referencer) refers_to[*referencer] = found_up.offset_here();
+				if (referencer)
+				{
+					refers_to[*referencer] = found_up.offset_here();
+					referred_from.insert(make_pair(found_up.offset_here(), *referencer));
+				}
 				return found_up;
 			} 
 			else
 			{
 				auto found = find_downwards(off);
-				if (found && referencer) refers_to[*referencer] = found.offset_here();
+				if (found && referencer)
+				{
+					refers_to[*referencer] = found.offset_here();
+					referred_from.insert(make_pair(found.offset_here(), *referencer));
+				}
 				return found;
 			}
 		}

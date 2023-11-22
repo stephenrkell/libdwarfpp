@@ -171,9 +171,10 @@ namespace dwarf
 		
 		root_die::root_die(int fd)
 		 :  dbg(fd), 
+			refers_to_cache_is_complete(false),
 			visible_named_grandchildren_is_complete(false),
 			p_fs(new FrameSection(get_dbg(), true)), 
-			current_cu_offset(0UL), returned_elf(nullptr), 
+			current_cu_offset(0UL), returned_elf(nullptr),
 			first_cu_offset(),
 			last_seen_cu_header_length(),
 			last_seen_version_stamp(),
@@ -379,6 +380,21 @@ namespace dwarf
 			resolve_all_visible_from_root(name_vec.begin(), name_vec.end(), 
 				found, 0);
 			return found;
+		}
+		
+		void root_die::ensure_refers_to_cache_is_complete()
+		{
+			// We need to traverse all attributes, and for the ones that are refiters,
+			// ensure they're in the cache. Fortunately, get_referential_structure()
+			// already does this. So let's just call that. We throw away the data
+			// structures it builds... a bit inefficient (FIXME).
+			if (!this->refers_to_cache_is_complete)
+			{
+				unordered_map<Dwarf_Off, Dwarf_Off> parent_of;
+				map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
+				get_referential_structure(parent_of, refers_to);
+				this->refers_to_cache_is_complete = true;
+			}
 		}
 		
 		bool root_die::is_under(const iterator_base& i1, const iterator_base& i2)

@@ -375,6 +375,12 @@ namespace dwarf
 			unordered_map<Dwarf_Off, Dwarf_Off> next_sibling_of;
 			
 			map<pair<Dwarf_Off, Dwarf_Half>, Dwarf_Off> refers_to;
+			multimap<Dwarf_Off, pair<Dwarf_Off, Dwarf_Half> > referred_from;
+			friend class program_element_die; // FIXME: less coarse
+		private:
+			bool refers_to_cache_is_complete;
+		public:
+			void ensure_refers_to_cache_is_complete();
 			list<set<Dwarf_Off> > equivalence_classes;
 			map<Dwarf_Off, list<set<Dwarf_Off> >::iterator > equivalence_class_of;
 			multimap< opt<uint32_t>, list<set<Dwarf_Off> >::iterator > equivalence_classes_by_summary_code;
@@ -382,8 +388,8 @@ namespace dwarf
 			map<Dwarf_Off, list<set<Dwarf_Off> >::iterator > const& equivalence_class_lookup() const
 			{ return equivalence_class_of; }
 		protected:
-			map<Dwarf_Off, opt<uint32_t> > type_summary_code_cache; // FIXME: delete this after summary_code() uses SCCs
-			opt<Dwarf_Off> synthetic_cu;
+			map<Dwarf_Off, opt<uint32_t> > type_summary_code_cache;
+			opt<Dwarf_Off> synthetic_cu; // new DIEs added by clients get put in this 'fake' CU
 
 			multimap<string, Dwarf_Off> visible_named_grandchildren_cache;
 			bool visible_named_grandchildren_is_complete;

@@ -100,6 +100,69 @@ namespace dwarf
 			auto start_iter = r.find(off);
 			return r.find_named_child(start_iter, name); 
 		}
+		/* from program_element_die */
+		opt<string> program_element_die::find_associated_name() const
+		{
+			root_die& r = get_root();
+			r.ensure_refers_to_cache_is_complete();
+			/* We have an associated name iff
+			 * - we have no name, and
+			 * - there is a unique thing that refers to us, and
+			 * - it has a name (not an associated name).
+			 * WAIT. There is something else that we require: it's that
+			 * by referring to us by that name, the name is not ambiguous.
+			 * i.e. it itself only refers to one anonymous thing. Otherwise
+			 * if we had
+			 *   d --> <anon>
+			 *    \`-> <anon>
+			 *     `-> <anon>
+			 *                ... they would all get d's name.
+			 * Also we need it to have a different tag from us.
+			 * */
+			Dwarf_Off our_off = this->get_offset();
+			auto referring_range = r.referred_from.equal_range(our_off);
+			if (1 == srk31::count(referring_range.first, referring_range.second))
+			{
+				Dwarf_Off referrer = referring_range.first->second.first;
+				iterator_df<program_element_die> i_referrer = r.pos(referrer);
+				// it's not a match if its tag is the same as ours
+				if (i_referrer.tag_here() == this->get_tag()) goto out;
+				auto maybe_name = i_referrer.name_here();
+				if (maybe_name)
+				{
+					// would this name point only to us? means
+					// - tag must differ (so tag can be a disambiguator between
+					//       associator and associated)
+					// - we must be the only anonymous program element it refers to
+					auto referenced_range_begin = r.refers_to.lower_bound(make_pair(referrer, (Dwarf_Half) 0));
+					auto referenced_range_end = r.refers_to.upper_bound(make_pair(referrer, (Dwarf_Half) -1));
+					bool found_us = false;
+					bool found_others = false;
+					for (auto i_ref_tuple = referenced_range_begin; i_ref_tuple != referenced_range_end; ++i_ref_tuple)
+					{
+						iterator_base i_other_ref = r.pos(i_ref_tuple->second);
+						// skip anything that's not a program element
+						if (!i_other_ref.is_a<program_element_die>()) { continue; }
+						// skip anything that has a name
+						if (i_other_ref.name_here()) { continue; }
+						// skip anything whose tag is the same as the referrer
+						if (i_other_ref.tag_here() == i_referrer.tag_here()) { continue; }
+						// we should find us
+						if (i_ref_tuple->second == our_off) found_us = true;
+						else found_others = true;
+					}
+					assert(found_us);
+					if (!found_others) return *maybe_name;
+#if 0
+					else std::cerr << "Not associating " << *this
+						<< " with name " << *maybe_name
+						<< " because there were other referrers" << endl;
+#endif
+				}
+			}
+		out:
+			return opt<string>();
+		}
 		
 		/* type abstract equality and abstract naming. */
 		bool types_abstractly_equal(iterator_df<type_die> t1, iterator_df<type_die> t2)
@@ -650,9 +713,13 @@ namespace dwarf
 				/* We really want to allow deduplicating anonymous structure types
 				 * that originate in the same header file but are included in multiple
 				 * compilation units. Since each gets a different offset, using that
-				 * for the fake name string is a bad idea. Instead, use the defining
-				 * source file path, if we have it. */
-				if (get_decl_file() && get_decl_line())
+				 * for the fake name string is a bad idea. Instead, use the
+				 * associated name if we have it, or else the defining source file path
+				 * if we have it. FIXME: I think we shouldn't use the filename/line# because it
+				 * can introduce false distinctions e.g. across minor header changes. */
+				if (find_associated_name()) name_to_use = *find_associated_name();
+#if 0
+				else if (get_decl_file() && get_decl_line())
 				{
 					std::ostringstream s;
 					opt<string> maybe_fqp = find_self().enclosing_cu()->source_file_fq_pathname(*get_decl_file());
@@ -662,6 +729,7 @@ namespace dwarf
 						<< "_" << *get_decl_line();
 					name_to_use = s.str();
 				}
+#endif
 				else name_to_use = offsetstr;
 			}
 			return name_to_use;
@@ -742,7 +810,6 @@ namespace dwarf
 
 			if (post_f) post_f(t, reason);
 		}
-		/* begin pasted from adt.cpp */
 		opt<Dwarf_Unsigned> type_die::calculate_byte_size() const
 		{
 			return get_byte_size(); 
@@ -2597,7 +2664,8 @@ namespace dwarf
 			} else return opt<type_scc_t>();
 		}
 		type_die::equal_result_t type_die::equal(iterator_df<type_die> t, 
-			const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal
+			const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal,
+			opt<string&> reason_for_caller /* = opt<string&>() */
 			) const
 		{
 			/* Remember that this is a stricter test than type synonymy, e.g.
@@ -2609,14 +2677,15 @@ namespace dwarf
 			/* this is our core equality test. */
 			auto equal_nocache = [&new_assuming_equal]
 			(iterator_df<type_die> t1, iterator_df<type_die> t2) -> pair<equal_result_t, string> {
-				auto r1 = t1->may_equal(t2, new_assuming_equal);
-				if (!r1) return make_pair(UNEQUAL, "self may_equal");
+				string may_equal_reason;
+				auto r1 = t1->may_equal(t2, new_assuming_equal, may_equal_reason);
+				if (!r1) return make_pair(UNEQUAL, "self may_equal: " + may_equal_reason);
 
 				// to make the reversed may_equal call, we no longer need to flip our set of pairs
 				// because we test above for the elements in either order, i.e. it's effectively
 				// a set of *unordered* pairs.
-				auto r2 = t2->may_equal(t1, /*flipped_set*/ new_assuming_equal);
-				if (!r2) return make_pair(UNEQUAL, "t may_equal");
+				auto r2 = t2->may_equal(t1, /*flipped_set*/ new_assuming_equal, may_equal_reason);
+				if (!r2) return make_pair(UNEQUAL, "t may_equal: " + may_equal_reason);
 				if (r1 == EQUAL_BY_ASSUMPTION || r2 == EQUAL_BY_ASSUMPTION) return make_pair(
 					EQUAL_BY_ASSUMPTION, "");
 				return make_pair(EQUAL, "");
@@ -2984,7 +3053,7 @@ namespace dwarf
 							{
 								// let's re-call may_equal after a delay
 								sleep(10);
-								this->may_equal(t, assuming_equal);
+								this->may_equal(t, assuming_equal, reason);
 							}
 							assert(false);
 						}
@@ -3024,35 +3093,36 @@ namespace dwarf
 			}
 #endif /* DISABLE_TYPE_EQUALITY_CACHE */
 		return_after_cache:
+			if (reason != "" && reason_for_caller) *reason_for_caller = reason;
 			return ret;
 		}
 		bool type_die::operator==(const dwarf::core::type_die& t) const
 		{ return equal(get_root().find(t.get_offset()), {}); }
 /* from base_type_die */
-		type_die::equal_result_t base_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t base_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
-			if (!t) return UNEQUAL;
-			if (get_tag() != t.tag_here()) return UNEQUAL;
-			if (get_name() != t.name_here()) return UNEQUAL;
+			if (!t) { if (reason) *reason = "one is void"; return UNEQUAL; }
+			if (get_tag() != t.tag_here()) { if (reason) *reason = "one is not base"; return UNEQUAL; }
+			if (get_name() != t.name_here()) { if (reason) *reason = "one has no name"; return UNEQUAL; }
 			auto other_base_t = t.as_a<base_type_die>();
 			bool encoding_equal = get_encoding() == other_base_t->get_encoding();
-			if (!encoding_equal) return UNEQUAL;
+			if (!encoding_equal) { if (reason) *reason = "encodings differ"; return UNEQUAL; }
 			bool byte_size_equal = get_byte_size() == other_base_t->get_byte_size();
-			if (!byte_size_equal) return UNEQUAL;
+			if (!byte_size_equal) { if (reason) *reason = "byte sizes differ"; return UNEQUAL; }
 			
 			bool bit_size_equal =
 			// presence equal
 				(!get_bit_size() == !other_base_t->get_bit_size())
 			// and if we have one, it's equal
 			&& (!get_bit_size() || *get_bit_size() == *other_base_t->get_bit_size());
-			if (!bit_size_equal) return UNEQUAL;
+			if (!bit_size_equal) { if (reason) *reason = "bit sizes differ"; return UNEQUAL; }
 			
 			bool bit_offset_equal = 
 			// presence equal
 				(!get_bit_offset() == !other_base_t->get_bit_offset())
 			// and if we have one, it's equal
 			&& (!get_bit_offset() || *get_bit_offset() == *other_base_t->get_bit_offset());
-			if (!bit_offset_equal) return UNEQUAL;
+			if (!bit_offset_equal) { if (reason) *reason = "bit offsets differ"; return UNEQUAL; }
 			
 			return EQUAL;
 		}
@@ -3135,7 +3205,7 @@ namespace dwarf
 			return s;
 		}
 /* from ptr_to_member_type_die */
-		type_die::equal_result_t ptr_to_member_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t ptr_to_member_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
 			if (!t) return UNEQUAL;
 			
@@ -3145,14 +3215,14 @@ namespace dwarf
 			auto other_t = t->get_concrete_type();
 			auto other_t_as_pmem = other_t.as_a<ptr_to_member_type_die>();
 			return (other_t.tag_here() == DW_TAG_ptr_to_member_type
-				&& other_t_as_pmem->get_type()->equal(get_type(), assuming_equal)) ? EQUAL : UNEQUAL;
+				&& other_t_as_pmem->get_type()->equal(get_type(), assuming_equal, reason)) ? EQUAL : UNEQUAL;
 		}
 /* from array_type_die */
 		iterator_df<type_die> array_type_die::get_concrete_type() const
 		{
 			return find_self();
 		}
-		type_die::equal_result_t array_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t array_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
 			if (!t) return UNEQUAL;
 			
@@ -3176,7 +3246,7 @@ namespace dwarf
 				// presence equal
 					(!i_subr->get_type() == !i_subr->get_type())
 				// and if we have one, it's equal to theirs
-				&& (!i_subr->get_type() || i_subr->get_type()->equal(i_theirs->get_type(), assuming_equal));
+				&& (!i_subr->get_type() || i_subr->get_type()->equal(i_theirs->get_type(), assuming_equal, reason));
 				
 				if (!types_equal) return UNEQUAL;
 			}
@@ -3184,7 +3254,7 @@ namespace dwarf
 			if (i_theirs != their_subr_children.second) return UNEQUAL;
 			
 			// our element type(s) should be equal
-			bool types_equal = get_type()->equal(t.as_a<array_type_die>()->get_type(), assuming_equal);
+			bool types_equal = get_type()->equal(t.as_a<array_type_die>()->get_type(), assuming_equal, reason);
 			if (!types_equal) return UNEQUAL;
 			
 			return EQUAL;
@@ -3227,7 +3297,7 @@ namespace dwarf
 		}
 
 /* from string_type_die */
-		type_die::equal_result_t string_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t string_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
 			if (!t) return UNEQUAL;
 			
@@ -3266,7 +3336,7 @@ namespace dwarf
 			return *opt_string_length;
 		}
 /* from subrange_type_die */
-		type_die::equal_result_t subrange_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t subrange_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
 			if (!t) return UNEQUAL;
 			debug(2) << "Testing subrange_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
@@ -3281,7 +3351,7 @@ namespace dwarf
 			// presence equal
 				(!get_type() == !subr_t->get_type())
 			// if we have one, it should equal theirs
-			&& (!get_type() || get_type()->equal(subr_t->get_type(), assuming_equal));
+			&& (!get_type() || get_type()->equal(subr_t->get_type(), assuming_equal, reason));
 			if (!types_equal) return UNEQUAL;
 			
 			// our upper bound and lower bound should be equal
@@ -3297,7 +3367,7 @@ namespace dwarf
 			return EQUAL;
 		}
 /* from enumeration_type_die */
-		type_die::equal_result_t enumeration_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t enumeration_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
 			if (!t) return UNEQUAL;
 			debug(2) << "Testing enumeration_type_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
@@ -3314,7 +3384,7 @@ namespace dwarf
 			// presence equal
 				(!get_type() == !enum_t->get_type())
 			// if we have one, it should equal theirs
-			&& (!get_type() || get_type()->equal(enum_t->get_type(), assuming_equal));
+			&& (!get_type() || get_type()->equal(enum_t->get_type(), assuming_equal, reason));
 			if (!types_equal) return UNEQUAL;
 
 			/* We need like-named, like-valued enumerators. */
@@ -3372,35 +3442,38 @@ namespace dwarf
 			}
 		}
 /* from typedef_die */
-		type_die::equal_result_t typedef_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t typedef_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
 			debug(2) << "Testing typedef_die::may_equal() on " << *get_name() << endl;
 			/* This is like type_chain_die but also the names must match. Check that first. */
 			if (!(t.is_a<typedef_die>()
 			 && t.as_a<typedef_die>().name_here()
-			 && *t.as_a<typedef_die>().name_here() == *this->get_name())) return UNEQUAL;
+			 && *t.as_a<typedef_die>().name_here() == *this->get_name()))
+			{ if (reason) *reason = "names differ"; return UNEQUAL; }
 			// if we got here, it's down to the usual type chaining
-			return this->type_chain_die::may_equal(t, assuming_equal);
+			return this->type_chain_die::may_equal(t, assuming_equal, reason);
 		}
-		type_die::equal_result_t type_chain_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t type_chain_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason_for_caller /* = opt<string&>() */) const
 		{
 			debug(2) << "Testing type_chain_die::may_equal() (default case)" << endl;
 			equal_result_t ret;
 			equal_result_t sub_equal;
 			string reason;
+			string sub_reason;
 			if (!(get_tag() == t.tag_here())) { ret = UNEQUAL; reason = "tag mismatch"; goto ret; }
-			if (!get_type() && !t.as_a<type_chain_die>()->get_type()) { ret = UNEQUAL; goto ret; }
+			if (!get_type() && !t.as_a<type_chain_die>()->get_type()) { ret = EQUAL; goto ret; }
 			if (!get_type() && t.as_a<type_chain_die>()->get_type())
 			{ ret = UNEQUAL; reason = "exactly one is chaining void (1)"; goto ret; }
 			if (!!get_type() && !t.as_a<type_chain_die>()->get_type())
 			{ ret = UNEQUAL; reason = "exactly one is chaining void (2)"; goto ret; }
-			sub_equal = get_type()->equal(t.as_a<type_chain_die>()->get_type(), assuming_equal);
+			sub_equal = get_type()->equal(t.as_a<type_chain_die>()->get_type(), assuming_equal, sub_reason);
 			if (!sub_equal)
 			{
 				ret = sub_equal;
 				std::ostringstream s; s << "sub-equality of "
 					<< get_type().summary() << " and "
-					<< t.as_a<type_chain_die>()->get_type().summary();
+					<< t.as_a<type_chain_die>()->get_type().summary()
+					<< ", reason: " << sub_reason;
 				reason = s.str();
 				goto ret;
 			}
@@ -3409,6 +3482,7 @@ namespace dwarf
 			debug(2) << "type_chain_die::may_equal() result was " << ret
 				<< " between " << this->summary() << " and " << t.summary();
 			if (!ret) debug(2) << ", reason: " << reason;
+			if (reason != "" && reason_for_caller) *reason_for_caller = reason;
 			debug(2) << endl;
 			return ret;
 		}
@@ -3466,7 +3540,7 @@ namespace dwarf
 			
 			return opt_total_count;
 		}
-		type_die::equal_result_t unspecified_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t unspecified_type_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
 			if (!t) return UNEQUAL;
 			if (t->get_tag() == get_tag()) return EQUAL;
@@ -3595,7 +3669,7 @@ namespace dwarf
 			return default_answer; // just does get_byte_size()
 		}
 /* from spec::with_data_members_die */
-		type_die::equal_result_t with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t with_data_members_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason_for_caller /* = opt<string&>() */) const
 		{
 			string reason;
 			equal_result_t ret = EQUAL;
@@ -3615,6 +3689,7 @@ namespace dwarf
 				 * CUs, the file/line/column coords of their anonymous Elf_* structures
 				 * should not matter. Maybe keep the test below if parents are CUs,
 				 * otherwise need a binary test for "same source context". */
+#if 0
 #define MUST_EQUAL_IF_PRESENT(frag) \
 				if (get_ ## frag () || t->get_ ## frag()) \
 				{ if (!get_ ## frag() || !t->get_ ## frag() || \
@@ -3625,6 +3700,23 @@ namespace dwarf
 				MUST_EQUAL_IF_PRESENT(decl_file);
 				MUST_EQUAL_IF_PRESENT(decl_line);
 				MUST_EQUAL_IF_PRESENT(decl_column);
+#endif
+				/* New simpler solution: if associated name and tag are equal,
+				 * we *might* be equal (subject to per-member equality),
+				 * otherwise we're unequal. This allows structs of the same
+				 * *associated* name and contents to be equal, much like
+				 * structs of the same name and actual contents are equal.
+				 * See liballocs GitHub issue 71 for a rationale. */
+				auto our_ass_name = find_associated_name();
+				auto their_ass_name = t->find_associated_name();
+				if ((!our_ass_name && their_ass_name)
+				  ||( our_ass_name && !their_ass_name))
+				{ reason = "existence of associated names"; ret = UNEQUAL; goto out; }
+
+				if (our_ass_name && their_ass_name &&
+					(*our_ass_name != *their_ass_name))
+				{ reason = "associated names unequal"; ret = UNEQUAL; goto out; }
+				// no tag test here because we know the tags are equal -- tested earlier
 			}
 			
 			/* We need like-named, like-located members. 
@@ -3662,13 +3754,14 @@ namespace dwarf
 				 * with_data_members DIEs to it. */
 				auto recursive_test_set = assuming_equal;
 				recursive_test_set.insert(this_test_pair);
-				sub_result = our_type->equal(their_type, recursive_test_set);
+				string sub_reason;
+				sub_result = our_type->equal(their_type, recursive_test_set, sub_reason);
 				if (!sub_result)
 				{
 					std::ostringstream s;
 					s << "member type unequal (" << i << ", "
 						<< our_type.summary()
-						<< " and " << their_type.summary() << ")";
+						<< " and " << their_type.summary() << "), reason: " << sub_reason;
 					reason = s.str();
 					ret = UNEQUAL;
 					goto exit_member_loop;
@@ -3689,7 +3782,7 @@ namespace dwarf
 				auto loc1 = i_memb->get_data_member_location();
 				auto loc2 = i_theirs->get_data_member_location();
 				bool locations_equal = 
-					loc1 == loc2;
+					loc1 == loc2; /* FIXME: this should allow for different exprs that always compute the same result (thoughts Alan?) */
 				if (!locations_equal)
 				{ reason = "member loc unequal"; ret = UNEQUAL; goto exit_member_loop; }
 				
@@ -3704,6 +3797,7 @@ namespace dwarf
 			{
 				debug_expensive(5, << "with_data_members types " << this->summary() << " and " << t.summary()
 					<< " unequal for reason: " << reason << endl);
+				if (reason != "" && reason_for_caller) *reason_for_caller = reason;
 			}
 			return ret;
 		}
@@ -3952,12 +4046,37 @@ namespace dwarf
 				return opt<Dwarf_Unsigned>();
 		}
 		
-/* from spec::with_dynamic_location_die */ 
+/* from spec::with_dynamic_location_die */
+		opt<string> with_static_location_die::get_linkage_name() const
+		{
+			/* What is the name, if any, of a symbol that maps to this DIE?
+			 * Note that this is ill-posed: in general there may be more than one.
+			 * There may be none, if the definition is not exported.
+			 * However, if there is one or more, there should be one that is 'primary'
+			 * in the sense that:
+			 * - it is the default expected name on this platform, for this language/impl
+			 * - OR it is an exception that is recorded via DW_AT_linkage_name or similar (..._MIPS_...)
+			 */
+			encap::attribute_map attrs = find_all_attrs();
+			auto found_linkage_name = attrs.find(DW_AT_linkage_name);
+			if (found_linkage_name != attrs.end()) return found_linkage_name->second.get_string();
+			auto found_mips_linkage_name = attrs.find(DW_AT_MIPS_linkage_name);
+			if (found_mips_linkage_name != attrs.end()) return found_mips_linkage_name->second.get_string();
+			auto found_visibility = attrs.find(DW_AT_visibility);
+			/* Do we have a name, and are we exported (or not not exported)?
+			 * If so, get the default mangler for this CU and pass it our name i_subp.name_here() */
+			if (!get_name()
+				|| (found_visibility != attrs.end() && found_visibility->second.get_signed() != DW_VIS_exported))
+			{
+				// no name not exported, so no linkage name
+				return opt<string>();
+			}
+			return find_self().enclosing_cu()->mangled_name_for(find_self());
+		}
+
 		boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned> 
 		with_static_location_die::file_relative_intervals(
-		
 			root_die& r, 
-		
 			sym_resolver_t sym_resolve,
 			void *arg /* = 0 */) const
 		{
@@ -4375,7 +4494,7 @@ namespace dwarf
 			auto unspec = children.subseq_of<unspecified_parameters_die>();
 			return unspec.first != unspec.second;
 		}
-		type_die::equal_result_t type_describing_subprogram_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal) const
+		type_die::equal_result_t type_describing_subprogram_die::may_equal(iterator_df<type_die> t, const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal, opt<string&> reason /* = opt<string&>() */) const
 		{
 			if (!t) return UNEQUAL;
 			debug(2) << "Testing type_describing_subprogram_die::may_equal(" << this->summary() << ", " << t->summary() << ")"
@@ -4390,7 +4509,7 @@ namespace dwarf
 				|| (!!get_return_type() && !other_sub_t->get_return_type())) return_types_equal = UNEQUAL;
 			else /* it depends on the type */
 			{ return_types_equal = get_return_type()->equal(
-				other_sub_t->get_return_type(), assuming_equal); }
+				other_sub_t->get_return_type(), assuming_equal, reason); }
 			if (!return_types_equal) return UNEQUAL;
 			bool variadicness_equal
 			 = is_variadic() == other_sub_t->is_variadic();
@@ -4411,7 +4530,7 @@ namespace dwarf
 				auto our_type = i_fp->get_type();
 				assert(!!their_type);
 				assert(!!our_type);
-				equal_result_t sub_result = their_type->equal(our_type, assuming_equal);
+				equal_result_t sub_result = their_type->equal(our_type, assuming_equal, reason);
 				/* How does a member result affect whether we are EQUAL or EQUAL_BY_ASSUMPTION?
 				 * See comment for with_data_members_die above. But this case is simpler
 				 * because we never add an assumption (CHECK: can we really not get recursion
@@ -4865,7 +4984,69 @@ namespace dwarf
 					}
 			}
 		}
+		static string default_cxx_mangle(const string& s)
+		{ assert(false); exit(-1); }
+		opt<string> compile_unit_die::mangled_name_for(iterator_base i) const
+		{
+			switch(get_language())
+			{
+#define Cplusplus_cases \
+				case DW_LANG_C_plus_plus: \
+				maybe_Cplusplus_03_and_later_cases
 
+#ifdef DW_LANG_C_plus_plus_03
+#define maybe_Cplusplus_03_and_later_cases case DW_LANG_C_plus_plus_03: \
+	maybe_Cplusplus_11_and_later_cases
+#else
+#define maybe_Cplusplus_03_and_later_cases
+#endif
+
+#ifdef DW_LANG_C_plus_plus_11
+#define maybe_Cplusplus_11_and_later_cases case DW_LANG_C_plus_plus_11: \
+	maybe_Cplusplus_14_and_later_cases
+#else
+#define maybe_Cplusplus_11_and_later_cases
+#endif
+
+#ifdef DW_LANG_C_plus_plus_14
+#define maybe_Cplusplus_14_and_later_cases case DW_LANG_C_plus_plus_14: \
+	maybe_Cplusplus_17_and_later_cases
+#else
+#define maybe_Cplusplus_14_and_later_cases
+#endif
+
+#ifdef DW_LANG_C_plus_plus_17
+#define maybe_Cplusplus_17_and_later_cases case DW_LANG_C_plus_plus_17:
+#else
+#define maybe_Cplusplus_17_and_later_cases
+#endif
+				Cplusplus_cases
+					return default_cxx_mangle(*i.name_here());
+
+#define C_cases \
+				case DW_LANG_C: \
+				case DW_LANG_C89: \
+				maybe_C99_and_later_cases
+
+#ifdef DW_LANG_C99
+#define maybe_C99_and_later_cases case DW_LANG_C99: \
+	maybe_C11_and_later_cases
+#else
+#define maybe_C99_and_later_cases
+#endif
+
+#ifdef DW_LANG_C11
+#define maybe_C11_and_later_cases case DW_LANG_C11:
+#else
+#define maybe_C11_and_later_cases
+#endif
+
+				C_cases
+					return i.name_here();
+				default:
+					return opt<string>(); // FIXME
+			}
+		}
 		opt<Dwarf_Unsigned> compile_unit_die::implicit_array_base() const
 		{
 			switch(get_language())
