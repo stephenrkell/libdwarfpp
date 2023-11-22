@@ -26,6 +26,10 @@ dwarfpp_include_HEADERS = include/dwarfpp/dwarf-onlystd.h include/dwarfpp/frame.
 lib_LTLIBRARIES = src/libdwarfpp.la
 src_libdwarfpp_la_SOURCES = src/libdwarf.cpp src/libdwarf-handles.cpp src/libdwarf-data.cpp src/expr.cpp src/attr.cpp src/frame.cpp src/regs.cpp src/spec.cpp src/util.cpp src/root.cpp src/abstract.cpp src/iter.cpp src/dies.cpp
 src_libdwarfpp_la_LIBADD = $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lsupc++ -lboost_filesystem
+# leading space is a HACK to make this pass through 'automake'
+ ifeq ($(libdwarf_libs),)
+$(error No value for 'libdwarf_libs' so cannot build a correct libdwarfpp (vendoring libdwarf.a))
+ endif
 src_libdwarfpp_la_LDFLAGS = -Wl,--whole-archive $(libdwarf_libs) -Wl,--no-whole-archive
 
 INC_PP = include/dwarfpp
@@ -33,7 +37,7 @@ BUILT_SOURCES = $(INC_PP)/dwarf-onlystd.h $(INC_PP)/dwarf-onlystd-v2.h $(INC_PP)
 CLEANFILES = $(BUILT_SOURCES)
 
 examplesdir = examples
-examples_PROGRAMS = examples/core-query examples/dwarfppdump \
+examples_PROGRAMS = examples/compare-types examples/core-query examples/dwarfppdump \
   examples/print_spec examples/sranges examples/subseq examples/eh-frame-hdr
 
 -include config.mk
@@ -43,6 +47,9 @@ EXAMPLE_LDADD_INS = -ldwarfpp -lboost_filesystem -lelf -lz $(LIBSRK31CXX_LIBS) $
 examples_core_query_SOURCES = examples/core-query.cpp
 examples_core_query_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_core_query_LDADD = $(EXAMPLE_LDADD_INS)
+examples_compare_types_SOURCES = examples/compare-types.cpp
+examples_compare_types_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
+examples_compare_types_LDADD = $(EXAMPLE_LDADD_INS)
 examples_dwarfppdump_SOURCES = examples/dwarfppdump.cpp
 examples_dwarfppdump_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_dwarfppdump_LDADD = $(EXAMPLE_LDADD_INS)
