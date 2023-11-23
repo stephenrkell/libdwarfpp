@@ -7,7 +7,7 @@ jobs:
       - run:
           name: Install dependencies
           command: |
-            apt update && apt install -y git build-essential make \
+            apt update && apt install -y git build-essential make time \
             autoconf automake libtool pkg-config autoconf-archive \
             g\+\+ python3 python2.7 python-minimal \
             libelf-dev libboost-iostreams-dev libboost-regex-dev \
