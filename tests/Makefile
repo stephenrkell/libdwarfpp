@@ -3,7 +3,7 @@ root := $(realpath $(dir $(THIS_MAKEFILE))/..)
 # config.mk puts the libc++fileno and libsrk31c++ flags in CXXFLAGS and LDFLAGS/LDLIBS
 include $(root)/config.mk
 
-cases := $(filter-out makefile,$(wildcard [a-z]*))
+cases := $(filter-out makefile oprofile_data,$(shell cd $(root)/tests && find -mindepth 1 -maxdepth 1 -type d -name '[a-z]*' -print | while read f; do basename $$f ; done ))
 $(info cases is $(cases))
 
 CXXFLAGS += -I$(root)/include -O0 -fPIC -g -std=c++14
@@ -15,6 +15,11 @@ default: all
 
 # cancel builtin rule to avoid attempts at .o->executable via CC
 %: %.o
+# we want to use depfiles to rebuild tests, so let's write out the rule
+%: %.cpp
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) $< -o $@ -MMD -MF .$*.d $(LDLIBS)
+$(info depfiles we're maybe-including: $(patsubst %,.%.d,$(cases)))
+-include $(patsubst %,.%.d,$(cases))
 
 # these should be statically linked because they test multi-CU features
 grandchildren: LDFLAGS += -pthread -static
