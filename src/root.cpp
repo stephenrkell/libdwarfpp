@@ -718,9 +718,13 @@ namespace dwarf
 					if (i_a->first == DW_AT_sibling) continue;
 					if (i_a->second.get_form() == encap::attribute_value::REF)
 					{
-						auto found = const_cast<root_die *>(this)->find(
-							i_a->second.get_ref().off, 
-							make_pair(i.offset_here(), i_a->first));
+						//auto found = const_cast<root_die *>(this)->find(
+						//	i_a->second.get_ref().off, 
+						//	make_pair(i.offset_here(), i_a->first));
+						auto k = make_pair(i.offset_here(), i_a->first);
+						auto v = i_a->second.get_ref().off;
+						const_cast<root_die *>(this)->refers_to[k] = v;
+						const_cast<root_die *>(this)->referred_from.insert(make_pair(v, k));
 					}
 				}
 			}
