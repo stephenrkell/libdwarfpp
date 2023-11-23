@@ -121,7 +121,8 @@ namespace dwarf
 			 * */
 			Dwarf_Off our_off = this->get_offset();
 			auto referring_range = r.referred_from.equal_range(our_off);
-			if (1 == srk31::count(referring_range.first, referring_range.second))
+			auto count = srk31::count(referring_range.first, referring_range.second);
+			if (1 == count)
 			{
 				Dwarf_Off referrer = referring_range.first->second.first;
 				iterator_df<program_element_die> i_referrer = r.pos(referrer);
@@ -153,11 +154,21 @@ namespace dwarf
 					}
 					assert(found_us);
 					if (!found_others) return *maybe_name;
-#if 0
-					else std::cerr << "Not associating " << *this
-						<< " with name " << *maybe_name
-						<< " because there were other referrers" << endl;
-#endif
+					else
+					{
+						debug_expensive(6, << "Not associating " << *this
+							<< " with name " << *maybe_name
+							<< " because there were other referrers" << endl);
+					}
+				}
+			}
+			else
+			{
+				debug(3) << "No associated name for " << *this
+					<< "; referrer count was " << count << " (list follows)" << endl;
+				for (auto i_ref = referring_range.first; i_ref != referring_range.second; ++i_ref)
+				{
+					debug(3) << std::hex << i_ref->second.first << std::dec << endl;
 				}
 			}
 		out:
@@ -318,8 +329,8 @@ namespace dwarf
 		{
 			// should never recurse to the same type...
 			static __thread Dwarf_Off generic_print_abstract_name_processing;
-			assert(!generic_print_abstract_name_processing
-				|| generic_print_abstract_name_processing != get_offset());
+			if (generic_print_abstract_name_processing) assert(
+				generic_print_abstract_name_processing != get_offset());
 			generic_print_abstract_name_processing = get_offset();
 			std::ostream& ref = print_type_abstract_name(s, get_concrete_type());
 			generic_print_abstract_name_processing = 0;
@@ -730,7 +741,12 @@ namespace dwarf
 					name_to_use = s.str();
 				}
 #endif
-				else name_to_use = offsetstr;
+				else
+				{
+					debug(3) << "Warning: using offset str as arbitrary name of " << this->summary()
+						<< " (could not find an associated name); this may cause surprising inequalities between types" << endl;
+					name_to_use = offsetstr;
+				}
 			}
 			return name_to_use;
 		}
@@ -2828,7 +2844,12 @@ namespace dwarf
 				 * and typedefs etc. have the same summary code but are distinct DIEs. */
 				if (*this_summary_code != *t_summary_code)
 				{
-					ret = UNEQUAL; reason = "summary content";
+					ret = UNEQUAL;
+					std::ostringstream s; s << "summary code ("
+						<< std::hex << *this_summary_code << " vs " 
+						<< std::hex << *t_summary_code
+						<< std::dec << ")";
+					reason = s.str();
 					goto return_and_cache;
 				}
 			}

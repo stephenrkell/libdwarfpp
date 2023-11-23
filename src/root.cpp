@@ -713,6 +713,9 @@ namespace dwarf
 				encap::attribute_map attrs = i.copy_attrs(); //(i.attrs_here(), i.get_handle(), *this);
 				for (auto i_a = attrs.begin(); i_a != attrs.end(); ++i_a)
 				{
+					/* Skip DW_AT_sibling because it's only there to support the tree structure;
+					 * it doesn't represent a semantic relationship between the siblings. */
+					if (i_a->first == DW_AT_sibling) continue;
 					if (i_a->second.get_form() == encap::attribute_value::REF)
 					{
 						auto found = const_cast<root_die *>(this)->find(
