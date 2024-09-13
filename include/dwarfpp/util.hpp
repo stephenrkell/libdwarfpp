@@ -2,7 +2,7 @@
  * 
  * util.hpp: utilities
  *
- * Copyright (c) 2017--, Stephen Kell. For licensing information, see the
+ * Copyright (c) 2017--20, Stephen Kell. For licensing information, see the
  * LICENSE file in the root of the libdwarfpp tree.
  */
 
@@ -29,6 +29,7 @@ namespace dwarf
 	}
 	namespace util
 	{
+		using namespace dwarf::lib;
 		Dwarf_Unsigned read_uleb128(unsigned char const **cur, unsigned char const *limit);
 		Dwarf_Signed read_sleb128(unsigned char const **cur, unsigned char const *limit);
 		uint64_t read_8byte_le(unsigned char const **cur, unsigned char const *limit);

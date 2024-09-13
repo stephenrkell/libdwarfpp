@@ -29,6 +29,7 @@ namespace dwarf
 		struct iterator_base;
 		struct abstract_die;
 		
+#ifdef USING_LIBDWARF
 		/* FIXME: clean up Errors properly. It's complicated. A Dwarf_Error is a handle
 		 * that needs to be dwarf_dealloc'd, but there are two exceptions:
 		 * errors returned by dwarf_init() and dwarf_elf_init() need to be free()d. 
@@ -37,20 +38,29 @@ namespace dwarf
 		 * so that we can specify this alternate handling. */
 		// typedef struct Dwarf_Error_s*      Dwarf_Error;
 		void exception_error_handler(Dwarf_Error error, Dwarf_Ptr errarg);
+#endif
 
 		/* What follows is a fairly mechanical translation of libdwarf,
 		 * plus destruction logic from the docs. */
+#ifdef USING_LIBDWARF
 		typedef struct Dwarf_Debug_s*      Dwarf_Debug; // pasted from libdwarf.h
+#else /* USING_LIBDW */
+		typedef struct Dwarf Dwarf; // from libdw.h
+#endif
 		struct Debug
 		{
+#ifdef USING_LIBDWARF
 			typedef Dwarf_Debug raw_handle_type;
 			typedef Dwarf_Debug_s opaque_type;
+#else /* USING_LIBDW */
+			typedef Dwarf *raw_handle_type;
+			typedef Dwarf opaque_type;
+#endif
 			struct deleter
 			{
 				void operator ()(raw_handle_type arg) const;
 			};
 			typedef unique_ptr<opaque_type, deleter> handle_type;
-			
 			handle_type handle;
 			
 			// define constructors analogous to the libdwarf resource-acquisition functions
@@ -62,6 +72,7 @@ namespace dwarf
 			raw_handle_type raw_handle() const { return handle.get(); }
 		};
 
+#ifdef USING_LIBDWARF
 		// Also there are some other kinds of libdwarf resource.
 		struct string_deleter
 		{
@@ -82,9 +93,13 @@ namespace dwarf
 				} else assert(!arg); 
 			}
 		};
+#endif
+#ifdef USING_LIBDWARF
 		typedef struct Dwarf_Die_s*        Dwarf_Die;
+#endif
 		struct Die : /*private*/ virtual abstract_die // remind me: why is this private?
 		{
+#ifdef USING_LIBDWARF
 			typedef Dwarf_Die raw_handle_type;
 			typedef Dwarf_Die_s opaque_type;
 			struct deleter
@@ -102,11 +117,24 @@ namespace dwarf
 				{ if (!dbg) assert(!arg); else if (arg) dwarf_dealloc(dbg, arg, DW_DLA_DIE); }
 			};
 			typedef unique_ptr<opaque_type, deleter> handle_type;
+#else /* USING_LIBDW */
+			struct handle_contents : Dwarf_Die
+			{
+				Debug::raw_handle_type dbg;
+				root_die *p_constructing_root;
+			};
+			typedef handle_contents *raw_handle_type;
+			typedef unique_ptr<handle_contents> handle_type;
+#endif
 			handle_type handle;
+#ifdef USING_LIBDWARF
 			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; }
 			root_die& get_constructing_root() const 
 			{ return *handle.get_deleter().p_constructing_root; }
-			
+#else /* USING_LIBDW */
+			Debug::raw_handle_type get_dbg() const { return handle->dbg; }
+			root_die& get_constructing_root() const { return *handle->p_constructing_root; }
+#endif
 			// to avoid making exception handling compulsory, 
 			// we provide static "maybe" constructor functions (defined in lib.hpp)...
 			static handle_type 
@@ -122,7 +150,11 @@ namespace dwarf
 			Die(handle_type h) : handle(std::move(h)) {}
 			
 			// ... and a "nullptr" constructor
+#ifdef USING_LIBDWARF
 			Die(std::nullptr_t n, root_die *p_r) : handle(nullptr, deleter(nullptr, *p_r)) {} 
+#else /* USING_LIBDW */
+			Die(std::nullptr_t n, root_die *p_r) : handle(nullptr) {} 
+#endif
 			
 			// ... then the "normal" constructors, that throw exceptions on failure
 			Die(root_die& r, const iterator_base& die); /* siblingof */
@@ -141,7 +173,11 @@ namespace dwarf
 			// libdwarf methods
 			Dwarf_Off offset_here() const;
 			Dwarf_Half tag_here() const;
+#ifdef USING_LIBDWARF
 			std::unique_ptr<const char, string_deleter> name_here() const;
+#else /* USING_LIBDW */
+			const char *name_here() const;
+#endif
 			Dwarf_Off enclosing_cu_offset_here() const;
 			bool has_attr_here(Dwarf_Half attr) const;
 			bool has_attribute_here(Dwarf_Half attr) const { return has_attr_here(attr); }
@@ -157,8 +193,16 @@ namespace dwarf
 			inline Dwarf_Off get_offset() const { return offset_here(); }
 			inline Dwarf_Half get_tag() const { return tag_here(); }
 			inline opt<string> get_name() const 
+#ifdef USING_LIBDWARF
 			{ return name_here() ? opt<string>(string(name_here().get())) : opt<string>(); }
+#else /* USING_LIBDW */
+			{ return name_here() ? opt<string>(string(name_here())) : opt<string>(); }
+#endif
+#ifdef USING_LIBDWARF
 			inline unique_ptr<const char, string_deleter> get_raw_name() const
+#else /* USING_LIBDW */
+			inline const char *get_raw_name() const
+#endif
 			{ return name_here(); }
 			inline Dwarf_Off get_enclosing_cu_offset() const 
 			{ return enclosing_cu_offset_here(); }
@@ -186,10 +230,12 @@ namespace dwarf
 		 * unique_ptr because deleters are allowed to have state. So we just
 		 * put the count into the deleter and manually construct the deleter
 		 * when constructing the unique_ptr. */
-
+#ifdef USING_LIBDWARF
 		typedef struct Dwarf_Attribute_s*  Dwarf_Attribute;
+#endif
 		struct Attribute
 		{
+#ifdef USING_LIBDWARF
 			typedef Dwarf_Attribute raw_handle_type;
 			typedef Dwarf_Attribute_s opaque_type;
 			struct deleter
@@ -202,9 +248,20 @@ namespace dwarf
 				}
 			};
 			typedef unique_ptr<opaque_type, deleter> handle_type;
-			
+#else /* USING_LIBDW */
+			struct handle_contents : Dwarf_Attribute
+			{
+				Debug::raw_handle_type dbg;
+			};
+			typedef Dwarf_Attribute *raw_handle_type;
+			typedef unique_ptr<handle_contents> handle_type;
+#endif
 			handle_type handle;
-			Dwarf_Debug get_dbg() const { return handle.get_deleter().dbg; }
+#ifdef USING_LIBDWARF
+			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; }
+#else /* USING_LIBDW */
+			Debug::raw_handle_type get_dbg() const { return handle->dbg; }
+#endif
 
 			static inline handle_type 
 			try_construct(const Die& it, Dwarf_Half attr);
@@ -218,19 +275,20 @@ namespace dwarf
 			Dwarf_Half attr_here() const;
 			Dwarf_Half form_here() const;
 		};
-		
-		/* Locdesc is weird. Instead of being a pointer to an opaque type, 
-		 * it's a non-opaque type embedding a pointer. These non-opaque types
-		 * are allocated by libdwarf, however. Threfore, our "handle" is the
-		 * address of one of these non-opaque types. But we are still responsible
-		 * for deallocating *both* the embedded pointer *and* the libdwarf-allocated
-		 * non-opaque object. So there is an extra level of indirection in all this.
-		 *
-		 * Also, we can construct Locdescs either as part of a list using dwarf_loclist_n, 
-		 * or as single instances e.g. with dwarf_loclist_from_expr.
-		  */
+
 		struct Locdesc
 		{
+#ifdef USING_LIBDWARF
+			/* Locdesc is weird. Instead of being a pointer to an opaque type, 
+			 * it's a non-opaque type embedding a pointer. These non-opaque types
+			 * are allocated by libdwarf, however. Threfore, our "handle" is the
+			 * address of one of these non-opaque types. But we are still responsible
+			 * for deallocating *both* the embedded pointer *and* the libdwarf-allocated
+			 * non-opaque object. So there is an extra level of indirection in all this.
+			 *
+			 * Also, we can construct Locdescs either as part of a list using dwarf_loclist_n, 
+			 * or as single instances e.g. with dwarf_loclist_from_expr.
+			  */
 			typedef Dwarf_Locdesc *raw_handle_type;
 			struct deleter
 			{
@@ -243,9 +301,20 @@ namespace dwarf
 				}
 			};
 			typedef unique_ptr<Dwarf_Locdesc, deleter> handle_type;
-			
+#else /* USING_LIBDW */
+			struct handle_contents : Dwarf_Locdesc
+			{
+				Debug::raw_handle_type dbg;
+			};
+			typedef unique_ptr<handle_contents> handle_type;
+			typedef handle_contents *raw_handle_type;
+#endif
 			handle_type handle;
-			Dwarf_Debug get_dbg() const { return handle.get_deleter().dbg; }
+#ifdef USING_LIBDWARF
+			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; }
+#else /* USING_LIBDW */
+			Debug::raw_handle_type get_dbg() const { return handle->dbg; }
+#endif
 
 			/* LocdescList can create individual Locdescs in a list. */
 			inline Locdesc(handle_type h) : handle(std::move(h)) {}
@@ -253,16 +322,19 @@ namespace dwarf
 			static inline handle_type 
 			try_construct(const Attribute& a);
 			static inline handle_type 
-			try_construct(Dwarf_Debug dbg, Dwarf_Ptr bytes_in, Dwarf_Unsigned bytes_len);
+			try_construct(Debug::raw_handle_type dbg, Dwarf_Ptr bytes_in, Dwarf_Unsigned bytes_len);
 			
 			raw_handle_type raw_handle()       { return handle.get(); }
 			raw_handle_type raw_handle() const { return handle.get(); }
 		};
+#ifdef USING_LIBDWARF
 		typedef struct Dwarf_Attribute_s*  Dwarf_Attribute;
+#endif
 
-		/* Block is special because it doesn't have an opaque type. */
 		struct Block
-		{ 
+		{
+#ifdef USING_LIBDWARF
+			/* Block is special because it doesn't have an opaque type. */
 			typedef Dwarf_Block *raw_handle_type; 
 			struct deleter 
 			{ 
@@ -274,6 +346,14 @@ namespace dwarf
 				} 
 			}; 
 			typedef unique_ptr<Dwarf_Block, deleter> handle_type; 
+#else /* USING_LIBDW */
+			struct handle_contents : Dwarf_Block
+			{
+				Debug::raw_handle_type dbg;
+			};
+			typedef handle_contents *raw_handle_type;
+			typedef unique_ptr<handle_contents> handle_type;
+#endif
 			handle_type handle; 
 			static inline handle_type 
 			try_construct(const Attribute& a); 
@@ -283,13 +363,20 @@ namespace dwarf
 			} 
 			raw_handle_type raw_handle()       { return handle.get(); } 
 			raw_handle_type raw_handle() const { return handle.get(); } 
+#ifdef USING_LIBDWARF
 			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; } 
+#else /* USING_LIBDW */
+/* FIXME: see how many of these get_dbg() methods we can delete without breaking stuff.
+ * Then we can get rid of the handle_contents structs too. */
+			Debug::raw_handle_type get_dbg() const { return handle->dbg; } 
+#endif
 		};
-			
+
+#ifdef USING_LIBDWARF
 		/* Ranges is special: we never get a single range, only a list, 
 		 * and we can never deallocate a single range. So there's no "handle"
 		 * on a Range, so we don't bother with a class for it. */
-		
+/* We instantiate this for Line, Arange, Global */
 #define basic_handle(Fragment, ConstructorArgs...) \
 		/* typedef struct Dwarf_ ## Fragment ## _s*  Dwarf_ ## Fragment; */ \
 		struct Fragment \
@@ -319,19 +406,62 @@ namespace dwarf
 			raw_handle_type raw_handle() const { return handle.get(); } \
 			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; } \
 		};
-		
-		/* Ideally we would in-place construct a unique_ptr array over the
-		 * actual returned array. Then, to use this, the client would std::move
-		 * elements out of the array. This allows individual attrs to be used
-		 * and deallocated early, like the C style. NOTE that it only works
-		 * if unique_ptrs are the same size/rep as normal ptrs, which means
-		 * no deleter state. That is a problem, because our deleters need
-		 * a reference to the dbg. NOTE that these are the individual-element
-		 * deleters, so they do not store the block length. Anyway, for now, 
-		 * we just copy the array of pointers into a new unique_ptr array,
-		 * and let the clients use that. */
+#else /* USING_LIBDW */
+/* libdw also has some opaque types that fit this pattern:
+ * Dwarf_Lines_s, Dwarf_Files_s, Dwarf_Arange_s.
+ * One difference is that there is no dealloc function;
+ * they are remembered by the library in its Dwarf_CU
+ * structure (which is opaque to us). */
+#define basic_handle(Fragment, ConstructorArgs...) \
+		struct Fragment \
+		{ \
+			typedef Dwarf_ ## Fragment raw_handle_type; \
+			typedef Dwarf_ ## Fragment ## _s opaque_type; \
+			struct deleter \
+			{ \
+				Debug::raw_handle_type dbg; \
+				deleter(Debug::raw_handle_type dbg) : dbg(dbg) {} \
+				void operator()(raw_handle_type arg) const { /* DO NOTHING */ } \
+			}; \
+			typedef unique_ptr<opaque_type, deleter> handle_type; \
+			 \
+			handle_type handle; \
+			 \
+			static inline handle_type \
+			try_construct(ConstructorArgs); \
+			inline explicit Fragment(ConstructorArgs); \
+			inline Fragment(handle_type h) : handle(std::move(h)) { /* "upgrade" constructor */ \
+				if (!handle) throw Error(current_dwarf_error, 0); \
+			} \
+			raw_handle_type raw_handle()       { return handle.get(); } \
+			raw_handle_type raw_handle() const { return handle.get(); } \
+			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; } \
+		};
+
+#endif
+
 		struct AttributeList
 		{
+#ifdef USING_LIBDWARF
+			/* In libdwarf, dwarf_attrlist() gives us a list of Dwarf_Attribute
+			 * pointers (opaque); the list is freed as a single unit, but
+			 * only *after* each Attribute has been individually freed. See note
+			 * on copied_list below.
+			 *
+			 * Ideally we would in-place construct a unique_ptr array over the
+			 * actual returned array. Then, to use this, the client would std::move
+			 * elements out of the array. This allows individual attrs to be used
+			 * and deallocated early, like the C style.
+			 *
+			 * But a problem: that can only work if unique_ptrs are the same size/rep
+			 * as normal ptrs, which means no deleter state. Our deleters need a
+			 * reference to the dbg, so this doesn't work. NOTE that this is talking
+			 * about the individual-element so they do not store the block length.
+			 *
+			 * For now we just copy the array of pointers into a vector of the
+			 * Attribute (our wrapper around Dwarf_Attribute_ opaque pointers), and
+			 * use that to service client requests. Clients don't get access to this
+			 * array directly. */
 			typedef Dwarf_Attribute *raw_handle_type; /* What libdwarf returns us. */
 			typedef Dwarf_Attribute raw_element_type;
 			typedef Attribute::handle_type copied_element_type;
@@ -349,25 +479,40 @@ namespace dwarf
 					if (len > 0) dwarf_dealloc(dbg, arg, DW_DLA_LIST);
 				}
 			};
-			
 			typedef unique_ptr<raw_element_type, deleter> handle_type;
 			handle_type handle;
 			Die const& d; /* SPECIAL: we have to track the Die too,
 			 * so that we can construct encap::attribute_value,
 			 * so that operator<< can work. */
-			  
-			vector<Attribute> copied_list; // see note in destructor
 			Dwarf_Debug get_dbg() const { return handle.get_deleter().dbg; }
+			Dwarf_Signed get_len() const { return handle.get_deleter().len; }
+#else /* USING_LIBDW */
+			/* In libdw, we have a single non-opaque Dwarf_Attribute structure
+			 * that is populated by a callback-based dwarf_getattrs() call.
+			 * We want our copied_list simply to be a vector of Attributes,
+			 * allocated with unique_ptr (for now). OH, but if we make it a
+			 * vector of Attribute (which is just a unique_ptr to an Attribute,
+			 * now non-opaque in libdw) we gain some uniformity at the price
+			 * of more heap allocations. */
+			// TEST: let's not provide this, and see whether anything breaks
+			//Debug::raw_handle_type get_dbg() const {  }
 			// IMPORTANT: this copied_list must come *after* the handle in the 
 			// field order, because it must be destructed *first*. We want to
 			// delete the individual Attributes, using the unique_ptr destructor,
 			// then delete the whole list using our whole-list deleter.
-
-			Dwarf_Signed get_len() const { return handle.get_deleter().len; }
+			// inline Dwarf_Signed get_len() const; // defined below
+#endif
+			// IMPORTANT: this copied_list must come *after* the handle in the 
+			// field order, because it must be destructed *first*. We want to
+			// delete the individual Attributes, using the unique_ptr destructor,
+			// then delete the whole list using our whole-list deleter.
+			vector<Attribute> copied_list;
 			Attribute& operator[](Dwarf_Signed i) { return copied_list.at(i); }
 			Attribute const& operator[](Dwarf_Signed i) const 
 			{ return copied_list.at(i); }
 
+			inline explicit AttributeList(const Die& it);
+#ifdef USING_LIBDWARF
 			// can't define msot of these now, because iterator_base is currently incomplete
 			static inline handle_type
 			try_construct(const Die& it);
@@ -383,13 +528,25 @@ namespace dwarf
 					);
 				}
 			}
-			inline explicit AttributeList(const Die& it);
 			inline AttributeList(handle_type h, const Die& d) : handle(std::move(h)), d(d) /* "upgrade" constructor */ 
 			{
 				/* we tolerate null handles -- it just means the empty list. */
 				if (handle) copy_list();
 			}
-
+#else /* USING_LIBDW */
+			Dwarf_Signed get_len() const { return copied_list.size(); }
+			static int libdw_attr_cb(Dwarf_Attribute *a, void *arg);
+			typedef void *handle_type; // DUMMY: FIXME: can delete?
+			inline AttributeList(handle_type h, const Die& d) /* "upgrade" constructor */
+			{
+				/* Call the iterator function */
+				ptrdiff_t ret = dwarf_getattrs(d.handle.get(), libdw_attr_cb,
+					this, 0);
+				// success means ret == 1 ("got to the end"), failure -1,
+				// anything else "DWARF_CB_OK was returned at this offset"
+				if (ret != 1) throw Error(nullptr, d.handle.get());
+			}
+#endif
 			// FIXME: get raw handle?
 			
 			/* Destruction logic:
@@ -407,6 +564,7 @@ namespace dwarf
 			 * and the copy (using vector destructor, also happens automatically).
 			 * Let's do that for now. */
 		};
+#ifndef LIBDW_SUPPORT_NOT_FINISHED
 
 #define list_handle(Fragment, ConstructorArgs...) \
 		struct Fragment ## List \
@@ -868,6 +1026,7 @@ namespace dwarf
 		inline encap::attribute_map Die::copy_attrs() const
 		{ return encap::attribute_map(AttributeList(*this), *this, get_constructing_root()); }
 
-	}
-}
+#endif /* LIBDW_SUPPORT_NOT_FINISHED */
+	} /* end namespace core */
+} /* end namespace dwarf */
 #endif

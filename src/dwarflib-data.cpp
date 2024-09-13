@@ -2,7 +2,7 @@
  * 
  * dwarflib-data.cpp: operator overloads etc. on libdwarf data
  *
- * Copyright (c) 2008--17, Stephen Kell. For licensing information, see the
+ * Copyright (c) 2008--20, Stephen Kell. For licensing information, see the
  * LICENSE file in the root of the libdwarfpp tree.
  */
 
