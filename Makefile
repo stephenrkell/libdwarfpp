@@ -12,6 +12,7 @@ ELFUTILS_DWARF_H ?= $(ELFUTILS_INCLUDE_DIR)/../dwarf.h
 include config.mk
 
 BASIC_CXXFLAGS := $(CPPFLAGS) $(CXXFLAGS) -I$(ELFUTILS_INCLUDE_DIR)
+BASIC_CXXFLAGS += -DUSING_LIBDW=1 -DHAVE_DWARF_RANGES=0  # FIXME: just use config.h when we re-autotools
 BASIC_CXXFLAGS += -fno-omit-frame-pointer -std=c++1y -ggdb3 -fvar-tracking-assignments \
   -O2 -fkeep-inline-functions -Wall -Wno-deprecated-declarations
 
