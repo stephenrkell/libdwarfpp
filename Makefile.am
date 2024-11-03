@@ -66,6 +66,9 @@ examples_eh_frame_hdr_SOURCES = examples/eh-frame-hdr.cpp
 examples_eh_frame_hdr_LDFLAGS = $(EXAMPLE_LDFLAGS_INS)
 examples_eh_frame_hdr_LDADD = $(EXAMPLE_LDADD_INS)
 
+# the following recipes create output using ">" so we need errors not to leave empty files
+.DELETE_ON_ERROR:
+
 # launder the exit code of grep through "cat"
 include/dwarfpp/dwarf-onlystd.h: $(libdwarf_includes)/dwarf.h
 	cat "$<" | egrep -v 'DW_[A-Z]+_(GNU|SUN|HP|APPLE|INTEL|ARM|upc|PGI|ALTIUM|MIPS|CPQ|VMS|GNAT)' | \
