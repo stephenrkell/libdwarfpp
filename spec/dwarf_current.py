@@ -222,7 +222,7 @@ tags = [ \
 ("namelist", ( [], [], ["basic"]  ) ), \
 ("namelist_item", ( [], [], ["basic"]  ) ), \
 ("packed_type", ( [], [], ["qualified_type"]  ) ), \
-("subprogram", ( [("calling_convention", False), ("low_pc", False), ("high_pc", False), ("frame_base", False), ("pure", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["type_describing_subprogram", "with_static_location", "with_named_children"]  ) ), \
+("subprogram", ( [("calling_convention", False), ("low_pc", False), ("high_pc", False), ("inline", False), ("frame_base", False), ("pure", False)], [ "formal_parameter", "unspecified_parameters", "variable", "lexical_block" ], ["type_describing_subprogram", "with_static_location", "with_named_children"]  ) ), \
 ("template_type_parameter", ( [], [], ["basic"]  ) ), \
 ("template_value_parameter", ( [], [], ["basic"]  ) ), \
 ("thrown_type", ( [], [], ["program_element"]  ) ), \
