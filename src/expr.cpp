@@ -241,11 +241,25 @@ namespace dwarf
 					case DW_OP_reg30:
 					case DW_OP_reg31:
 					{
-						/* the reg family just get the contents of the register */
-						if (!p_regs) goto no_regs;
 						int regnum = i->lr_atom - DW_OP_reg0;
-						m_stack.push(p_regs->get(regnum));
+						/* The reg family just get the contents of the register.
+						 * HMM. I think this is wrong. At the very least, we should
+						 * set the state to VALUE if we push the register contents
+						 * onto the stack, to denote that we're no longer computing
+						 * an address but rather. But really, this is a new state:
+						 * we're computing an "address" where memory addresses are
+						 * extended with the domain of registers.  */
+						//if (!p_regs) goto no_regs;
+						//m_stack.push(p_regs->get(regnum));
+						m_stack.push(regnum);
+						m_tos_state = REGISTER;
 					} break;
+					case DW_OP_regx:
+					{
+						int regnum = i->lr_number;
+						m_stack.push(regnum);
+						m_tos_state = REGISTER;
+					}
 					case DW_OP_lit0:
 					case DW_OP_lit1:
 					case DW_OP_lit2:
@@ -382,7 +396,7 @@ namespace dwarf
 			this->lopc = ld.raw_handle()->ld_lopc;
 		}			
 		
-		std::vector<std::pair<loc_expr, Dwarf_Unsigned> > loc_expr::pieces() const
+		std::vector<std::pair<loc_expr, Dwarf_Unsigned> > loc_expr::byte_pieces() const
 		{
 			/* Split the loc_expr into pieces, and return pairs
 			 * of the subexpr and the length of the object segment
@@ -413,9 +427,9 @@ namespace dwarf
 						loc_expr(*this), 0));
 			return ps;
 		}
-		loc_expr loc_expr::piece_for_offset(Dwarf_Off offset) const
+		loc_expr loc_expr::byte_piece_for_offset(Dwarf_Off offset) const
 		{
-			auto ps = pieces();
+			auto ps = byte_pieces();
 			Dwarf_Off cur_off = 0UL;
 			for (auto i = ps.begin(); i != ps.end(); i++)
 			{

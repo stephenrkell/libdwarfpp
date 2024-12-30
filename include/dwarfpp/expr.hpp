@@ -100,6 +100,9 @@ namespace dwarf
 				vector<expr_instr>(desc.ld_s, desc.ld_s + desc.ld_cents),
 				spec(spec), hipc(desc.ld_hipc), lopc(desc.ld_lopc)/*,
 				m_expr(*this)*/ {}
+			// initializer list syntax, with a list of operations (Dwarf_Loc a.k.a. expr_instr)
+			loc_expr(std::initializer_list<dwarf::lib::Dwarf_Loc> init)
+				: vector<expr_instr>(init), spec (spec::dwarf_current) {}
 			loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec = spec::dwarf_current);
 			loc_expr(const vector<expr_instr>& expr,
 				const spec::abstract_def& spec = spec::dwarf_current)
@@ -110,8 +113,10 @@ namespace dwarf
 			  spec(arg.spec), hipc(arg.hipc), lopc(arg.lopc)/*, 
 			  m_expr(*this)*/ {}
 
-			loc_expr piece_for_offset(Dwarf_Off offset) const;
-			vector<std::pair<loc_expr, Dwarf_Unsigned> > pieces() const;
+			loc_expr piece_for_byte_offset(Dwarf_Off offset) const;
+			loc_expr piece_for_bit_offset(Dwarf_Off offset) const;
+			vector<std::pair<loc_expr, Dwarf_Unsigned> > byte_pieces() const;
+			vector<std::pair<loc_expr, Dwarf_Unsigned> > byte_or_bit_pieces() const;
 			
 			// this is languishing here because it's a HACK.. should take the value as argument
 			// too, to calculate variable-length encodings correctly
@@ -338,9 +343,10 @@ namespace dwarf
 			enum tos_state_t
 			{
 				ADDRESS = 1,
-				VALUE = 2,
-				IMPLICIT_POINTER = 4,
-				TOS_STATE_MAX = 8
+				REGISTER = 2,
+				VALUE = 4,
+				IMPLICIT_POINTER = 9,
+				TOS_STATE_MAX = 16
 			};
 		private:
 			tos_state_t m_tos_state;

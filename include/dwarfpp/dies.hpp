@@ -140,6 +140,18 @@ namespace dwarf
 			sym_resolver_t sym_resolve = sym_resolver_t(),
 			void *arg = 0) const;
 		virtual opt<string> get_linkage_name() const;
+
+		/* The returned interval map has these properties:
+		 * It is made from a disjoint collection of intervals, i.e. aggregation of values is not
+		 * in effect.
+		 * At each interval (key), the Dwarf_Off value is tells us where *within the object's
+		 *    contiguous internal address space* the key's *end* address is positioned. This is
+		 *    to allow for objects that are split over multiple chunks in the file's address space.
+		 *    I think this only makes sense for functions, in the static case,
+		 *    but the analogous "internal address space" idea crops up in other calls
+		 *    where variables split by DW_OP_piece might be found, e.g.
+		 *    e.g. opt<Dwarf_Off> with_dynamic_location_die::spans_addr_in_object.
+		 */
 		virtual boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned> 
 		file_relative_intervals(
 			root_die& r, 

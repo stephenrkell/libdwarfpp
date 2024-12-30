@@ -4095,6 +4095,7 @@ namespace dwarf
 			return find_self().enclosing_cu()->mangled_name_for(find_self());
 		}
 
+		// To understand the return value, see comment in dies.hpp
 		boost::icl::interval_map<Dwarf_Addr, Dwarf_Unsigned> 
 		with_static_location_die::file_relative_intervals(
 			root_die& r, 
@@ -4223,7 +4224,7 @@ namespace dwarf
 					std::vector<std::pair<dwarf::encap::loc_expr, Dwarf_Unsigned> > expr_pieces;
 					try
 					{
-						expr_pieces = loclist.loc_for_vaddr(0).pieces();
+						expr_pieces = loclist.loc_for_vaddr(0).byte_pieces();
 					}
 					catch (No_entry)
 					{
@@ -4234,7 +4235,7 @@ namespace dwarf
 						else debug(2) << "Static var with no location: " << *this << endl;
 						//if (loclist.size() > 0)
 						//{
-						//	expr_pieces = loclist.begin()->pieces();
+						//	expr_pieces = loclist.begin()->byte_pieces();
 						//}
 						/*else*/ goto out;
 					}
