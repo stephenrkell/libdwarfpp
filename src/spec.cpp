@@ -624,7 +624,8 @@ pair_type name[] = { \
 
 		bool dwarf4_t::local_op_reads_register(int op) const
 		{
-			return (op >= DW_OP_reg0 && op <= DW_OP_bregx)
+			// DW_OP_regX don't "read" a register; they "designate" a register
+			return (op >= /*DW_OP_reg0*/ DW_OP_breg0 && op <= DW_OP_bregx)
 				|| op == DW_OP_fbreg;
 		}
 		MAKE_LOOKUP(forward_name_mapping_t, op_forward_tbl, PAIR_ENTRY_FORWARDS_VARARGS, PAIR_ENTRY_FORWARDS_VARARGS_LAST, OP_DECL_LIST);
