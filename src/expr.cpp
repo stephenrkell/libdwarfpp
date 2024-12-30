@@ -427,7 +427,7 @@ namespace dwarf
 						loc_expr(*this), 0));
 			return ps;
 		}
-		loc_expr loc_expr::byte_piece_for_offset(Dwarf_Off offset) const
+		loc_expr loc_expr::piece_for_byte_offset(Dwarf_Off offset) const
 		{
 			auto ps = byte_pieces();
 			Dwarf_Off cur_off = 0UL;
