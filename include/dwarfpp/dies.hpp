@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <stack>
 #include <set>
+#include <deque>
 #include <boost/optional/optional.hpp> // until we are using C++17
 #include <srk31/rotate.hpp>
 
@@ -365,7 +366,7 @@ struct type_iterator_df_base : public iterator_base
 
 	/* The stack records the grey nodes. The back of the stack
 	 * may or may not be our current position.  */
-	deque< pair<iterator_df<type_die>, iterator_df<program_element_die> > > m_stack;
+	std::deque< pair<iterator_df<type_die>, iterator_df<program_element_die> > > m_stack;
 	struct black_offsets_set_t : std::unordered_set<Dwarf_Off>
 	{
 		bool contains(const iterator_base& i) const
@@ -591,7 +592,7 @@ public:
 	type_iterator_outgoing_edges(self&& arg) : type_iterator_df_base(std::move(arg))
 	{ /* don't init */ }
 	explicit type_iterator_outgoing_edges(
-		const deque< pair<iterator_df<type_die>, iterator_df<program_element_die> > >& stack)
+		const std::deque< pair<iterator_df<type_die>, iterator_df<program_element_die> > >& stack)
 	{ /* This constructor means 
 	   * "the stack position is black; start from the predecessor's next outgoing edge". */
 		this->base_reference() = stack.back().first;

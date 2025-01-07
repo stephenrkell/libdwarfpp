@@ -625,8 +625,20 @@ pair_type name[] = { \
 		bool dwarf4_t::local_op_reads_register(int op) const
 		{
 			// DW_OP_regX don't "read" a register; they "designate" a register
-			return (op >= /*DW_OP_reg0*/ DW_OP_breg0 && op <= DW_OP_bregx)
-				|| op == DW_OP_fbreg;
+			return ((op >= /*DW_OP_reg0*/ DW_OP_breg0 && op <= DW_OP_breg31)
+				|| op == DW_OP_bregx)
+			/* DW_OP_fbreg also doesn't "read" a register;
+			 * if its calculation involves reading a register, that's a matter
+			 * for the code that does that. We use an arbitrary fbreg==0 to
+			 * calculate stack offsets, for example... we don't want to flag such
+			 * locs as register-dependent. */
+				/*|| op == DW_OP_fbreg*/;
+		}
+		bool dwarf4_t::local_op_names_register(int op) const
+		{
+			// DW_OP_regX don't "read" a register; they "designate" a register
+			return (op >= DW_OP_reg0 && op <= DW_OP_reg31)
+			|| op == DW_OP_regx;
 		}
 		MAKE_LOOKUP(forward_name_mapping_t, op_forward_tbl, PAIR_ENTRY_FORWARDS_VARARGS, PAIR_ENTRY_FORWARDS_VARARGS_LAST, OP_DECL_LIST);
 		MAKE_LOOKUP(inverse_name_mapping_t, op_inverse_tbl, PAIR_ENTRY_BACKWARDS_VARARGS, PAIR_ENTRY_BACKWARDS_VARARGS_LAST, OP_DECL_LIST);

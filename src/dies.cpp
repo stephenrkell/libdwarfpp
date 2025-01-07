@@ -2297,8 +2297,8 @@ namespace dwarf
 				typedef type_iterator_df_base super;
 				friend class boost::iterator_core_access;
 
-				deque< iterator_df<type_die> > seen_but_not_assigned;
-				deque< iterator_df<type_die> > perhaps_same_scc;
+				std::deque< iterator_df<type_die> > seen_but_not_assigned;
+				std::deque< iterator_df<type_die> > perhaps_same_scc;
 				unsigned seen_count;
 				map< iterator_df<type_die>, unsigned > preorder_numbers;
 				unsigned component_count;
@@ -4053,7 +4053,7 @@ namespace dwarf
 					return expr::evaluator(
 						data_member_location->at(0), 
 						self.enclosing_cu().spec_here(), 
-						std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, 0UL))).tos();
+						{ 0 }).tos();
 				} 
 				catch (expr::Not_supported)
 				{
@@ -4248,7 +4248,7 @@ namespace dwarf
 							/* Evaluate this piece. */
 							Dwarf_Unsigned piece_size = i->second;
 							Dwarf_Unsigned piece_start = expr::evaluator(i->first,
-								this->get_spec(r)).tos();
+								this->get_spec(r), {}).tos();
 
 							/* If we have only one piece, it means there might be no DW_OP_piece,
 							 * so the size of the piece will be unreliable (possibly zero). */
@@ -4883,7 +4883,7 @@ namespace dwarf
 				i_cu.spec_here(), 
 				p_regs,
 				object_base_addr, // ignored
-				std::stack<Dwarf_Unsigned>(std::deque<Dwarf_Unsigned>(1, object_base_addr))).tos();
+				{ 0 }).tos();
 		}
 /* from spec::with_named_children_die */
 //         std::shared_ptr<spec::basic_die>

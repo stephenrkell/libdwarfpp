@@ -15,7 +15,6 @@
 #include <set>
 #include <list>
 #include <unordered_map>
-#include <deque>
 #include <boost/intrusive_ptr.hpp>
 #include <srk31/selective_iterator.hpp>
 #include <srk31/transform_iterator.hpp>
@@ -37,7 +36,6 @@ namespace dwarf
 	using std::pair;
 	using std::make_pair;
 	using std::multimap;
-	using std::deque;
 	using std::dynamic_pointer_cast;
 	using boost::intrusive_ptr;
 	
@@ -353,7 +351,7 @@ namespace dwarf
 			friend struct type_die; // for equal_to
 			friend class factory; // for visible_named_grandchildren_is_complete
 			
-		protected: // was protected -- consider changing back
+		protected:
 			typedef intrusive_ptr<basic_die> ptr_type;
 			Debug dbg;
 			

@@ -70,6 +70,7 @@ namespace dwarf
 			virtual const char *op_lookup(int op) const = 0;
 			virtual int op_for_name(const char *name) const = 0;
 			virtual bool op_reads_register(int op) const = 0;
+			virtual bool op_names_register(int op) const = 0;
 			virtual size_t op_operand_count(int op) const = 0;
 			virtual const int *op_operand_form_list(int op) const = 0;
 			
@@ -120,7 +121,8 @@ namespace dwarf
 			bool local_tag_is_type_chain(int tag) const; \
 			bool local_tag_has_named_children(int tag) const; \
 			bool local_attr_describes_location(int attr) const; \
-			bool local_op_reads_register(int op) const;
+			bool local_op_reads_register(int op) const; \
+			bool local_op_names_register(int op) const;
 
 				
 		template <class DefWithMaps>
@@ -229,6 +231,7 @@ namespace dwarf
 			virtual bool attr_describes_location(int attr) const 
 			{ return false; }
 			virtual bool op_reads_register(int op) const { return false; }
+			virtual bool op_names_register(int op) const { return false; }
 
 			/* Define our empty lists. */
 			virtual const int *attr_get_classes(int attr) const 
@@ -351,6 +354,10 @@ namespace dwarf
 			bool op_reads_register(int op) const 
 			{ 
 				return member_pred_union(&Extending::local_op_reads_register, &Extended::op_reads_register, op);
+			}
+			bool op_names_register(int op) const 
+			{ 
+				return member_pred_union(&Extending::local_op_names_register, &Extended::op_names_register, op);
 			}
 			
 			// lists
@@ -505,5 +512,75 @@ namespace dwarf
 		extern dwarf4_t& dwarf4;
 	}
 }
+
+/* Expressions. FIXME: make this per-spec. */
+
+/* These macro-defined ops are sufficient only for the computational
+ * fragment of DWARF.
+ *
+ * We define self-similar 0..31 ranges using BOOST_PP_REPEAT.
+ * I think we may want to have a standalone macro for each op...
+ * and/or have special_ops versus compute_ops
+ */
+#include <boost/preprocessor/repetition.hpp>
+#include <boost/preprocessor/control/if.hpp>
+#include <boost/preprocessor/facilities/empty.hpp>
+
+#define expand_breg_(z, n, v_) v_(DW_OP_breg ## n, morestack(1); PUSH(REGS(n) + Operand1); )
+#define expand_lit_(z, n, v_)  v_(DW_OP_lit ## n,  morestack(1); PUSH(n); )
+/* FIXME: add more opcodes! */
+#define dwarf_expr_computed_ops(v_) \
+    v_(DW_OP_const1u, PUSH(Operand1);) \
+    v_(DW_OP_const2u, PUSH(Operand1);) \
+    v_(DW_OP_const4u, PUSH(Operand1);) \
+    v_(DW_OP_const8u, PUSH(Operand1);) \
+    v_(DW_OP_constu , PUSH(Operand1);) \
+    v_(DW_OP_const1s, PUSH((Dwarf_Signed) Operand1);) \
+    v_(DW_OP_const2s, PUSH((Dwarf_Signed) Operand1);) \
+    v_(DW_OP_const4s, PUSH((Dwarf_Signed) Operand1);) \
+    v_(DW_OP_const8s, PUSH((Dwarf_Signed) Operand1);) \
+    v_(DW_OP_consts , PUSH((Dwarf_Signed) Operand1);) \
+    v_(DW_OP_plus_uconst, stk[0] += Operand1;) \
+    v_(DW_OP_plus,    POP(arg1); stk[0] = arg1 + /*arg2*/ stk[0];) \
+    v_(DW_OP_shl,     POP(arg1); stk[0] = /*arg2*/ stk[0] << arg1;) \
+    v_(DW_OP_shr,     POP(arg1); stk[0] = /*arg2*/ stk[0] >> arg1;) \
+    v_(DW_OP_shra,    POP(arg1); stk[0] = (long int)((unsigned long) /*arg2*/stk[0] >> arg1);) \
+    v_(DW_OP_addr,    PUSH(Operand1);) \
+    BOOST_PP_REPEAT(32, expand_breg_, v_) \
+    v_(DW_OP_bregx,   morestack(1); PUSH(REGS(Operand1) + Operand2); ) \
+    BOOST_PP_REPEAT(32, expand_lit_, v_) \
+    v_(DW_OP_deref,      stk[0] = LOADN(sizeof (void*), stk[0]); ) \
+    v_(DW_OP_deref_size, stk[0] = LOADN(Operand1, stk[0]); ) \
+
+/* "Special ops" are those that require  out-of-band handling -- stuff like:
+ * DW_OP_piece
+ * DW_OP_stack_value
+ * DW_OP_implicit_value
+ * DW_OP_reg*    <-- since semantically this *names* a register, not operate on/with its value
+ */
+/* Also, how do we #ifdef out some possibly-not-defined tokens?
+ * Use BOOST_PP_IF., but it's not that nice unfortunately... we'd like to write:
+ 
+   BOOST_PP_IF( defined(DW_OP_implicit_pointer), v_(DW_OP_implicit_pointer, ~), ) \
+
+ * but sadly "defined" doesn't behave like an ordinary macro.
+ */
+#ifdef DW_OP_implicit_pointer
+#define HAVE_DW_OP_implicit_pointer 1
+#else
+#define HAVE_DW_OP_implicit_pointer 0
+#endif
+
+#define expand_reg_(z, n, v_)  v_(DW_OP_reg ## n, ~ )
+#define dwarf_expr_special_ops(v_) \
+    v_(DW_OP_fbreg, ~) \
+    v_(DW_OP_call_frame_cfa, ~) \
+    v_(DW_OP_piece, ~) \
+    BOOST_PP_REPEAT(32, expand_reg_, v_) \
+    v_(DW_OP_regx, ~) \
+    v_(DW_OP_stack_value, ~) \
+    v_(DW_OP_implicit_value, ~) \
+    v_(DW_OP_GNU_implicit_pointer, ~) \
+    BOOST_PP_IF( HAVE_DW_OP_implicit_pointer, v_(DW_OP_implicit_pointer, ~), ) \
 
 #endif

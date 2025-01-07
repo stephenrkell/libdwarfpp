@@ -41,7 +41,7 @@ namespace dwarf
 			const ::dwarf::spec::abstract_def& spec,
 			regs *p_regs,
 			opt<Dwarf_Signed> frame_base,
-			const std::stack<Dwarf_Unsigned>& initial_stack)
+			const evaluator::eval_stack& initial_stack)
 		: m_stack(initial_stack), spec(spec), p_regs(p_regs), m_tos_state(ADDRESS), frame_base(frame_base)
 		{
 			// sanity check while I suspect stack corruption
@@ -98,6 +98,10 @@ namespace dwarf
 		{
 			std::ostringstream s;
 			s << expr << std::endl;
+#if 0
+			std::cerr << "Evaluating '" << s.str() << "' with initial stack size " << m_stack.size()
+				<< std::endl;
+#endif
 			if (i != expr.end() && i != expr.begin())
 			{
 				/* This happens when we stopped at a DW_OP_piece argument. 
@@ -112,6 +116,34 @@ namespace dwarf
 				m_tos_state = ADDRESS;
 				switch(i->lr_atom)
 				{
+
+/* REMEMBER: we've subclassed std::stack to define operator[] with [0] == tos, etc. */
+/* REMEMBER: we can't have both morestack andlessstack in the same scope,
+ * since in dwarf-machine.hpp they both define a new variable 'end'. */
+#define stk m_stack
+#define Operand1   i->lr_number
+#define Operand2   i->lr_number2
+#define morestack(nwords) \
+     for (unsigned n_ = 0; n_ < (nwords); ++n_) m_stack.push(0)
+#define lessstack(nwords) \
+     for (unsigned n_ = 0; n_ < (nwords); ++n_) m_stack.pop()
+#define PUSH(x)     morestack(1); stk[0] = (x)
+#define POP(y)      Dwarf_Unsigned y = stk[0]; lessstack(1)
+/* intrinsics */
+#define FBREG          ({ if (!frame_base) goto logic_error; *frame_base; })
+#define REGS(n)        ({ if (!p_regs) goto no_regs; p_regs->get(n); })
+#define LOADN(n, addr) ({ /* FIXME: need p_mem like p_regs */ throw No_entry(); 0; })
+
+#define computed_op_case(num, toks...) \
+	case num : { toks } break;
+dwarf_expr_computed_ops(computed_op_case)
+
+#if 0
+    v_(DW_OP_fbreg,   PUSH(((Dwarf_Unsigned) FBREG) + Operand1);) \
+    v_(DW_OP_call_frame_cfa,   PUSH(FBREG);) \
+
+#endif
+#if 0
 					case DW_OP_const1u:
 					case DW_OP_const2u:
 					case DW_OP_const4u:
@@ -151,21 +183,6 @@ namespace dwarf
 						int arg2 = m_stack.top(); m_stack.pop();
 						m_stack.push(arg2 >> arg1);
 					} break;
-					case DW_OP_fbreg: {
-						if (!frame_base) goto logic_error;
-						m_stack.push(*frame_base + i->lr_number);
-					} break;
-					case DW_OP_call_frame_cfa: {
-						if (!frame_base) goto logic_error;
-						m_stack.push(*frame_base);
-					} break;
-					case DW_OP_piece: {
-						/* Here we do something special: leave the opcode iterator
-						 * pointing at the piece argument, and return. This allow us
-						 * to probe the piece size (by getting *i) and to resume by
-						 * calling eval() again. */
-						 ++i;
-					}	return;
 					case DW_OP_breg0:
 					case DW_OP_breg1:
 					case DW_OP_breg2:
@@ -208,58 +225,6 @@ namespace dwarf
 					{
 						m_stack.push(i->lr_number);
 					} break;
-					case DW_OP_reg0:
-					case DW_OP_reg1:
-					case DW_OP_reg2:
-					case DW_OP_reg3:
-					case DW_OP_reg4:
-					case DW_OP_reg5:
-					case DW_OP_reg6:
-					case DW_OP_reg7:
-					case DW_OP_reg8:
-					case DW_OP_reg9:
-					case DW_OP_reg10:
-					case DW_OP_reg11:
-					case DW_OP_reg12:
-					case DW_OP_reg13:
-					case DW_OP_reg14:
-					case DW_OP_reg15:
-					case DW_OP_reg16:
-					case DW_OP_reg17:
-					case DW_OP_reg18:
-					case DW_OP_reg19:
-					case DW_OP_reg20:
-					case DW_OP_reg21:
-					case DW_OP_reg22:
-					case DW_OP_reg23:
-					case DW_OP_reg24:
-					case DW_OP_reg25:
-					case DW_OP_reg26:
-					case DW_OP_reg27:
-					case DW_OP_reg28:
-					case DW_OP_reg29:
-					case DW_OP_reg30:
-					case DW_OP_reg31:
-					{
-						int regnum = i->lr_atom - DW_OP_reg0;
-						/* The reg family just get the contents of the register.
-						 * HMM. I think this is wrong. At the very least, we should
-						 * set the state to VALUE if we push the register contents
-						 * onto the stack, to denote that we're no longer computing
-						 * an address but rather. But really, this is a new state:
-						 * we're computing an "address" where memory addresses are
-						 * extended with the domain of registers.  */
-						//if (!p_regs) goto no_regs;
-						//m_stack.push(p_regs->get(regnum));
-						m_stack.push(regnum);
-						m_tos_state = REGISTER;
-					} break;
-					case DW_OP_regx:
-					{
-						int regnum = i->lr_number;
-						m_stack.push(regnum);
-						m_tos_state = REGISTER;
-					}
 					case DW_OP_lit0:
 					case DW_OP_lit1:
 					case DW_OP_lit2:
@@ -294,6 +259,74 @@ namespace dwarf
 					case DW_OP_lit31:
 						m_stack.push(i->lr_atom - DW_OP_lit0);
 						break;
+#endif
+					case DW_OP_fbreg: {
+						if (!frame_base) goto logic_error;
+						m_stack.push(*frame_base + i->lr_number);
+					} break;
+					case DW_OP_call_frame_cfa: {
+						if (!frame_base) goto logic_error;
+						m_stack.push(*frame_base);
+					} break;
+					case DW_OP_piece: {
+						/* Here we do something special: leave the opcode iterator
+						 * pointing at the piece argument, and return. This allow us
+						 * to probe the piece size (by getting *i) and to resume by
+						 * calling eval() again. */
+						 ++i;
+					}	return;
+					case DW_OP_reg0:
+					case DW_OP_reg1:
+					case DW_OP_reg2:
+					case DW_OP_reg3:
+					case DW_OP_reg4:
+					case DW_OP_reg5:
+					case DW_OP_reg6:
+					case DW_OP_reg7:
+					case DW_OP_reg8:
+					case DW_OP_reg9:
+					case DW_OP_reg10:
+					case DW_OP_reg11:
+					case DW_OP_reg12:
+					case DW_OP_reg13:
+					case DW_OP_reg14:
+					case DW_OP_reg15:
+					case DW_OP_reg16:
+					case DW_OP_reg17:
+					case DW_OP_reg18:
+					case DW_OP_reg19:
+					case DW_OP_reg20:
+					case DW_OP_reg21:
+					case DW_OP_reg22:
+					case DW_OP_reg23:
+					case DW_OP_reg24:
+					case DW_OP_reg25:
+					case DW_OP_reg26:
+					case DW_OP_reg27:
+					case DW_OP_reg28:
+					case DW_OP_reg29:
+					case DW_OP_reg30:
+					case DW_OP_reg31:
+					{
+						//int regnum = i->lr_atom - DW_OP_reg0;
+						/* The reg family just get the contents of the register.
+						 * HMM. I think this is wrong. At the very least, we should
+						 * set the state to VALUE if we push the register contents
+						 * onto the stack, to denote that we're no longer computing
+						 * an address. But really, this is a new state:
+						 * we've computed an "address" where memory addresses are
+						 * extended with the domain of registers.  */
+						//if (!p_regs) goto no_regs;
+						//m_stack.push(p_regs->get(regnum));
+						//m_stack.push(regnum);
+						m_tos_state = NAMED_REGISTER;
+					} break;
+					case DW_OP_regx:
+					{
+						//int regnum = i->lr_number;
+						//m_stack.push(regnum);
+						m_tos_state = NAMED_REGISTER;
+					}
 					case DW_OP_stack_value:
 						/* This means that the object has no address, but that the 
 						 * DWARF evaluator has just computed its *value*. We record
@@ -315,10 +348,6 @@ namespace dwarf
 						implicit_pointer = make_pair(i->lr_number,
 							static_cast<Dwarf_Signed>(i->lr_number2));
 						break;
-					case DW_OP_deref_size:
-					case DW_OP_deref:
-						/* FIXME: we can do this one if we have p_mem analogous to p_regs. */
-						throw No_entry();
 					default:
 						debug() << "Error: unrecognised opcode: " << spec.op_lookup(i->lr_atom) << std::endl;
 						throw Not_supported("unrecognised opcode");
@@ -340,7 +369,7 @@ namespace dwarf
 			Dwarf_Signed frame_base,
 			opt<regs&> regs,
 			const ::dwarf::spec::abstract_def& spec,
-			const std::stack<Dwarf_Unsigned>& initial_stack)
+			const evaluator::stack_t& initial_stack)
 		{
 			assert(false); return 0UL;
 		}
@@ -394,8 +423,52 @@ namespace dwarf
 			*static_cast<vector<expr_instr> *>(this) = vector<expr_instr>(ld.raw_handle()->ld_s, ld.raw_handle()->ld_s + ld.raw_handle()->ld_cents);
 			this->hipc = ld.raw_handle()->ld_hipc;
 			this->lopc = ld.raw_handle()->ld_lopc;
-		}			
-		
+		}
+
+		/* This is not const because the iterators we return will only be valid
+		 * if the storage is nailed down, not a compiler temporary (to which const&
+		 * could bind). */
+		std::vector< loc_expr::piece > loc_expr::all_pieces()
+		{
+			/* Split the loc_expr into pieces, and return pairs
+			 * of the subexpr and the length of the object segment
+			 * that this expression locates (or 0 for "whole object"). 
+			 * Note that pieces may
+			 * not be nested (DWARF 3 Sec. 2.6.4, read carefully). */
+			std::vector< piece > ps;
+
+			std::vector<expr_instr>::iterator done_up_to_here = /*m_expr.*/begin();
+			Dwarf_Unsigned done_this_many_bits = 0UL;
+			for (auto i_instr = /*m_expr.*/begin(); i_instr != /*m_expr.*/end(); ++i_instr)
+			{
+				if (i_instr->lr_atom == DW_OP_piece
+					|| i_instr->lr_atom == DW_OP_bit_piece)
+				{
+					ps.push_back(piece(
+						done_up_to_here, i_instr, done_this_many_bits,
+						/* implicit piece? */ false));
+					/* FIXME: we are ignoring the second argument of DW_OP_bit_piece,
+					 * and that's wrong. */
+					done_this_many_bits += i_instr->lr_number
+					 * ((i_instr->lr_atom == DW_OP_piece) ? 8 : 1);
+					done_up_to_here = i_instr + 1;
+				}
+			}
+			// if we did any pieces, we should have finished on one
+			assert(done_up_to_here == /*m_expr.*/end() || done_this_many_bits == 0UL);
+			// if we didn't finish on one, we need to add a singleton to the pieces vector
+			if (done_this_many_bits == 0UL) ps.push_back(
+				piece(this->begin(), this->end(), 0, /* implicit piece?*/ true));
+			return ps;
+		}
+		loc_expr loc_expr::piece::copy() const
+		{
+			loc_expr out;
+			for (auto i_e = first; i_e != second; ++i_e)
+			{ out.push_back(*i_e); }
+			return out;
+		}
+
 		std::vector<std::pair<loc_expr, Dwarf_Unsigned> > loc_expr::byte_pieces() const
 		{
 			/* Split the loc_expr into pieces, and return pairs
@@ -466,12 +539,31 @@ namespace dwarf
 			throw No_entry(); // bogus vaddr
 		}
 		
-		// FIXME: what was the point of this method? It's some kind of normalisation
-		// so that everything takes the form of adding to a pre-pushed base address.
-		// But why? Who needs it?
+		/* This method is used in with_dynamic_location_die::get_dynamic_location()
+		 * to provide uniformity between member_die and formal_parameter_die/variable_die:
+		 * every location expression that denotes a memory
+		 * location should take the form of adding to a pre-pushed base address.
+		 * To do this, it rewrites DW_OP_fbreg to an addition.
+		 * HOWEVER, is this sane?
+		 * - If it occurs in the middle of the expression, the plus
+		 * need not connect with the pre-pushed value, so I guess we should
+		 * only rewrite a *leading* DW_OP_fbreg. Does a non-leading one ever occur?
+		 * Or is there a way to get at the first-pushed stack element directly?
+		 * - We also have rewrite_loclist_in_terms_of_cfa, which has comments
+		 * saying 'fbreg is special' but never actually does anything about it.
+		 * - Does rewriting break DW_OP_pick? Our operand stack has one more element
+		 * than it used to. But no: the arg of DW_OP_pick is relative to the top
+		 * of the stack, so we're safe.
+		 * Can we merge these two? The CFA-based rewriting is much more invasive
+		 * and requires a frame section.
+		 * Can we flip the normalisation, so that we make member_dies (and
+		 * inheritance_dies and maybe others?) have absolute location? That could be
+		 * as simple as prepending DW_OP_fbreg and defining the frame base as the
+		 * object base. */
 		loclist absolute_loclist_to_additive_loclist(const loclist& l)
 		{
-			/* Total HACK, for now: just rewrite DW_OP_fbreg to { DW_OP_consts(n), DW_OP_plus },
+			/* Total HACK, for now: just rewrite DW_OP_fbreg
+			 * to { DW_OP_consts(n), DW_OP_plus },
 			 * i.e. assume the stack pointer is already pushed. */
 			loclist new_ll = l;
 			for (auto i_l = new_ll.begin(); i_l != new_ll.end(); ++i_l)

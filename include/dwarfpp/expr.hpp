@@ -117,7 +117,56 @@ namespace dwarf
 			loc_expr piece_for_bit_offset(Dwarf_Off offset) const;
 			vector<std::pair<loc_expr, Dwarf_Unsigned> > byte_pieces() const;
 			vector<std::pair<loc_expr, Dwarf_Unsigned> > byte_or_bit_pieces() const;
-			
+			struct piece
+			 : public std::pair< loc_expr::iterator, loc_expr::iterator >
+			{
+				Dwarf_Unsigned bit_offset;
+				bool implicit_piece; // i.e. there is no DW_OP_{bit_,}piece for it
+				piece(loc_expr::iterator begin, loc_expr::iterator end,
+					Dwarf_Unsigned bit_offset, bool implicit_piece)
+					: pair(make_pair(begin, end)), bit_offset(bit_offset),
+					  implicit_piece(implicit_piece) {}
+				opt<Dwarf_Unsigned> size_in_bytes_exact() const
+				{
+					if (size_in_bits() && *size_in_bits() % 8 == 0)
+					{ return *size_in_bits() / 8; }
+					return opt<Dwarf_Unsigned>();
+				}
+				opt<Dwarf_Unsigned> size_in_bytes() const
+				{
+					if (!size_in_bits()) return opt<Dwarf_Unsigned>();
+					if (*size_in_bits() % 8 == 0)
+					{ return *size_in_bits() / 8; }
+					return 1 + *size_in_bits() / 8;
+				}
+				opt<Dwarf_Unsigned> size_in_bits() const
+				{
+					/* If it's "all one piece", we don't know how big it is. */
+					if (implicit_piece) return opt<Dwarf_Unsigned>();
+					expr_instr piece_op = *(this->second + 1);
+					assert(piece_op.lr_atom == DW_OP_piece ||
+						piece_op.lr_atom == DW_OP_bit_piece);
+					return piece_op.lr_number
+						* ((piece_op.lr_atom == DW_OP_piece) ? 8 : 1);
+				}
+				Dwarf_Unsigned offset_in_bits() const
+				{ return bit_offset; }
+				Dwarf_Unsigned offset_in_bytes() const
+				{ return bit_offset / 8; }
+				opt<Dwarf_Unsigned> offset_in_bytes_exact() const
+				{ return (0 == bit_offset % 8)
+				   ? opt<Dwarf_Unsigned>(bit_offset / 8)
+				   : opt<Dwarf_Unsigned>(); }
+				loc_expr copy() const;
+				unsigned op_count() const { return second - first; }
+				expr_instr& back() const
+				{ assert(second != first); return *(second - 1); }
+			};
+			/* This is not const because the iterators we return will only be valid
+			 * if the storage is nailed down, not a compiler temporary (to which const&
+			 * could bind). */
+			std::vector< piece > all_pieces();
+
 			// this is languishing here because it's a HACK.. should take the value as argument
 			// too, to calculate variable-length encodings correctly
 			size_t form_encoded_size(Dwarf_Half form)
@@ -145,7 +194,7 @@ namespace dwarf
 					case DW_FORM_ref8: return 8;
 					case DW_FORM_ref_udata: return sizeof (Dwarf_Unsigned);
 					case DW_FORM_indirect: return sizeof (Dwarf_Addr);
-					default: assert(false); return 0;					
+					default: assert(false); return 0;
 				}
 			}
 			
@@ -315,7 +364,9 @@ namespace dwarf
 		using std::stack;
 		using std::ostream;
 		class evaluator {
-			class eval_stack : private std::stack<Dwarf_Unsigned> {
+		public:
+			typedef std::stack<Dwarf_Unsigned, std::vector<Dwarf_Unsigned> > stack_t;
+			class eval_stack : private stack_t {
 				friend class dwarf::expr::evaluator;
 				bool tos_is_value;  // whether our client saw a DW_OP_stack_value hence has calculated a value not an addr
 			public:
@@ -325,8 +376,13 @@ namespace dwarf
 				bool empty() const { return stack::empty(); }
 				void mark_tos_as_value() { tos_is_value = true; }
 				using stack::stack;
-				eval_stack(const std::stack<Dwarf_Unsigned>& s) : stack(s), tos_is_value(false) {}
+				eval_stack(const container_type& s) : stack(s), tos_is_value(false) {}
+				eval_stack(std::initializer_list<Dwarf_Unsigned> l) : stack(l),
+					tos_is_value(false) { assert(c.size() == l.size()); }
 				eval_stack() : tos_is_value(false) {}
+				Dwarf_Unsigned& operator[](unsigned idx)
+				{ assert(c.size() > 0); assert(idx < c.size());
+				  auto pos = this->c.end(); do --pos; while (idx--); return *pos; }
 			} m_stack;
 			encap::loc_expr expr;
 			const ::dwarf::spec::abstract_def& spec;
@@ -343,14 +399,14 @@ namespace dwarf
 			enum tos_state_t
 			{
 				ADDRESS = 1,
-				REGISTER = 2,
+				NAMED_REGISTER = 2,
 				VALUE = 4,
-				IMPLICIT_POINTER = 9,
+				IMPLICIT_POINTER = 8,
 				TOS_STATE_MAX = 16
 			};
 		private:
-			tos_state_t m_tos_state;
-			opt<pair< Dwarf_Off, Dwarf_Signed >> implicit_pointer; // whether we saw a DW_OP_stack_value hence have calculated a value not an addr
+			tos_state_t m_tos_state;  // encode e.g. whether we saw a DW_OP_stack_value hence have calculated a value not an addr
+			opt<pair< Dwarf_Off, Dwarf_Signed >> implicit_pointer;
 			opt<Dwarf_Signed> frame_base;
 			vector<Dwarf_Loc>::iterator i;
 			void eval();
@@ -367,11 +423,11 @@ namespace dwarf
 				const ::dwarf::spec::abstract_def& spec = spec::DEFAULT_DWARF_SPEC,
 				regs *p_regs = 0,
 				opt<Dwarf_Signed> frame_base = opt<Dwarf_Signed>(),
-				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>());
+				const eval_stack& initial_stack = eval_stack());
 			
 			evaluator(const vector<Dwarf_Loc>& loc_desc,
 				const ::dwarf::spec::abstract_def& spec,
-				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>())
+				const eval_stack& initial_stack /* = eval_stack() */)
 				: m_stack(initial_stack), spec(spec), p_regs(0), m_tos_state(ADDRESS)
 			{
 				expr = loc_desc;
@@ -382,7 +438,7 @@ namespace dwarf
 				const ::dwarf::spec::abstract_def& spec,
 				regs& regs,
 				Dwarf_Signed frame_base,
-				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+				const eval_stack& initial_stack /*= eval_stack() */) 
 				: m_stack(initial_stack), spec(spec), p_regs(&regs), m_tos_state(ADDRESS)
 			{
 				expr = loc_desc;
@@ -394,7 +450,7 @@ namespace dwarf
 			evaluator(const vector<Dwarf_Loc>& loc_desc,
 				const ::dwarf::spec::abstract_def& spec,
 				Dwarf_Signed frame_base,
-				const stack<Dwarf_Unsigned>& initial_stack = stack<Dwarf_Unsigned>()) 
+				const eval_stack& initial_stack /* = eval_stack() */)
 				: m_stack(initial_stack), spec(spec), p_regs(0), m_tos_state(ADDRESS)
 			{
 				//if (av.get_form() != dwarf::encap::attribute_value::LOCLIST) throw "not a DWARF expression";
@@ -421,7 +477,7 @@ namespace dwarf
 			Dwarf_Signed frame_base,
 			opt<regs&> rs,
 			const ::dwarf::spec::abstract_def& spec,
-			const stack<Dwarf_Unsigned>& initial_stack);
+			const ::dwarf::expr::evaluator::eval_stack& initial_stack);
 	} // end namespace expr
 }
 

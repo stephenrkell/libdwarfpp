@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <cassert>
+#include <deque>
 #include <srk31/selective_iterator.hpp>
 #include <srk31/concatenating_iterator.hpp>
 #include <srk31/transform_iterator.hpp>
@@ -629,7 +630,7 @@ namespace dwarf
 			friend class boost::iterator_core_access;
 
 			// extra state needed!
-			deque< iterator_base > m_queue;
+			std::deque< iterator_base > m_queue;
 			
 			iterator_base& base_reference()
 			{ return static_cast<iterator_base&>(*this); }
