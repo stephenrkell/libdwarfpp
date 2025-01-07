@@ -438,51 +438,48 @@ namespace dwarf
 				current_cu_offset = 0UL;
 				return false;
 			}
-			else
+			assert(retval == DW_DLV_OK);
+			opt<Dwarf_Off> prev_next_cu_header = last_seen_next_cu_header;
+			Dwarf_Off prev_current_cu_offset = current_cu_offset;
+
+			last_seen_cu_header_length = seen_cu_header_length;
+			last_seen_version_stamp = seen_version_stamp;
+			last_seen_abbrev_offset = seen_abbrev_offset;
+			last_seen_address_size = seen_address_size;
+			last_seen_offset_size = seen_offset_size;
+			last_seen_extension_size = seen_extension_size;
+			last_seen_next_cu_header = seen_next_cu_header;
+
+			// also grab the current CU DIE offset
+			Die tmp_d(*this); // "current CU" constructor
+
+			current_cu_offset = //iterator_base(std::move(tmp_handle), 1U, *this).offset_here();
+				// can't use iterator_base because it will recursively try to make payload, make_cu_payload, 
+				// set_cu_context, ...
+				tmp_d.offset_here();
+
+			if (prev_current_cu_offset == 0UL)
 			{
-				assert(retval == DW_DLV_OK);
-				opt<Dwarf_Off> prev_next_cu_header = last_seen_next_cu_header;
-				Dwarf_Off prev_current_cu_offset = current_cu_offset;
-			
-				last_seen_cu_header_length = seen_cu_header_length;
-				last_seen_version_stamp = seen_version_stamp;
-				last_seen_abbrev_offset = seen_abbrev_offset;
-				last_seen_address_size = seen_address_size;
-				last_seen_offset_size = seen_offset_size;
-				last_seen_extension_size = seen_extension_size;
-				last_seen_next_cu_header = seen_next_cu_header;
-				
-				// also grab the current CU DIE offset
-				Die tmp_d(*this); // "current CU" constructor
-				
-				current_cu_offset = //iterator_base(std::move(tmp_handle), 1U, *this).offset_here();
-					// can't use iterator_base because it will recursively try to make payload, make_cu_payload, 
-					// set_cu_context, ...
-					tmp_d.offset_here();
-				
-				if (prev_current_cu_offset == 0UL)
-				{
-					/* Assert sanity of first CU offset. */
-					assert(current_cu_offset > 0UL && current_cu_offset < 32);
-					first_cu_offset = opt<Dwarf_Off>(current_cu_offset);
-				} 
-				if (prev_next_cu_header) // sanity check
-				{
-					/* Note that next_cu_header is subtle:
-					 * according to libdwarf,
-					 * "the offset into the debug_info section of the next CU header",
-					 * BUT it tends to be smaller than the value we got
-					 * from offset_here(). */
-					
-					//assert(current_cu_offset == *prev_next_cu_header); // -- this is wrong
-					
-					assert(first_cu_offset);
-					assert(current_cu_offset == *first_cu_offset
-					 ||    current_cu_offset == (*prev_next_cu_header) + *first_cu_offset);
-				}
-				
-				return true;
+				/* Assert sanity of first CU offset. */
+				assert(current_cu_offset > 0UL && current_cu_offset < 32);
+				first_cu_offset = opt<Dwarf_Off>(current_cu_offset);
+			} 
+			if (prev_next_cu_header) // sanity check
+			{
+				/* Note that next_cu_header is subtle:
+				 * according to libdwarf,
+				 * "the offset into the debug_info section of the next CU header",
+				 * BUT it tends to be smaller than the value we got
+				 * from offset_here(). */
+
+				//assert(current_cu_offset == *prev_next_cu_header); // -- this is wrong
+
+				assert(first_cu_offset);
+				assert(current_cu_offset == *first_cu_offset
+				 ||    current_cu_offset == (*prev_next_cu_header) + *first_cu_offset);
 			}
+
+			return true;
 		}
 		bool root_die::clear_cu_context()
 		{
