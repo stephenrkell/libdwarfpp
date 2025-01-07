@@ -30,8 +30,12 @@ namespace dwarf
 			Dwarf_Error e;
 			Dwarf_Ptr arg;
 			Error(Dwarf_Error e, Dwarf_Ptr arg) : e(e), arg(arg) {}
-			virtual ~Error() 
-			{ /*dwarf_dealloc((Dwarf_Debug) arg, e, DW_DLA_ERROR); */ /* TODO: Fix segfault here */	}
+			/*virtual*/ ~Error() 
+			{ dwarf_dealloc((Dwarf_Debug) arg, e, DW_DLA_ERROR);
+			  /* TODO: Fix segfault here */
+			  /* Could it be because we're "catching a polymorphic type by value"?
+			   * I think this is a case of a non-virtual destructor being sensible. */
+			}
 		};
 		struct No_entry {
 			No_entry() {}
