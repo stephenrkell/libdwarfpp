@@ -112,8 +112,6 @@ namespace dwarf
 			opt<std::string> error_detail;
 			while (i != expr.end())
 			{
-				// FIXME: be more descriminate -- do we want to propagate valueness? probably not
-				m_tos_state = ADDRESS;
 				switch(i->lr_atom)
 				{
 
@@ -124,146 +122,28 @@ namespace dwarf
 #define Operand1   i->lr_number
 #define Operand2   i->lr_number2
 #define morestack(nwords) \
-     for (unsigned n_ = 0; n_ < (nwords); ++n_) m_stack.push(0)
+     for (unsigned n_ = 0; n_ < (nwords); ++n_) { /* FIXME: too indiscriminate*/ m_tos_state = ADDRESS; m_stack.push(0); }
 #define lessstack(nwords) \
-     for (unsigned n_ = 0; n_ < (nwords); ++n_) m_stack.pop()
+     for (unsigned n_ = 0; n_ < (nwords); ++n_)  { /* FIXME: too indiscriminate*/ m_tos_state = ADDRESS; m_stack.pop(); }
 #define PUSH(x)     morestack(1); stk[0] = (x)
 #define POP(y)      Dwarf_Unsigned y = stk[0]; lessstack(1)
 /* intrinsics */
 #define FBREG          ({ if (!frame_base) goto logic_error; *frame_base; })
 #define REGS(n)        ({ if (!p_regs) goto no_regs; p_regs->get(n); })
 #define LOADN(n, addr) ({ /* FIXME: need p_mem like p_regs */ throw No_entry(); 0; })
+#define LOADN3(n, addr, asid) ({ /* FIXME: need p_mem like p_regs *and* asid */ throw No_entry(); 0; })
 
 #define computed_op_case(num, toks...) \
 	case num : { toks } break;
 dwarf_expr_computed_ops(computed_op_case)
 
-#if 0
-    v_(DW_OP_fbreg,   PUSH(((Dwarf_Unsigned) FBREG) + Operand1);) \
-    v_(DW_OP_call_frame_cfa,   PUSH(FBREG);) \
-
-#endif
-#if 0
-					case DW_OP_const1u:
-					case DW_OP_const2u:
-					case DW_OP_const4u:
-					case DW_OP_const8u:
-					case DW_OP_constu:
-						m_stack.push(i->lr_number);
-						break;
-					case DW_OP_const1s:
-					case DW_OP_const2s:
-					case DW_OP_const4s:
-					case DW_OP_const8s:
-					case DW_OP_consts:
-						m_stack.push((Dwarf_Signed) i->lr_number);
-						break;
-				   case DW_OP_plus_uconst: {
-						int tos = m_stack.top();
-						m_stack.pop();
-						m_stack.push(tos + i->lr_number);
-					} break;
-					case DW_OP_plus: {
-						int arg1 = m_stack.top(); m_stack.pop();
-						int arg2 = m_stack.top(); m_stack.pop();
-						m_stack.push(arg1 + arg2);
-					} break;
-					case DW_OP_shl: {
-						int arg1 = m_stack.top(); m_stack.pop();
-						int arg2 = m_stack.top(); m_stack.pop();
-						m_stack.push(arg2 << arg1);
-					} break;
-					case DW_OP_shr: {
-						int arg1 = m_stack.top(); m_stack.pop();
-						int arg2 = m_stack.top(); m_stack.pop();
-						m_stack.push((int)((unsigned) arg2 >> arg1));
-					} break;
-					case DW_OP_shra: {
-						int arg1 = m_stack.top(); m_stack.pop();
-						int arg2 = m_stack.top(); m_stack.pop();
-						m_stack.push(arg2 >> arg1);
-					} break;
-					case DW_OP_breg0:
-					case DW_OP_breg1:
-					case DW_OP_breg2:
-					case DW_OP_breg3:
-					case DW_OP_breg4:
-					case DW_OP_breg5:
-					case DW_OP_breg6:
-					case DW_OP_breg7:
-					case DW_OP_breg8:
-					case DW_OP_breg9:
-					case DW_OP_breg10:
-					case DW_OP_breg11:
-					case DW_OP_breg12:
-					case DW_OP_breg13:
-					case DW_OP_breg14:
-					case DW_OP_breg15:
-					case DW_OP_breg16:
-					case DW_OP_breg17:
-					case DW_OP_breg18:
-					case DW_OP_breg19:
-					case DW_OP_breg20:
-					case DW_OP_breg21:
-					case DW_OP_breg22:
-					case DW_OP_breg23:
-					case DW_OP_breg24:
-					case DW_OP_breg25:
-					case DW_OP_breg26:
-					case DW_OP_breg27:
-					case DW_OP_breg28:
-					case DW_OP_breg29:
-					case DW_OP_breg30:
-					case DW_OP_breg31:
-					{
-						/* the breg family get the contents of a register and add an offset */ 
-						if (!p_regs) goto no_regs;
-						int regnum = i->lr_atom - DW_OP_breg0;
-						m_stack.push(p_regs->get(regnum) + i->lr_number);
-					} break;
-					case DW_OP_addr:
-					{
-						m_stack.push(i->lr_number);
-					} break;
-					case DW_OP_lit0:
-					case DW_OP_lit1:
-					case DW_OP_lit2:
-					case DW_OP_lit3:
-					case DW_OP_lit4:
-					case DW_OP_lit5:
-					case DW_OP_lit6:
-					case DW_OP_lit7:
-					case DW_OP_lit8:
-					case DW_OP_lit9:
-					case DW_OP_lit10:
-					case DW_OP_lit11:
-					case DW_OP_lit12:
-					case DW_OP_lit13:
-					case DW_OP_lit14:
-					case DW_OP_lit15:
-					case DW_OP_lit16:
-					case DW_OP_lit17:
-					case DW_OP_lit18:
-					case DW_OP_lit19:
-					case DW_OP_lit20:
-					case DW_OP_lit21:
-					case DW_OP_lit22:
-					case DW_OP_lit23:
-					case DW_OP_lit24:
-					case DW_OP_lit25:
-					case DW_OP_lit26:
-					case DW_OP_lit27:
-					case DW_OP_lit28:
-					case DW_OP_lit29:
-					case DW_OP_lit30:
-					case DW_OP_lit31:
-						m_stack.push(i->lr_atom - DW_OP_lit0);
-						break;
-#endif
+					// v_(DW_OP_fbreg,   PUSH(((Dwarf_Unsigned) FBREG) + Operand1);)
 					case DW_OP_fbreg: {
 						if (!frame_base) goto logic_error;
 						m_stack.push(*frame_base + i->lr_number);
 					} break;
+					// we could genetate this one with:
+					// v_(DW_OP_call_frame_cfa,   PUSH(FBREG);)
 					case DW_OP_call_frame_cfa: {
 						if (!frame_base) goto logic_error;
 						m_stack.push(*frame_base);
@@ -275,38 +155,7 @@ dwarf_expr_computed_ops(computed_op_case)
 						 * calling eval() again. */
 						 ++i;
 					}	return;
-					case DW_OP_reg0:
-					case DW_OP_reg1:
-					case DW_OP_reg2:
-					case DW_OP_reg3:
-					case DW_OP_reg4:
-					case DW_OP_reg5:
-					case DW_OP_reg6:
-					case DW_OP_reg7:
-					case DW_OP_reg8:
-					case DW_OP_reg9:
-					case DW_OP_reg10:
-					case DW_OP_reg11:
-					case DW_OP_reg12:
-					case DW_OP_reg13:
-					case DW_OP_reg14:
-					case DW_OP_reg15:
-					case DW_OP_reg16:
-					case DW_OP_reg17:
-					case DW_OP_reg18:
-					case DW_OP_reg19:
-					case DW_OP_reg20:
-					case DW_OP_reg21:
-					case DW_OP_reg22:
-					case DW_OP_reg23:
-					case DW_OP_reg24:
-					case DW_OP_reg25:
-					case DW_OP_reg26:
-					case DW_OP_reg27:
-					case DW_OP_reg28:
-					case DW_OP_reg29:
-					case DW_OP_reg30:
-					case DW_OP_reg31:
+					case DW_OP_reg0 ... DW_OP_reg31:
 					{
 						//int regnum = i->lr_atom - DW_OP_reg0;
 						/* The reg family just get the contents of the register.
@@ -326,7 +175,7 @@ dwarf_expr_computed_ops(computed_op_case)
 						//int regnum = i->lr_number;
 						//m_stack.push(regnum);
 						m_tos_state = NAMED_REGISTER;
-					}
+					} break;
 					case DW_OP_stack_value:
 						/* This means that the object has no address, but that the 
 						 * DWARF evaluator has just computed its *value*. We record

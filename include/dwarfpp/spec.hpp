@@ -528,29 +528,62 @@ namespace dwarf
 
 #define expand_breg_(z, n, v_) v_(DW_OP_breg ## n, morestack(1); PUSH(REGS(n) + Operand1); )
 #define expand_lit_(z, n, v_)  v_(DW_OP_lit ## n,  morestack(1); PUSH(n); )
-/* FIXME: add more opcodes! */
+
 #define dwarf_expr_computed_ops(v_) \
+    v_(DW_OP_addr,    PUSH(Operand1);) \
+    v_(DW_OP_deref,   stk[0] = LOADN(sizeof (void*), stk[0]); ) \
     v_(DW_OP_const1u, PUSH(Operand1);) \
     v_(DW_OP_const2u, PUSH(Operand1);) \
     v_(DW_OP_const4u, PUSH(Operand1);) \
     v_(DW_OP_const8u, PUSH(Operand1);) \
-    v_(DW_OP_constu , PUSH(Operand1);) \
     v_(DW_OP_const1s, PUSH((Dwarf_Signed) Operand1);) \
     v_(DW_OP_const2s, PUSH((Dwarf_Signed) Operand1);) \
     v_(DW_OP_const4s, PUSH((Dwarf_Signed) Operand1);) \
     v_(DW_OP_const8s, PUSH((Dwarf_Signed) Operand1);) \
+    v_(DW_OP_constu , PUSH(Operand1);) \
     v_(DW_OP_consts , PUSH((Dwarf_Signed) Operand1);) \
-    v_(DW_OP_plus_uconst, stk[0] += Operand1;) \
+    v_(DW_OP_dup,     Dwarf_Unsigned tmp = stk[0]; PUSH(tmp); ) \
+    v_(DW_OP_drop,    POP(dummy); ) \
+    v_(DW_OP_over,    Dwarf_Unsigned tmp = stk[1]; PUSH(tmp); ) \
+    v_(DW_OP_pick,    Dwarf_Unsigned tmp = stk[Operand1]; PUSH(tmp); ) \
+    v_(DW_OP_swap,    Dwarf_Unsigned tmp = stk[0]; stk[0] = stk[1]; stk[1] = tmp; ) \
+    v_(DW_OP_rot,     /* top 3 entries: move one place closer to the top, with wraparound for stk[0] */ \
+                      Dwarf_Unsigned tmp1 = stk[1], tmp2 = stk[2]; stk[2] = stk[0]; stk[1] = tmp2; stk[0] = tmp1; ); \
+    v_(DW_OP_xderef,  POP(addr); stk[0] = LOADN3(sizeof (void*), addr, /* asid */ stk[0]); ) \
+    v_(DW_OP_abs,     Dwarf_Signed tmp = stk[0]; stk[0] = (tmp < 0) ? -tmp : tmp; ) \
+    v_(DW_OP_and,     POP(arg1); stk[0] = arg1 & /*arg2*/ stk[0];) \
+    v_(DW_OP_div,     POP(arg1); stk[0] = (Dwarf_Signed) /*arg2*/ stk[0] / (Dwarf_Signed) arg1;) \
+    v_(DW_OP_minus,   POP(arg1); stk[0] -= arg1; ) \
+    v_(DW_OP_mod,     POP(arg1); stk[0] = (Dwarf_Signed) /*arg2*/ stk[0] % (Dwarf_Signed) arg1;) \
+    v_(DW_OP_mul,     POP(arg1); stk[0] = arg1 * /*arg2*/ stk[0];) \
+    v_(DW_OP_neg,     stk[0] = -stk[0]; ) \
+    v_(DW_OP_not,     stk[0] = ~stk[0]; ) \
+    v_(DW_OP_or,      POP(arg1); stk[0] = arg1 | /*arg2*/ stk[0];) \
     v_(DW_OP_plus,    POP(arg1); stk[0] = arg1 + /*arg2*/ stk[0];) \
+    v_(DW_OP_plus_uconst, stk[0] += Operand1;) \
     v_(DW_OP_shl,     POP(arg1); stk[0] = /*arg2*/ stk[0] << arg1;) \
     v_(DW_OP_shr,     POP(arg1); stk[0] = /*arg2*/ stk[0] >> arg1;) \
     v_(DW_OP_shra,    POP(arg1); stk[0] = (long int)((unsigned long) /*arg2*/stk[0] >> arg1);) \
-    v_(DW_OP_addr,    PUSH(Operand1);) \
-    BOOST_PP_REPEAT(32, expand_breg_, v_) \
-    v_(DW_OP_bregx,   morestack(1); PUSH(REGS(Operand1) + Operand2); ) \
+    v_(DW_OP_xor,     POP(arg1); stk[0] = arg1 ^ /*arg2*/ stk[0];) \
+    /* DW_OP_bra goes here */ \
+    v_(DW_OP_eq,      POP(arg1); stk[0] = ((Dwarf_Signed) /*arg2*/ stk[0] == (Dwarf_Signed) arg1) ? 1 : 0;) \
+    v_(DW_OP_ge,      POP(arg1); stk[0] = ((Dwarf_Signed) /*arg2*/ stk[0] >= (Dwarf_Signed) arg1) ? 1 : 0;) \
+    v_(DW_OP_gt,      POP(arg1); stk[0] = ((Dwarf_Signed) /*arg2*/ stk[0] >  (Dwarf_Signed) arg1) ? 1 : 0;) \
+    v_(DW_OP_le,      POP(arg1); stk[0] = ((Dwarf_Signed) /*arg2*/ stk[0] <= (Dwarf_Signed) arg1) ? 1 : 0;) \
+    v_(DW_OP_lt,      POP(arg1); stk[0] = ((Dwarf_Signed) /*arg2*/ stk[0] <  (Dwarf_Signed) arg1) ? 1 : 0;) \
+    v_(DW_OP_ne,      POP(arg1); stk[0] = ((Dwarf_Signed) /*arg2*/ stk[0] != (Dwarf_Signed) arg1) ? 1 : 0;) \
+    /* DW_OP_skip goes here */ \
     BOOST_PP_REPEAT(32, expand_lit_, v_) \
-    v_(DW_OP_deref,      stk[0] = LOADN(sizeof (void*), stk[0]); ) \
+    /* DW_OP_reg* go here */ \
+    BOOST_PP_REPEAT(32, expand_breg_, v_) \
+    /* DW_OP_regx and DW_OP_fbreg go here */ \
+    v_(DW_OP_bregx,   morestack(1); PUSH(REGS(Operand1) + Operand2); ) \
+    /* DW_OP_piece goes here */ \
     v_(DW_OP_deref_size, stk[0] = LOADN(Operand1, stk[0]); ) \
+    v_(DW_OP_xderef_size, POP(addr); stk[0] = LOADN3(Operand1, addr, /* asid */ stk[0]); ) \
+    v_(DW_OP_nop,     ) \
+    /* FIXME: add more opcodes! Either here or below.... */
+
 
 /* "Special ops" are those that require  out-of-band handling -- stuff like:
  * DW_OP_piece
@@ -573,6 +606,8 @@ namespace dwarf
 
 #define expand_reg_(z, n, v_)  v_(DW_OP_reg ## n, ~ )
 #define dwarf_expr_special_ops(v_) \
+    v_(DW_OP_bra, ~) \
+    v_(DW_OP_skip, ~) \
     v_(DW_OP_fbreg, ~) \
     v_(DW_OP_call_frame_cfa, ~) \
     v_(DW_OP_piece, ~) \
