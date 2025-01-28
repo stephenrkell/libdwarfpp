@@ -1043,7 +1043,13 @@ namespace dwarf
 					if (i_member->get_declaration() && *i_member->get_declaration()) continue;
 
 					// calculate its offset
-					opt<Dwarf_Unsigned> opt_offset = i_member->byte_offset_in_enclosing_type();
+					opt<Dwarf_Unsigned> opt_offset;
+					try
+					{
+						opt_offset = i_member->byte_offset_in_enclosing_type();
+					} /* a member whose location uses DW_OP_deref will throw an exception here...
+					   * e.g. virtual inheritance can do this I think. FIXME: support this! */
+					catch (No_entry) {}
 					if (!opt_offset)
 					{
 						debug() << "Warning: saw member " << *i_member << " with no apparent offset." << endl;
