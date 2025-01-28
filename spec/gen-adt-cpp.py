@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 import sys
 
@@ -27,19 +27,19 @@ def super_attrs(tag):
 
 def main(argv):
     for (tag, (attr_list, children, bases) ) in tags:
-        print "forward_decl(%s)" % tag
+        print("forward_decl(%s)" % tag)
     for (tag, (attr_list, children, bases) ) in tags:
-        print "begin_class(%s, %s, %s)" % (tag, \
+        print("begin_class(%s, %s, %s)" % (tag, \
         'base_initializations(' + ', '.join(["initialize_base(" + base + ")" for base in bases]) + ')', \
-        ', '.join(["declare_base(%s)" % base for base in bases]))
+        ', '.join(["declare_base(%s)" % base for base in bases])))
         for (attr, mand) in attr_list:
-            print "\tattr_%s(%s, %s)" % (mandatory_fragment(mand), attr, attr_type_map[attr])
+            print("\tattr_%s(%s, %s)" % (mandatory_fragment(mand), attr, attr_type_map[attr]))
         for (attr, mand) in super_attrs(tag):
-            print "\tsuper_attr_%s(%s, %s)" % (mandatory_fragment(mand), attr, attr_type_map[attr])
+            print("\tsuper_attr_%s(%s, %s)" % (mandatory_fragment(mand), attr, attr_type_map[attr]))
         for child in children:
-            print "\tchild_tag(%s)" % child
-        print "#ifdef extra_decls_%s\n\textra_decls_%s\n#endif" % (tag, tag)
-        print "end_class(%s)" % tag
+            print("\tchild_tag(%s)" % child)
+        print("#ifdef extra_decls_%s\n\textra_decls_%s\n#endif" % (tag, tag))
+        print("end_class(%s)" % tag)
 
 # main script
 if __name__ == "__main__":
