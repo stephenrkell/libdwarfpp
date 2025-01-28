@@ -3934,6 +3934,18 @@ namespace dwarf
 							}
 
 							if (get_spec(r).op_reads_register(i_instr->lr_atom)) return false;
+							/* DW_OP_reg* don't "read" a register per se; they name it.
+							 * But they are still a hallmark of non-static.
+							 * (I guess a register reserved for calling-convention-like purposes
+							 * to always mean the same thing could be a static thing that is
+							 * nevertheless named in a register? E.g. "young heap pointer in r13".
+							 * Let's not worry about this for now.) */
+							if (get_spec(r).op_names_register(i_instr->lr_atom)) return false;
+							/* If we do DW_OP_fbreg or DW_OP_call_frame_cfa, these are no longer
+							 * considered to be reading a register. Nor are they naming a
+							 * register, in the architectural sense. But they imply non-local. */
+							if (i_instr->lr_atom == DW_OP_fbreg) return false;
+							if (i_instr->lr_atom == DW_OP_call_frame_cfa) return false;
 						}
 					}
 				}
