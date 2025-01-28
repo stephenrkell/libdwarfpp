@@ -294,13 +294,13 @@ dwarf_expr_computed_ops(computed_op_case)
 					|| i_instr->lr_atom == DW_OP_bit_piece)
 				{
 					ps.push_back(piece(
-						done_up_to_here, i_instr, done_this_many_bits,
+						done_up_to_here, i_instr + 1, done_this_many_bits,
 						/* implicit piece? */ false));
 					/* FIXME: we are ignoring the second argument of DW_OP_bit_piece,
 					 * and that's wrong. */
 					done_this_many_bits += i_instr->lr_number
 					 * ((i_instr->lr_atom == DW_OP_piece) ? 8 : 1);
-					done_up_to_here = i_instr + 1;
+					done_up_to_here /* i.e. next piece start */ = i_instr + 1;
 				}
 			}
 			// if we did any pieces, we should have finished on one

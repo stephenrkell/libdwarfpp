@@ -121,7 +121,7 @@ namespace dwarf
 			 : public std::pair< loc_expr::iterator, loc_expr::iterator >
 			{
 				Dwarf_Unsigned bit_offset;
-				bool implicit_piece; // i.e. there is no DW_OP_{bit_,}piece for it
+				bool implicit_piece; // i.e. does not end in DW_OP_{bit_,}piece
 				piece(loc_expr::iterator begin, loc_expr::iterator end,
 					Dwarf_Unsigned bit_offset, bool implicit_piece)
 					: pair(make_pair(begin, end)), bit_offset(bit_offset),
