@@ -143,7 +143,7 @@ namespace dwarf
 				{
 					/* If it's "all one piece", we don't know how big it is. */
 					if (implicit_piece) return opt<Dwarf_Unsigned>();
-					expr_instr piece_op = *(this->second + 1);
+					expr_instr piece_op = *(this->second - 1);
 					assert(piece_op.lr_atom == DW_OP_piece ||
 						piece_op.lr_atom == DW_OP_bit_piece);
 					return piece_op.lr_number
@@ -158,9 +158,15 @@ namespace dwarf
 				   ? opt<Dwarf_Unsigned>(bit_offset / 8)
 				   : opt<Dwarf_Unsigned>(); }
 				loc_expr copy() const;
-				unsigned op_count() const { return second - first; }
+				loc_expr copy_as_if_whole() const;
+				unsigned op_count() const
+				{ return (implicit_piece) ? (second - first) : ((second - first) - 1); }
 				expr_instr& back() const
 				{ assert(second != first); return *(second - 1); }
+				expr_instr& last_op() const
+				{ if (implicit_piece) assert(second != first);
+				  else assert(second - 1 != first);
+				  return (implicit_piece) ? *(second-1) : *(second - 2); }
 			};
 			/* This is not const because the iterators we return will only be valid
 			 * if the storage is nailed down, not a compiler temporary (to which const&

@@ -317,6 +317,15 @@ dwarf_expr_computed_ops(computed_op_case)
 			{ out.push_back(*i_e); }
 			return out;
 		}
+		loc_expr loc_expr::piece::copy_as_if_whole() const
+		{
+			if (implicit_piece) return copy();
+			loc_expr out;
+			assert(second > first);
+			for (auto i_e = first; i_e < (second - 1); ++i_e)
+			{ out.push_back(*i_e); }
+			return out;
+		}
 
 		std::vector<std::pair<loc_expr, Dwarf_Unsigned> > loc_expr::byte_pieces() const
 		{
