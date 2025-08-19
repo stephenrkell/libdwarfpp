@@ -7,6 +7,7 @@
  */
 
 #include <cstdlib>
+#include <cassert>
 #include <sstream>
 #include <srk31/endian.hpp>
 #include "dwarfpp/util.hpp"

@@ -269,10 +269,10 @@ namespace dwarf
 			inline opt<string> get_name() const 
 			{ 
 				assert(d.handle); 
-				if (d.name_here()) return opt<string>(string(d.name_here().get()));
+				if (d.name_here()) return opt<string>(string(&*d.name_here()));
 				else return opt<string>();
 			}
-			inline unique_ptr<const char, string_deleter> get_raw_name() const
+			inline raw_name_t get_raw_name() const
 			{ assert(d.handle); return d.name_here(); }
 			inline Dwarf_Off get_enclosing_cu_offset() const 
 			{ assert(d.handle); return d.enclosing_cu_offset_here(); }

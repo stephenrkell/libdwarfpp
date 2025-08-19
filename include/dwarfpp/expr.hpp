@@ -99,7 +99,7 @@ namespace dwarf
 				vector<expr_instr>(desc.ld_s, desc.ld_s + desc.ld_cents),
 				spec(spec), hipc(desc.ld_hipc), lopc(desc.ld_lopc)/*,
 				m_expr(*this)*/ {}
-			loc_expr(Dwarf_Debug dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec = spec::dwarf_current);
+			loc_expr(core::Debug::raw_handle_type dbg, lib::Dwarf_Ptr instrs, lib::Dwarf_Unsigned len, const spec::abstract_def& spec = spec::dwarf_current);
 			loc_expr(const vector<expr_instr>& expr,
 				const spec::abstract_def& spec = spec::dwarf_current)
 			: vector<expr_instr>(expr),
@@ -265,12 +265,12 @@ namespace dwarf
 		/* Instruction sequences in a CIE/FDE. */
 		struct frame_instrlist;
 		/* We need this extension so that we can define operator<<, since to construct a 
-		 * loc_expr will require us to pass the Dwarf_Debug. */
-		struct frame_instr : public Dwarf_Frame_Op3
+		 * loc_expr will require us to pass the Debug. */
+		struct frame_instr : public frame_op
 		{
-			Dwarf_Debug dbg;
-			frame_instr(Dwarf_Debug dbg, const Dwarf_Frame_Op3 arg)
-			 : Dwarf_Frame_Op3(arg), dbg(dbg) {}
+			core::Debug::raw_handle_type dbg;
+			frame_instr(core::Debug::raw_handle_type dbg, const frame_op arg)
+			 : frame_op(arg), dbg(dbg) {}
 		};
 		std::ostream& operator<<(std::ostream& s, const frame_instr& arg);
 		

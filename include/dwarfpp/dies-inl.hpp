@@ -26,6 +26,9 @@ namespace dwarf
 		 * with which compile_unit_die is friendly? */
 		inline std::string compile_unit_die::source_file_name(unsigned o) const
 		{
+#ifdef USING_LIBDW
+			return ""; // FIXME
+#else
 			StringList names(d);
 			//if (!names) throw Error(current_dwarf_error, 0);
 			/* Source file numbers in DWARF are indexed starting from 1. 
@@ -33,13 +36,18 @@ namespace dwarf
 			 * However, our array filesbuf is indexed beginning zero! */
 			assert(o <= names.get_len()); // FIXME: how to report error? ("throw No_entry();"?)
 			return names[o - 1];
+#endif
 		}
 
 		inline unsigned compile_unit_die::source_file_count() const
 		{
+#ifdef USING_LIBDW
+			return 0; // FIXME
+#else
 			// FIXME: cache some stuff
 			StringList names(d);
 			return names.get_len();
+#endif
 		}
 	}
 }

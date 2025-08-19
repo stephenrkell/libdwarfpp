@@ -6,7 +6,7 @@
  * LICENSE file in the root of the libdwarfpp tree.
  */
 
-#include "dwarfpp/dwarflibhpp"
+#include "dwarfpp/dwarflib.hpp"
 #include "dwarfpp/util.hpp"
 
 namespace dwarf

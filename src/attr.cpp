@@ -257,7 +257,12 @@ namespace dwarf
 		{
 			int retval;
 			orig_form = 0;
+#ifdef USING_LIBDW
+			retval = 0;
+			orig_form = dwarf_whatform(a.handle.get());
+#else /* USING_LIBDWARF */
 			retval = dwarf_whatform(a.handle.get(), &orig_form, &core::current_dwarf_error);
+#endif
 
 			Dwarf_Unsigned u;
 			Dwarf_Signed s;
@@ -271,26 +276,47 @@ namespace dwarf
 			Dwarf_Off cu_offset = d.enclosing_cu_offset_here();
 			dwarf::spec::abstract_def& spec = r.cu_pos(cu_offset).spec_here();
 
+#ifdef USING_LIBDWARF
 			if (retval != DW_DLV_OK) goto fail; // retval set by whatform() above
-			Dwarf_Half attr; 
+#endif
+			Dwarf_Half attr;
+#ifdef USING_LIBDW
+			attr = dwarf_whatattr(a.handle.get());
+#else /* USING_LIBDWARF */
 			retval = dwarf_whatattr(a.handle.get(), &attr, &core::current_dwarf_error);
 			if (retval != DW_DLV_OK) goto fail;
+#endif
 			
 			cls = spec.get_interp(attr, orig_form);
 			switch(cls & ~spec::interp::FLAGS)
 			{
 				case spec::interp::string:
+#ifdef USING_LIBDW
+					str = (char*) dwarf_formstring(a.handle.get());
+#else /* USING_LIBDWARF */
 					dwarf_formstring(a.handle.get(), &str, &core::current_dwarf_error);
+#endif
 					this->f = STRING; 
 					this->v_string = new string(str);
 					break;
 				case spec::interp::flag:
+#ifdef USING_LIBDW
+					{ bool the_bool = 0; retval = dwarf_formflag(a.handle.get(), &the_bool);
+					  flag = the_bool ? 1 : 0; }
+					assert(retval == 0);
+#else /* USING_LIBDWARF */
 					dwarf_formflag(a.handle.get(), &flag, &core::current_dwarf_error);
+#endif
 					this->f = FLAG;
 					this->v_flag = flag;
 					break;
 				case spec::interp::address:
+#ifdef USING_LIBDW
+					retval = dwarf_formaddr(a.handle.get(), &addr);
+					assert(retval == 0);
+#else /* USING_LIBDWARF */
 					dwarf_formaddr(a.handle.get(), &addr, &core::current_dwarf_error);
+#endif
 					this->f = ADDR;
 					this->v_addr.addr = addr;
 					break;
@@ -307,16 +333,28 @@ namespace dwarf
 					this->f = REF;
 					Dwarf_Off referencing_off = d.offset_here();
 					Dwarf_Half referencing_attr = a.attr_here();
+#ifdef USING_LIBDW
+					Dwarf_Die val;
+					Dwarf_Die *ret = dwarf_formref_die(a.handle.get(), &val);
+					if (ret != &val) goto fail;
+					o = dwarf_dieoffset(&val);
+#else /* USING_LIBDWARF */
 					int ret = dwarf_global_formref(a.handle.get(), &o, &core::current_dwarf_error);
 					assert(ret == DW_DLV_OK);
+#endif
 					this->v_ref = new weak_ref(r, o, true, 
 						referencing_off, referencing_attr);
 					break;
 				}
 				as_if_unsigned:
 				{
+#ifdef USING_LIBDW
+					int ret = dwarf_formudata(a.handle.get(), &u);
+					assert(ret == 0);
+#else /* USING_LIBDWARF */
 					int ret = dwarf_formudata(a.handle.get(), &u, &core::current_dwarf_error);
 					assert(ret == DW_DLV_OK);
+#endif
 					this->f = UNSIGNED;
 					this->v_u = u;
 					break;
@@ -324,8 +362,13 @@ namespace dwarf
 				
 				as_if_signed: 
 				{
+#ifdef USING_LIBDW
+					int ret = dwarf_formsdata(a.handle.get(), &s);
+					assert(ret == 0);
+#else
 					int ret = dwarf_formsdata(a.handle.get(), &s, &core::current_dwarf_error);
 					assert(ret == DW_DLV_OK);
+#endif
 					this->f = SIGNED;
 					this->v_s = s;
 					break;
@@ -355,8 +398,15 @@ namespace dwarf
 					break;
 				as_reference: {
 						Dwarf_Off ref;
+#ifdef USING_LIBDW
+						Dwarf_Die val;
+						Dwarf_Die *die_ret = dwarf_formref_die(a.handle.get(), &val);
+						if (die_ret != &val) goto fail;
+						o = dwarf_dieoffset(&val);
+#else /* USING_LIBDWARF */
 						int ret = dwarf_global_formref(a.handle.get(), &ref, &core::current_dwarf_error); 
 						assert(ret == DW_DLV_OK);
+#endif
 						u = ref;
 						this->f = UNSIGNED;
 						this->v_u = u;
@@ -366,8 +416,13 @@ namespace dwarf
 					/* we read a unsigned (FIXME: signed or unsigned?) value, but 
 					 * for uniformity, we turn it into a location expr which
 					 * pushes the value onto the stack. */
+#ifdef USING_LIBDW
+					int ret = dwarf_formudata(a.handle.get(), &u);
+					assert(ret == 0);
+#else /* USING_LIBDWARF */
 					int ret = dwarf_formudata(a.handle.get(), &u, &core::current_dwarf_error);
 					assert(ret == DW_DLV_OK);
+#endif
 					this->f = LOCLIST;
 					this->v_loclist = new loclist(loc_expr((Dwarf_Unsigned[]) { DW_OP_plus_uconst, u }, 0, 0, spec));
 				} break;

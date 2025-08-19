@@ -40,13 +40,66 @@ namespace dwarf
 		void exception_error_handler(Dwarf_Error error, Dwarf_Ptr errarg);
 #endif
 
-		/* What follows is a fairly mechanical translation of libdwarf,
-		 * plus destruction logic from the docs. */
+		/* What follows is^H^H^H *was* a fairly mechanical translation of libdwarf,
+		 * plus destruction logic from the docs. It is now complicated by also
+		 * supporting libdw.
+		 *
+		 * With libdwarf, the library almost always returns an opaque handle which
+		 * points to osme data structure allocated privately by libdwarf. The handle
+		 * must be freed by some special method, usually involving dwarf_dealloc().
+		 *
+		 * With libdw, the library prefers not to allocate stuff. This is good because
+		 * it avoids the multiple indirection and frequent heap allocation that are
+		 * going on in libdwarf. We undo some of that good by reintroducing the
+		 * indirection, for uniformity with libdwarf. */
 #ifdef USING_LIBDWARF
 		typedef struct Dwarf_Debug_s*      Dwarf_Debug; // pasted from libdwarf.h
 #else /* USING_LIBDW */
 		typedef struct Dwarf Dwarf; // from libdw.h
 #endif
+/* in libdwarf:
+
+    Dwarf_Debug_s* a.k.a.  
+    Dwarf_Debug a.k.a.
+    core::Debug
+      ::raw_handle_type     opaque structure
++--------------+          +-------------- -
+|      --------+--------->|
++--------------+          |
+                          | 
+                          |
+                          |
+                          :
+
+            allocated by?       libdwarf
+            freed how?          dwarf_dealloc(DW_DLA_DEBUG)
+
+which we wrap as
+   unique_ptr                opaque structure
+  +==============+        +-------------- -
+  ||     -------++------->|
+  +==============+        |
+                          |
+                          |
+                          |
+                          :
+Now in libdw:
+
+    struct Dwarf * a.k.a.
+    Dwarf* a.k.a.
+    core::Debug
+      ::raw_handle_Type      opaque structure
++==============+          +-------------- -
+||     -------++--------->|
++==============+          |
+                          |
+                          |
+                          |
+                          :
+
+           allocated by?         libdw
+           freed how?            dwarf_end
+*/
 		struct Debug
 		{
 #ifdef USING_LIBDWARF
@@ -93,11 +146,144 @@ namespace dwarf
 				} else assert(!arg); 
 			}
 		};
+		typedef std::unique_ptr<const char, string_deleter> raw_name_t;
+#else
+		typedef const char *raw_name_t;
 #endif
 #ifdef USING_LIBDWARF
 		typedef struct Dwarf_Die_s*        Dwarf_Die;
 #endif
-		struct Die : /*private*/ virtual abstract_die // remind me: why is this private?
+
+/* in libdwarf:
+
+    Dwarf_Die_s* a.k.a.  
+    Dwarf_Die a.k.a.
+    core::Die
+      ::raw_handle_type     opaque structure
++--------------+           +-------------- -
+|       --------+--------->|
++--------------+           |
+                           |
+                           |
+                           |
+                           :
+
+allocated by?       libdwarf
+freed how?          dwarf_dealloc(DW_DLA_DIE)
+
+which we wrap as
+
+ struct Die, wrapping a
+ unique_ptr to Dwarf_Die_s (with deleter)
+  + adding abstract_die implementation
++==============+
+||     -------++------->the opaque structure
++==============+
+
+... and then becomes with iterator_base (important for a complete picture...)
+                  .--- only used in the "cur_handle" case, maintained by linear treatment of the iterator
++==============+  v                                 
+|||    ------+++------->the opaque structure        basic_die or a subclass thereof
+|''==========''|  OR                               +==============+
+|      --------+---------------------------------->|||    ------+++------->the opaque structure
++==============+  ^                                |''==========''|
+                  '--- only used in the            |   refcount   |
+                      "cur_payload" case           | per-TAG data |
+                      when the iterator is copied  |     ...      |
+                                                   +==============+
+                                                  
+
+
+Now in libdw:
+(if we want this pointer,
+we can make it, but it's
+not a handle in the API
+because struct is non-opaque)
+                       ]    non-opaque structure
+    Dwarf_Die *        ]    Dwarf_Die
++--------------+       ]  +--------------------+
+|      --------+-------]->|void *addr          |
++--------------+       ]  |Dwarf_CU *cu        |
+                       ]  |Dwarf_Abbrev *abbrev|
+                       ]  |padding             |
+                       ]  |...                 |
+                       ]  +--------------------+
+
+           allocated by?         client
+           freed how?            n/a
+
+which we wrap as ...? not clear I've worked this out yet, but the obvious thing would be
+
+struct Die, wrapping a       
+unique_ptr to Dwarf_Die      non-opaque structure
+ + adding abstract_die impl  Dwarf_Die
++==============+          +======================+
+||     -------++--------->||void *addr          ||
++==============+          ||Dwarf_CU *cu        ||
+                          ||Dwarf_Abbrev *abbrev||
+    ^                     ||padding             ||
+    |                     |'_...________________'|
+ skip this?!              |dbg                   |     can we put these with the handle (far left)?
+                          |root_die* p_constr... |
+                          +----------------------+
+
+           allocated by    client, on heap? via make_unique? haven't got that far yet?
+                           try_construct returns a handle, i.e. the unique_ptr (not wrapped in a struct Die)
+           perhaps we could memoise the structures? or otherwise avoid heap-allocating them
+           can we make struct Die just be Dwarf_Die?
+           i.e. when we construct one, we get libdw to fill it in, and that's that?
+           handling exceptions -- hmm
+
+If we keep the same shape for iterator_base...
+
+                  .--- only used in the "cur_handle" case, maintained by linear treatment of the iterator
++==============+  v                                 
+|||    ------+++------->the *non*-opaque structure?  basic_die or a subclass thereof
+|''==========''|  OR                               +==============+
+|      --------+---------------------------------->|||    ------+++------->the *non*-opaque structure?
++==============+  ^                                |''==========''|
+                  '--- only used in the            | per-TAG data |
+                      "cur_payload" case           |     ...      |   no need for a refcount?
+                      when the iterator is copied  +==============+
+
+Let's instead
+use the non-opaque structure as our handle,
+ (opaquely! because we need to hide access to the libdw fields in the case where
+  we're not using that copy of the data)
+core::Die : private Dwarf_Die
++========================+
+|||void *addr		   ||| \
+|||Dwarf_CU *cu  	   |||  \
+|||Dwarf_Abbrev *abbrev|||  |--- used when just a handle
+|||padding			   |||  /
+||'_...________________'|| /
+||dbg				    ||       .- used when "with payload"
+||root_die* p_constr... ||       :   -- do we need the refcount still? yes I think so
+|'----------------------'|       v
+|           -------------+---------------------->
++------------------------+
+
+Compared to libdwarf, we've removed a level of indirection -- the unique_ptr
+to the libdwarf Die handle.
+Instead we have a ~4-word handle inlined into our structures.
+We still refcount when we promote into the heap.
+And we have to do this if we want the payload behaviour --
+which is whenever we dereference an iterator -- because the
+per-DIE-tag classes will have differing sizes and so need
+to be heap-allocated. We still do refcounting when we copy
+these handles.
+
+We *have* removed some heap allocation, but not in our own code --
+it's the allocation inside libdwarf. In libdw, getting a handle on
+a DIE does not involve a heap allocation.
+*/
+
+
+		struct Die :
+#ifndef USING_LIBDWARF /* i.e. using libdw */
+			private Dwarf_Die,
+#endif
+			public virtual abstract_die
 		{
 #ifdef USING_LIBDWARF
 			typedef Dwarf_Die raw_handle_type;
@@ -117,23 +303,21 @@ namespace dwarf
 				{ if (!dbg) assert(!arg); else if (arg) dwarf_dealloc(dbg, arg, DW_DLA_DIE); }
 			};
 			typedef unique_ptr<opaque_type, deleter> handle_type;
-#else /* USING_LIBDW */
-			struct handle_contents : Dwarf_Die
-			{
-				Debug::raw_handle_type dbg;
-				root_die *p_constructing_root;
-			};
-			typedef handle_contents *raw_handle_type;
-			typedef unique_ptr<handle_contents> handle_type;
-#endif
 			handle_type handle;
+#else /* USING_LIBDW */
+			Debug::raw_handle_type dbg;
+			root_die *p_constructing_root;
+			typedef Dwarf_Die *raw_handle_type;
+			typedef Die handle_type; // HMM... do I mean this?
+			// WE *are* the handle
+#endif
 #ifdef USING_LIBDWARF
 			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; }
 			root_die& get_constructing_root() const 
 			{ return *handle.get_deleter().p_constructing_root; }
 #else /* USING_LIBDW */
-			Debug::raw_handle_type get_dbg() const { return handle->dbg; }
-			root_die& get_constructing_root() const { return *handle->p_constructing_root; }
+			Debug::raw_handle_type get_dbg() const { return dbg; }
+			root_die& get_constructing_root() const { return *p_constructing_root; }
 #endif
 			// to avoid making exception handling compulsory, 
 			// we provide static "maybe" constructor functions (defined in lib.hpp)...
@@ -145,15 +329,17 @@ namespace dwarf
 			try_construct(const iterator_base& die); /* child */
 			static handle_type 
 			try_construct(root_die& r, Dwarf_Off off); /* offdie */
-			
+
+#ifdef USING_LIBDWARF
 			// ... and an "upgrade" constructor that is guaranteed not to fail
 			Die(handle_type h) : handle(std::move(h)) {}
+#endif
 			
 			// ... and a "nullptr" constructor
 #ifdef USING_LIBDWARF
 			Die(std::nullptr_t n, root_die *p_r) : handle(nullptr, deleter(nullptr, *p_r)) {} 
 #else /* USING_LIBDW */
-			Die(std::nullptr_t n, root_die *p_r) : handle(nullptr) {} 
+			Die(std::nullptr_t n, root_die *p_r) : dbg(nullptr), p_constructing_root(p_r) {} 
 #endif
 			
 			// ... then the "normal" constructors, that throw exceptions on failure
@@ -161,7 +347,7 @@ namespace dwarf
 			explicit Die(root_die& r); /* siblingof in the root case */
 			explicit Die(const iterator_base& die); /* child */
 			Die(root_die& r, Dwarf_Off off); /* offdie */
-			
+#ifdef USING_LIBDWARF
 			// move constructor
 			Die(Die&& d) : handle(std::move(d.handle)) {}
 			// move assignment
@@ -169,15 +355,24 @@ namespace dwarf
 
 			raw_handle_type raw_handle()       { return handle.get(); }
 			raw_handle_type raw_handle() const { return handle.get(); }
-			
+			// Dwarf_Error takes a Dwarf_Ptr argument... what's the pointer that refers to us?
+			Dwarf_Ptr as_error_arg() const { return handle.get(); }
+#else /* libdw */
+			raw_handle_type raw_handle()       { return this; }
+			raw_handle_type raw_handle() const { return const_cast<raw_handle_type>(static_cast<const Dwarf_Die *>(this)); }
+			// FIXME: to support client code wanting to do "d.handle", it's tempting to
+			// add a pointer to ourselves, called 'handle'. Let's try to fix up the code
+			// that is doing 'd.handle', for now. If that is not feasible, we can add
+			// the hack.
+
+			Dwarf_Ptr as_error_arg() const { return const_cast<void*>(static_cast<const void*>(this)); }
+#endif
 			// libdwarf methods
 			Dwarf_Off offset_here() const;
 			Dwarf_Half tag_here() const;
-#ifdef USING_LIBDWARF
-			std::unique_ptr<const char, string_deleter> name_here() const;
-#else /* USING_LIBDW */
-			const char *name_here() const;
-#endif
+
+			raw_name_t name_here() const;
+
 			Dwarf_Off enclosing_cu_offset_here() const;
 			bool has_attr_here(Dwarf_Half attr) const;
 			bool has_attribute_here(Dwarf_Half attr) const { return has_attr_here(attr); }
@@ -198,11 +393,7 @@ namespace dwarf
 #else /* USING_LIBDW */
 			{ return name_here() ? opt<string>(string(name_here())) : opt<string>(); }
 #endif
-#ifdef USING_LIBDWARF
-			inline unique_ptr<const char, string_deleter> get_raw_name() const
-#else /* USING_LIBDW */
-			inline const char *get_raw_name() const
-#endif
+			inline raw_name_t get_raw_name() const
 			{ return name_here(); }
 			inline Dwarf_Off get_enclosing_cu_offset() const 
 			{ return enclosing_cu_offset_here(); }
@@ -255,6 +446,9 @@ namespace dwarf
 			};
 			typedef Dwarf_Attribute *raw_handle_type;
 			typedef unique_ptr<handle_contents> handle_type;
+			// IMPORTANT: under libdw, the only data member of this class
+			// should be a handle_type. This is so that we can use an array of
+			// Attribute as an array of handles. See AttributeList below.
 #endif
 			handle_type handle;
 #ifdef USING_LIBDWARF
@@ -275,6 +469,9 @@ namespace dwarf
 			Dwarf_Half attr_here() const;
 			Dwarf_Half form_here() const;
 		};
+#ifdef USING_LIBDW
+		static_assert(sizeof (Attribute) == sizeof (Attribute::handle_type));
+#endif
 
 		struct Locdesc
 		{
@@ -437,7 +634,6 @@ namespace dwarf
 			raw_handle_type raw_handle() const { return handle.get(); } \
 			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; } \
 		};
-
 #endif
 
 		struct AttributeList
@@ -463,7 +659,7 @@ namespace dwarf
 			 * use that to service client requests. Clients don't get access to this
 			 * array directly. */
 			typedef Dwarf_Attribute *raw_handle_type; /* What libdwarf returns us. */
-			typedef Dwarf_Attribute raw_element_type;
+			typedef Dwarf_Attribute raw_element_type; // what we get when we index the raw handle
 			typedef Attribute::handle_type copied_element_type;
 			/* This is a whole-list deleter. Although dwarf_dealloc doesn't 
 			 * need the list length, we store it in the deleter so that it
@@ -485,37 +681,15 @@ namespace dwarf
 			 * so that we can construct encap::attribute_value,
 			 * so that operator<< can work. */
 			Dwarf_Debug get_dbg() const { return handle.get_deleter().dbg; }
-			Dwarf_Signed get_len() const { return handle.get_deleter().len; }
-#else /* USING_LIBDW */
-			/* In libdw, we have a single non-opaque Dwarf_Attribute structure
-			 * that is populated by a callback-based dwarf_getattrs() call.
-			 * We want our copied_list simply to be a vector of Attributes,
-			 * allocated with unique_ptr (for now). OH, but if we make it a
-			 * vector of Attribute (which is just a unique_ptr to an Attribute,
-			 * now non-opaque in libdw) we gain some uniformity at the price
-			 * of more heap allocations. */
-			// TEST: let's not provide this, and see whether anything breaks
-			//Debug::raw_handle_type get_dbg() const {  }
 			// IMPORTANT: this copied_list must come *after* the handle in the 
 			// field order, because it must be destructed *first*. We want to
 			// delete the individual Attributes, using the unique_ptr destructor,
 			// then delete the whole list using our whole-list deleter.
-			// inline Dwarf_Signed get_len() const; // defined below
-#endif
-			// IMPORTANT: this copied_list must come *after* the handle in the 
-			// field order, because it must be destructed *first*. We want to
-			// delete the individual Attributes, using the unique_ptr destructor,
-			// then delete the whole list using our whole-list deleter.
-			vector<Attribute> copied_list;
+			vector<core::Attribute> copied_list;
 			Attribute& operator[](Dwarf_Signed i) { return copied_list.at(i); }
 			Attribute const& operator[](Dwarf_Signed i) const 
 			{ return copied_list.at(i); }
-
-			inline explicit AttributeList(const Die& it);
-#ifdef USING_LIBDWARF
-			// can't define msot of these now, because iterator_base is currently incomplete
-			static inline handle_type
-			try_construct(const Die& it);
+			Dwarf_Signed get_len() const { return handle.get_deleter().len; }
 			inline void copy_list()
 			{
 				for (Dwarf_Signed i = 0; i < handle.get_deleter().len; ++i)
@@ -533,20 +707,61 @@ namespace dwarf
 				/* we tolerate null handles -- it just means the empty list. */
 				if (handle) copy_list();
 			}
+			// can't define most of these now, because iterator_base is currently incomplete
+			static inline handle_type
+			try_construct(const Die& it);
+
 #else /* USING_LIBDW */
-			Dwarf_Signed get_len() const { return copied_list.size(); }
+			/* In libdw, we have a single non-opaque Dwarf_Attribute structure
+			 * that is populated by a callback-based dwarf_getattrs() call.
+			 * Recall our usual pattern from libdwarf:
+			 * "raw_handle" is a plain ptr to the libdwarf-created opaque thing,
+			 * "handle"     is a unique_ptr to the same  (with custom deleter).
+			 * These classes, like AttributeList, are wrappers of handles.
+			 * The "upgrade constructor" will turn a handle into an instance of the wrapper.
+			 * The "try_construct()" helper is a uniform way to get a handle,
+			 * in a might-fail (might-return-null) way.
+			 *
+			 * In our case, there is no libdw-created equivalent of an attribute
+			 * list. But we can allocate a list ourselves...
+			 * then an upgrade constructor 
+			 */
+			typedef vector< core::Attribute /* or just Dwarf_Attribute? */ > handle_payload_t;
+			typedef unique_ptr< handle_payload_t > handle_type;
+			typedef vector< handle_payload_t >    *raw_handle_type;
+			handle_type handle;
+			// If we followed the libdwarf pattern, the copied list would be
+			// a vector of (our wrappers of) *pointers* to libdwarf opaque attributes.
+			// Rather pointless in our case. We hold the attributes ourselves.
+			// So there's no copied list!
+			// Let's just define the operators to do the access directly.
+			// Problem: what about the return type?
+			// OK, if what we allocate really is a vector of Attributes then we're OK?
+			core::Attribute&       operator[](Dwarf_Signed i)       { return handle->at(i); }
+			core::Attribute const& operator[](Dwarf_Signed i) const { return handle->at(i); }
+			Dwarf_Signed get_len() const { return handle->size(); }
+			inline AttributeList(handle_type h, const Die& d) : handle(std::move(h)) {
+				if (!handle) throw Error(nullptr, d.as_error_arg());
+			} /* "upgrade" constructor */ 
+
+			// TEST: let's not provide this, and see whether anything breaks
+			//Debug::raw_handle_type get_dbg() const {  }
+			
 			static int libdw_attr_cb(Dwarf_Attribute *a, void *arg);
-			typedef void *handle_type; // DUMMY: FIXME: can delete?
-			inline AttributeList(handle_type h, const Die& d) /* "upgrade" constructor */
+			static inline handle_type
+			try_construct(const Die& d)
 			{
-				/* Call the iterator function */
-				ptrdiff_t ret = dwarf_getattrs(d.handle.get(), libdw_attr_cb,
-					this, 0);
+				handle_type new_vec = std::make_unique< handle_payload_t > ();
+				ptrdiff_t ret = dwarf_getattrs(d.raw_handle(), libdw_attr_cb,
+					new_vec.get(), 0);
 				// success means ret == 1 ("got to the end"), failure -1,
 				// anything else "DWARF_CB_OK was returned at this offset"
-				if (ret != 1) throw Error(nullptr, d.handle.get());
+				if (ret == -1) return nullptr;
+				return new_vec;
 			}
 #endif
+			inline explicit AttributeList(const Die& it);
+
 			// FIXME: get raw handle?
 			
 			/* Destruction logic:
@@ -564,18 +779,118 @@ namespace dwarf
 			 * and the copy (using vector destructor, also happens automatically).
 			 * Let's do that for now. */
 		};
-#ifndef LIBDW_SUPPORT_NOT_FINISHED
 
+#ifdef USING_LIBDWARF
+/* Things that come in blocks needing DW_DLA_LIST treatment: */
+#define DEALLOC_TOKEN_Attribute DW_DLA_ATTR
+#define DEALLOC_TOKEN_Line      DW_DLA_LINE
+#define DEALLOC_TOKEN_Func      DW_DLA_FUNC /* SGI-specific */
+#define DEALLOC_TOKEN_Type      DW_DLA_TYPENAME /* SGI-specific */
+#define DEALLOC_TOKEN_Var       DW_DLA_VAR /* SGI-specific */
+#define DEALLOC_TOKEN_Weak      DW_DLA_WEAK /* SGI-specific */
+#define DEALLOC_TOKEN_Arange    DW_DLA_ARANGE
+#define DEALLOC_TOKEN_Global    DW_DLA_GLOBAL
+#define DEALLOC_TOKEN_Block     DW_DLA_BLOCK
+
+/* These are fairly normal singleton things */
+#define DEALLOC_TOKEN_Error     DW_DLA_ERROR
+#define DEALLOC_TOKEN_Abbrev    DW_DLA_ABBREV
+
+/*  Dwar_Locdesc** a.k.a.  Dwarf_Locdesc* a.k.a.                            | stuff here is specific to Dwarf_Locdesc
+    core::LocdescList      core::Locdesc::raw_handle_type                   | and has no equivalent for Arange, Global etc
+      ::raw_handle_type                               Dwarf_Locdesc -  -  - | ---since these are opaque, unlike Dwarf_Locdesc
++--------------+          +--------------+            +----------------     |
+|      --------+--------->|      --------+----------->|               |     |    +------------
++--------------+          +--------------+            |===============+-----|--->|    |    | ...
+                          |      --------+            |               |     |    +------------
+                          +--------------+\           +---------------+     |    array of Dwarf_Loc a.k.a. Dwarf_Op
+                          |      ---------.\                                |
+                          +--------------+ \\         +---------------+     |
+                                            \-------->|               |
+                      ...many allocated at   \        |===============+--------->
+                      once.                   \       |               |
+                                               \      +---------------+
+                                                \
+                                                 \    +---------------+
+                                                  --->| ...           |
+
+          allocated by?      libdwarf               libdwarf                     also libdwarf
+         deallocated how?    explicit client call   explicit client call         explicit client call per array (BLOCK)
+                             for whole array (LIST) for *each* locdesc (LOCDESC)
+                  
+and we wrap this as a core::LocdescList structure
+  +==============+
+  ||     -------++-----------^  wrap the raw handle to a list
+  +`------------'|              s.t. the wrapped handle's deleter does the LIST deletion
+  |.------------.|
+  | vector of    +-----------------------------^ after the vector destructor
+  | core::Locdesc+-----------------------------^ has run the Locdesc::deleter
+  | ::handle_type+-----------------------------^ on each individual Locdesc
+  | a.k.a.       +-----------------------------^
+  | unique_ptr<  +-----------------------------^  ... the deleter does both the BLOCK
+  |Dwarf_Locdesc,+-----------------------------^      and the LOCDESC dwarf_dealloc calls
+  |Locdesc::delet+-----------------------------^
+  |er>           +-----------------------------^
+  +'============'+                                (WHY do we copy into the vector? We could just
+                                                   do the Locdesc deletions when the raw handle is deleted,
+                                                   i.e. immediately before the list is deleted.
+                                                   The reason is to enable uniformity with the other list
+                                                   types. The unique_ptr deleter takes care of the struct-specific
+                                                   deletion, and the list deleter is generic -- it just does the LIST
+                                                   deletion.)
+
+**and** the other list types are handled similarly-ish. So we have LocdescList, LineList,
+ArangeList, GlobalList. The difference is that there is no non-opaque Dwarf_Locdesc
+equivalent for Arange or Global. Instead 
+
+Now for libdw.
+
+                                                     pointer(s) return-written by dwarf_getlocation_addr(),
+                                                     dwarf_get_locations()
+                                                     and similar
+                                                                                 array(s) of Dwarf_Op a.k.a. Dwarf_Loc
+                                                     +--------------+            +------------
+                                                     |      --------+----------->|   |   | ...
+                                                     +--------------+            +------------
+                                                     |      --------+----.       +------------
+                                                     +--------------+     '----->|   |   | ... 
+                                                      ...                        +------------
+         allocated by?                               caller                      libdw
+        deallocated how?                             n/a                         no deallocation needed(?)
+
+                                                     libdwarf's Dwarf_Locdesc has no equivalent in libdw:
+                                                     its other fields like hipc, lopc etc
+                                                     are returned additionally by some calls
+
+and we wrap this how? just a vector of pointers, I guess...
+make them unique_ptr if we want to prevent copying, for uniformity with libdwarf
+i.e. the "handle" is this vector, confusingly
+
+Is it really worth supporting libdw and libdwarf simultaneously?
+Unless we forward-port to the latest libdwarf, this support is very low value,
+except maybe for testing the port. Can we test the port another way?
+Hmm, it does appeal to do a one-off test like this. Maybe it is worth proceeding as we have been.
+
+
+*/
+
+
+
+
+
+/* The following is generalised from LocdescList */
 #define list_handle(Fragment, ConstructorArgs...) \
 		struct Fragment ## List \
 		{ \
 			typedef Fragment::raw_handle_type *raw_handle_type; /* What libdwarf returns us. */ \
 			/* don't say opaque_type... */ \
 			/* typedef Fragment::opaque_type *raw_element_type; */ \
-			/* ... because LocDesc doesn't have one. But it does have... */ \
+			/* ... because LocDesc doesn't have one (the struct is non-opaque). But it does have... */ \
 			typedef Fragment::raw_handle_type raw_element_type; \
 			typedef Fragment::handle_type copied_element_type; \
-			/* This is a whole-list deleter. */ \
+			/* This is a whole-list deleter. For LocdescList, note that raw_handle_type */ \
+			/* is a Locdesc**, i.e. Locdesc::raw_handle_type is a Locdesc* */ \
+			/* and our typedef above adds a level of indirection to that. */ \
 			struct deleter \
 			{ \
 				Debug::raw_handle_type dbg; \
@@ -613,46 +928,123 @@ namespace dwarf
 			} \
 		};
 
-/* Things that come in blocks needing DW_DLA_LIST treatment: */
-#define DEALLOC_TOKEN_Attribute DW_DLA_ATTR
-#define DEALLOC_TOKEN_Line      DW_DLA_LINE
-#define DEALLOC_TOKEN_Func      DW_DLA_FUNC /* SGI-specific */
-#define DEALLOC_TOKEN_Type      DW_DLA_TYPENAME /* SGI-specific */
-#define DEALLOC_TOKEN_Var       DW_DLA_VAR /* SGI-specific */
-#define DEALLOC_TOKEN_Weak      DW_DLA_WEAK /* SGI-specific */
-#define DEALLOC_TOKEN_Arange    DW_DLA_ARANGE
-#define DEALLOC_TOKEN_Global    DW_DLA_GLOBAL
-#define DEALLOC_TOKEN_Block     DW_DLA_BLOCK
-
-/* These guys need *two* dwarf_dealloc calls. */
-
-/* These are fairly normal singleton things */
-#define DEALLOC_TOKEN_Error     DW_DLA_ERROR
-#define DEALLOC_TOKEN_Abbrev    DW_DLA_ABBREV
-
-/* These guys are grabbed by the same call, dwarf_get_fde_list, but are deprecated 
- * in libdwarf because the relevant API is leaky. There's a separate dwarf_fde_cie_list_dealloc
- * call instead, so we don't need these. */
-// #define DEALLOC_TOKEN_Fde       DW_DLA_FDE
-// #define DEALLOC_TOKEN_Cie       DW_DLA_CIE
-
 		/* Do the basic handles -- commenting out the SGI-specific ones for now */
 		basic_handle(Line, const iterator_base& it) /* dwarf_srclines -- allocates a block; free each line, free block */
-		//basic_handle(Func) /* dwarf_get_funcs */ // SGI-specific
-		//basic_handle(Type) /* dwarf_get_types */ // SGI-specific
-		//basic_handle(Var) /* dwarf_get_vars */ // SGI-specific
-		//basic_handle(Weak) /* dwarf_get_weaks */ // SGI-specific
 		basic_handle(Arange) /* dwarf_get_arange and dwarf_get_aranges */
 		basic_handle(Global) /* dwarf_get_globals */
-		//basic_handle(Error) /* can be created by most libdwarf calls */ // FIXME: reinstate
-		//basic_handle(Abbrev) /* abbrevs are abstracted away by libdwarf -- we can ignore */
 
 		/* Do the list handles. */
-		list_handle(Locdesc, const Attribute& a)
-		list_handle(Line, const iterator_base& it)
-		list_handle(Arange)
-		list_handle(Global)
+		list_handle(Locdesc, const Attribute& a)      // defines LocdescList
+		list_handle(Line, const iterator_base& it)    // defines LineList
+		list_handle(Arange)                           // defines ArangeList
+		list_handle(Global)                           // defines GlobalList
+#else /* libdw */
+		/* What does a LocdescList handle look like?
+		   RECALL:
+		   libdwarf has Dwarf_Locdesc:
+		      a lib-allocated, non-opaque type embedding a pointer to an array of zero or more non-opaque Dwarf_Loc (op)s
+		            i.e. libdwarf's Dwarf_Loc should really be called Dwarf_Op
+		            s... in libdw, it is!
+		   libdw has no equivalent, instead:
+		      an array-copying function:
+		        dwarf_getlocation (Dwarf_Attribute *attr, Dwarf_Op **expr, size_t *exprlen) __nonnull_attribute__ (2, 3);
 		
+		   ... i.e. I THINK it returns us <a pointer to zero or more Dwarf_Ops, a size_t> ?
+		
+			and
+			
+			 Return location expressions.  If the attribute uses a location list,
+   ADDRESS selects the relevant location expressions from the list.
+   There can be multiple matches, resulting in multiple expressions to
+   return.  EXPRS and EXPRLENS are parallel arrays of NLOCS slots to
+   fill in.  Returns the number of locations filled in, or -1 for
+   errors.  If EXPRS is a null pointer, stores nothing and returns the
+   total number of locations.  A return value of zero means that the
+   location list indicated no value is accessible. 
+extern int dwarf_getlocation_addr (Dwarf_Attribute *attr, Dwarf_Addr address,
+                                   Dwarf_Op **exprs, size_t *exprlens,
+                                   size_t nlocs);
+			and
+
+Enumerate the locations ranges and descriptions covered by the
+   given attribute.  In the first call OFFSET should be zero and
+   *BASEP need not be initialized.  Returns -1 for errors, zero when
+   there are no more locations to report, or a nonzero OFFSET
+   value to pass to the next call.  Each subsequent call must preserve
+   *BASEP from the prior call.  Successful calls fill in *STARTP and
+   *ENDP with a contiguous address range and *EXPR with a pointer to
+   an array of operations with length *EXPRLEN.  If the attribute
+   describes a single location description and not a location list the
+   first call (with OFFSET zero) will return the location description
+   in *EXPR with *STARTP set to zero and *ENDP set to minus one.
+extern ptrdiff_t dwarf_getlocations (Dwarf_Attribute *attr,
+                                     ptrdiff_t offset, Dwarf_Addr *basep,
+                                     Dwarf_Addr *startp, Dwarf_Addr *endp,
+                                     Dwarf_Op **expr, size_t *exprlen);
+
+		... so the latter callback-style one is the one we use to enumerate the list.
+		We can do this in our constructor.
+
+		 */
+		struct LocdescList
+		{
+			typedef Locdesc::raw_handle_type *raw_handle_type;
+			typedef Locdesc::raw_handle_type raw_element_type;
+			typedef Locdesc::handle_type copied_element_type;
+			Debug::raw_handle_type get_dbg() const { return handle.get_deleter().dbg; }
+			typedef unique_ptr<raw_element_type, deleter> handle_type;
+			handle_type handle;
+			std::vector<copied_element_type> copied_list; /* comes after "handle" for destruction order */
+			static inline handle_type
+			try_construct(const Attribute& a);
+			inline void copy_list();
+			// construct a LocdescList from a Locdesc handle -- recall that in libdwarf
+			// a Locdesc handle is pointer to zero or more locdescs. Each locdesc
+			// embeds a pointer to one or more locations, allocated by the library.
+			// And all these are non-opaque. ("Locdesc is weird", above.)
+            // in libdw, we use a callback to enumerate the list.
+            // Each time around the callback loop we get an address range and a pointer
+            // to a library-allocated array of operations.
+            // This is really not unlike libdwarf!
+            // EXCEPT That there is no Dwarf_Locdesc equivalent, just the raw array
+            // and the return values (start addr, end addr, lenth)
+            // that we get at each callback invocation.
+            // We have defined Dwarf_Locdesc ourselves.
+            // So maybe we should just fill one in, each time we do the callback?
+            // YES I think so.
+            // But how do we allocate the locdescs themselves?
+            // Remember that we had: typedef Dwarf_Locdesc *raw_handle_type;
+            // So again I think we need a level of indirection
+			inline LocdescList(handle_type h) : handle(std::move(h)) {
+				/* tolerate null handle -- means empty list */
+				if (handle) copy_list();
+			}
+			inline void copy_list()
+			{
+			
+				for (unsigned i = 0; i < handle.get_deleter().len; ++i)
+				{
+					copied_list.push_back(
+						copied_element_type(
+							std::move(handle.get()[i]), Fragment::deleter(get_dbg())
+						)
+					);
+				}
+			}
+
+		};
+
+		/* FIXME: equivalents of
+		 * Dwarf_Line
+		 * Dwarf_Arange
+		 * Dwarf_Global
+		 * Dwarf_LineList
+		 * Dwarf_ArangeList
+		 * Dwarf_GlobalList
+		 */
+#endif
+
+#ifndef LIBDW_SUPPORT_NOT_FINISHED
 		/* RangesList is special because it uses its own deallocation function. Also,
 		 * don't bother to copy the list. */
 		struct RangesList
@@ -1005,7 +1397,7 @@ namespace dwarf
 			}
 			
 			return handle_type(nullptr, deleter(nullptr, 0));
-		}		
+		}
 		inline Block::handle_type
 		Block::try_construct(const Attribute& a)
 		{

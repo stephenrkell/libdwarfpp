@@ -295,7 +295,7 @@ namespace dwarf
 			inline Dwarf_Half get_tag() const { return tag_here(); }
 			// helper for raw names -> std::string names
 		private:
-			inline unique_ptr<const char, string_deleter> get_raw_name() const 
+			inline raw_name_t get_raw_name() const 
 			{ return dynamic_cast<Die&>(get_handle()).name_here(); } 
 			inline opt<string> get_name() const 
 			{ return /*opt<string>(string(get_raw_name().get())); */ get_handle().get_name(); }
@@ -326,11 +326,13 @@ namespace dwarf
 				if (state == HANDLE_ONLY)
 				{
 					AttributeList l(dynamic_cast<Die&>(get_handle()));
-					for (auto i = l.copied_list.begin(); i != l.copied_list.end(); ++i)
+					unsigned nattrs = l.get_len();
+					for (unsigned i = 0; i < nattrs; ++i)
 					{
-						if (i->attr_here() == attr)
+						if (l[i].attr_here() == attr)
 						{
-							return encap::attribute_value(*i, dynamic_cast<Die&>(get_handle()), get_root());
+							return encap::attribute_value(l[i],
+								dynamic_cast<Die&>(get_handle()), get_root());
 						}
 					}
 					return encap::attribute_value();

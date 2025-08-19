@@ -13,6 +13,9 @@
 #include <libelf.h>
 #include "config.h" /* our configure-generated header, for HAVE_DWARF_FRAME_OP3 */
 
+/* This file should be where we paper over differences between libdw and libdwarf,
+ * aside from handle-related things, that go in dwarflib-handles.hpp. */
+
 namespace dwarf
 {
 	namespace lib
@@ -63,7 +66,7 @@ namespace dwarf
 		};
 
 #if !HAVE_DWARF_RANGES
-/* Pasted from libdwarf.h */
+/* Pasted from libdwarf.h. FIXME: abstract this */
 		enum Dwarf_Ranges_Entry_Type
 		{
 			DW_RANGES_ENTRY,
@@ -95,8 +98,8 @@ namespace dwarf
 		bool operator!=(const Dwarf_Loc& e1, const Dwarf_Loc& e2);
 		bool operator<(const lib::Dwarf_Loc& arg1, const lib::Dwarf_Loc& arg2);
 
-#if !HAVE_DWARF_LOCDESC
-/* Pasted from libdwarf.h */
+#if !HAVE_DWARF_LOCDESC // this includes libdw! i.e. we borrow 
+/* Pasted from libdwarf.h -- FIXME: abstract this */
 typedef struct {
 	Dwarf_Addr      ld_lopc;
 	Dwarf_Addr      ld_hipc;
@@ -131,6 +134,13 @@ typedef struct {
 			Dwarf_Off fp_instr_offset;
 		};
 #endif
+
+// Dwarf_Block has different field names in libdw...
+#ifdef USING_LIBDW
+#define bl_data data
+#define bl_len  length
+#endif
+
 	} /* end namespace lib */
 }
 
