@@ -220,13 +220,13 @@ namespace dwarf
 			assert(&it.get_root() == this);
 			if (it.tag_here() == DW_TAG_compile_unit) 
 			{
-				assert(it.get_depth() == 1);
+				debug_assert(it.get_depth() == 1);
 				return it.get_root().begin();
 			}
 			else if (it.offset_here() == 0UL) return iterator_base::END;
 			else
 			{
-				assert(it.get_depth() > 0);
+				debug_assert(it.get_depth() > 0);
 				auto found = parent_of.find(it.offset_here());
 				if (found == parent_of.end()) 
 				{
@@ -342,10 +342,16 @@ namespace dwarf
 		bool 
 		root_die::move_to_first_child(iterator_base& it)
 		{
+#ifdef DEBUG_ASSERTIONS
 			unsigned start_depth = it.get_depth();
+#endif
 			auto maybe_child = first_child(it); 
 			if (maybe_child != iterator_base::END) 
-			{ it = std::move(maybe_child); assert(it.depth() == start_depth + 1); return true; }
+			{
+				it = std::move(maybe_child);
+				debug_assert(it.depth() == start_depth + 1);
+				return true;
+			}
 			else return false;
 		}
 		iterator_base
@@ -587,13 +593,17 @@ namespace dwarf
 		root_die::move_to_next_sibling(iterator_base& it)
 		{
 			// Dwarf_Off start_off = it.offset_here();
-			unsigned start_depth = it.depth();
+#ifdef DEBUG_ASSERTIONS
+			unsigned start_depth = it.depth(); // it.depth is very expensive
+#endif
 			auto maybe_sibling = next_sibling(it); 
 			if (maybe_sibling != iterator_base::END) 
 			{
 				//debug(2) << "Think we found a later sibling of 0x" << std::hex << start_off
 				//	<< " at 0x" << std::hex << maybe_sibling.offset_here() << std::dec << endl;
-				it = std::move(maybe_sibling); assert(it.depth() == start_depth); return true; 
+				it = std::move(maybe_sibling);
+				debug_assert(it.depth() == start_depth);
+				return true; 
 			}
 			else return false;
 		}
