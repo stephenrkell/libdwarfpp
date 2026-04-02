@@ -256,7 +256,7 @@ namespace dwarf
 				//	assert(false);
 				//}
 				// just use pos()
-				return pos(found->second, it.depth() - 1, opt<Dwarf_Off>());
+				return pos(found->second, it.maybe_depth() ? opt<unsigned short>(it.depth() - 1) : opt<unsigned short>(), opt<Dwarf_Off>());
 			}
 		}
 		
@@ -548,7 +548,7 @@ namespace dwarf
 				if (found_live != live_dies.end())
 				{
 					assert(found_live->second->get_offset() == found_cached_sibling->second);
-					return iterator_base(static_cast<abstract_die&&>(*found_live->second), it.depth(), *this);
+					return iterator_base(static_cast<abstract_die&&>(*found_live->second), it.maybe_depth(), *this);
 				} // else fall through
 			}
 			
@@ -578,7 +578,7 @@ namespace dwarf
 			// shared parent cache logic
 			if (maybe_handle)
 			{
-				auto new_it = iterator_base(Die(std::move(maybe_handle)), it.get_depth(), *this);
+				auto new_it = iterator_base(Die(std::move(maybe_handle)), it.maybe_depth(), *this);
 				// install in parent cache
 				parent_of[new_it.offset_here()] = common_parent_offset;
 				// ditto for sibling cache -- but check we agree with what's already there
