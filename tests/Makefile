@@ -25,6 +25,12 @@ $(info depfiles we're maybe-including: $(patsubst %,.%.d,$(cases)))
 grandchildren: LDFLAGS += -pthread -static
 visible-named: LDFLAGS += -pthread -static
 
+# HACK: binutils >= 2.44 changed readelf -wF to show .eh_frame_hdr when present,
+# instead of the CIE/FDE table from .eh_frame. Link these tests without
+# .eh_frame_hdr so that readelf -wF still shows the expected .eh_frame output.
+fde-decode: LDFLAGS += -Wl,--no-eh-frame-hdr
+fde-print: LDFLAGS += -Wl,--no-eh-frame-hdr
+
 # declare the dep, to ensure we don't test a stale binary
 grandchildren: $(root)/lib/libdwarfpp.a
 visible-named: $(root)/lib/libdwarfpp.a
