@@ -11,6 +11,8 @@
 
 #include "dwarfpp/util.hpp"
 
+#include "config.h"
+
 #include <map>
 #include <string>
 #include <utility>
@@ -19,6 +21,23 @@
 #include <cassert>
 #include <algorithm>
 #include <type_traits>
+
+#if defined(DWARFPP_USE_LIBDW) && DWARFPP_USE_LIBDW
+/* Under the libdw backend the standard DWARF constants (DW_TAG_*, DW_AT_*,
+ * DW_FORM_*, DW_OP_* ...) are provided at GLOBAL scope by elfutils' <dwarf.h>
+ * (the same set that libdw.hpp pulls in). We deliberately do NOT also emit them
+ * into dwarf::spec below: doing so would leave two declarations of every
+ * constant visible to consumers, making any unqualified use ambiguous (e.g. in
+ * dwarfidl's print<DW_TAG_...> specializations). Include them here, globally and
+ * idempotently, so spec.hpp is self-contained regardless of include order. This
+ * mirrors libdw.hpp: <dwarf.h> for the elfutils constants, then the compat
+ * header for the handful libdwarf had that elfutils' <dwarf.h> lacks (e.g.
+ * DW_TAG_mutable_type), which the spec tables below still reference. */
+extern "C" {
+#include <dwarf.h>
+}
+#include "dwarfpp/libdw-compat-constants.h"
+#endif
 
 /* Basic idea of this file: 
  *
@@ -43,10 +62,16 @@ namespace dwarf
 	{
 		using std::string;
 		using dwarf::core::debug;
+#if !(defined(DWARFPP_USE_LIBDW) && DWARFPP_USE_LIBDW)
+		/* libdwarf backend: David Anderson's libdwarf.h (dwarf-lib.h) does not
+		 * define the DW_TAG_* etc. constants, so we emit them here, in
+		 * dwarf::spec. (Under the libdw backend they come from the global
+		 * <dwarf.h> included above instead.) */
 		extern "C"
 		{
 			#include "dwarf-onlystd.h"
 		}
+#endif
 		struct abstract_def
 		{
 			virtual const char *tag_lookup(int tag) const = 0;

@@ -5,17 +5,14 @@
 type-equality: type-equality.cpp
 type-equality: test.os
 
-# test.o is a combined .o with exactly two CUs, which contain
-# identical DWARF types. We make it from two copies
-# of the same .o file. Which .o file? For now we want something
-# reasonably substantial and written in C. Use the first .o file
-# from libdwarf.a? Problem is that it might not have any DWARF,
-# if the config gets it from the system. So alwyas get it from contrib.
-#$(info LIBDWARF_A is $(LIBDWARF_A))
-test.o:
-	$(MAKE) -C ../../contrib build-libdwarf
-	$(AR) x ../../contrib/libdwarf/libdwarf/libdwarf.a dwarf_original_elf_init.o
-	mv dwarf_original_elf_init.o test.o
+# test.os is a combined .o with two CUs that contain identical DWARF types
+# (which is what this test deduplicates). We make it from two copies of the
+# same C object, with the symbols of one renamed. We build that object from the
+# local hello.c, pinned to DWARF 4, because the legacy libdwarf backend cannot
+# parse the DWARF 5 a modern compiler emits by default. (It previously extracted
+# an object from contrib libdwarf.a, which is DWARF 5 under a modern toolchain.)
+test.o: hello.c
+	$(CC) -gdwarf-$(TEST_DWARF_VERSION) -g -c $< -o $@
 
 test.os: test.o test-renamed.o #hello.o hello-renamed.o
 	ld -r -o $@ $+

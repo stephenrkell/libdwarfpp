@@ -1,31 +1,66 @@
-version: 2.0
+version: 2.1
 jobs:
   build:
+    parameters:
+      backend:
+        type: string
+      dwarf:
+        type: string
+      exclude_cases:
+        type: string
+        default: ""
     docker:
-      - image: ubuntu:18.04
+      - image: ubuntu:24.04
     steps:
       - run:
           name: Install dependencies
           command: |
-            apt update && apt install -y git build-essential make time \
-            autoconf automake libtool pkg-config autoconf-archive \
-            g\+\+ python3 \
-            libelf-dev libboost-iostreams-dev libboost-regex-dev \
-            libboost-serialization-dev libboost-filesystem-dev
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update && apt-get install -y git build-essential make time \
+              autoconf automake libtool pkg-config autoconf-archive \
+              g++ python3 \
+              libelf-dev libdw-dev libzstd-dev libboost-iostreams-dev \
+              libboost-regex-dev libboost-serialization-dev libboost-filesystem-dev
       - checkout
       - run:
           name: Update submodules
-          command: git submodule update --init
+          command: git submodule update --init --recursive
       - run:
           name: Build submodules
           command: make -C contrib -j 2
       - run:
-          name: Build project
+          name: Build project (<< parameters.backend >> backend)
           command: |
             . contrib/env.sh
             ./autogen.sh
-            ./configure
+            # configure auto-selects the right headers/libs per backend (for
+            # libdw, elfutils' /usr/include + -ldw), so no need to pass
+            # --with-libdwarf-includes / --with-libdwarf-libs here.
+            ./configure --with-dwarf-backend=<< parameters.backend >>
             make -j 2
       - run:
-          name: Run tests
-          command: make -C tests -j 2
+          name: Run tests (DWARF << parameters.dwarf >>)
+          command: |
+            make -C tests -j 2 \
+              TEST_DWARF_VERSION=<< parameters.dwarf >> \
+              EXCLUDE_CASES="<< parameters.exclude_cases >>"
+
+workflows:
+  build-and-test:
+    jobs:
+      - build:
+          name: libdwarf-dwarf4
+          backend: libdwarf
+          dwarf: "4"
+          exclude_cases: "visible-named grandchildren"
+      - build:
+          name: libdw-dwarf4
+          backend: libdw
+          dwarf: "4"
+          # timed-dump-core is a wall-clock perf gate, we aren't this confident in libdw backend yet
+          exclude_cases: "timed-dump-core"
+      - build:
+          name: libdw-dwarf5
+          backend: libdw
+          dwarf: "5"
+          exclude_cases: "timed-dump-core"

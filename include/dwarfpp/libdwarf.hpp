@@ -1,9 +1,15 @@
 #ifndef DWARFPP_LIBDWARF_HPP_
 #define DWARFPP_LIBDWARF_HPP_
 
+#include "config.h" /* our configure-generated header, for HAVE_DWARF_FRAME_OP3
+                      * and DWARFPP_USE_LIBDW */
+
+#if defined(DWARFPP_USE_LIBDW) && DWARFPP_USE_LIBDW
+#error "include/dwarfpp/libdwarf.hpp is for the libdwarf backend only"
+#endif
+
 #include <iostream>
 #include <libelf.h>
-#include "config.h" /* our configure-generated header, for HAVE_DWARF_FRAME_OP3 */
 
 namespace dwarf
 {

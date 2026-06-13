@@ -1,6 +1,6 @@
 AC_CONFIG_MACRO_DIR([m4])
 AC_PREREQ([2.69])
-AC_INIT([libdwarfpp], [0.1], [srk31@cl.cam.ac.uk])
+AC_INIT([libdwarfpp],[0.1],[srk31@cl.cam.ac.uk])
 AC_CONFIG_SRCDIR([include/dwarfpp/lib.hpp])
 LT_INIT
 AC_LANG([C++])
@@ -19,6 +19,23 @@ AC_PROG_INSTALL
 AC_CHECK_HEADERS([algorithm cassert cstdlib elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector], [], [AC_MSG_FAILURE([required standard headers: algorithm cassert cstdlib elf.h functional iostream iterator libelf.h limits map memory queue set stack string strings.h type_traits unistd.h unordered_map unordered_set utility vector])])
 
 AC_CHECK_HEADERS([elf.h libelf.h], [], [AC_MSG_FAILURE([required headers: elf.h libelf.h])])
+
+dnl --- choice of DWARF backing library ------------------------------------
+dnl libdwarfpp can be backed either by David Anderson's libdwarf (the
+dnl historical default) or by elfutils' libdw, via the libdwarf-compatible
+dnl shim in include/dwarfpp/libdw.hpp + src/libdw-compat.cpp.
+AC_ARG_WITH([dwarf-backend],
+            [AS_HELP_STRING([--with-dwarf-backend=libdwarf|libdw],
+              [which DWARF library backs libdwarfpp (default: libdwarf)])],
+            [dwarf_backend="$withval"],
+            [dwarf_backend=libdwarf])
+case "$dwarf_backend" in
+  libdwarf) DWARFPP_USE_LIBDW=0 ;;
+  libdw)    DWARFPP_USE_LIBDW=1 ;;
+  *) AC_MSG_ERROR([--with-dwarf-backend must be 'libdwarf' or 'libdw']) ;;
+esac
+AC_SUBST([DWARFPP_USE_LIBDW])
+AM_CONDITIONAL([USE_LIBDW], [test "x$DWARFPP_USE_LIBDW" = x1])
 
 dnl AC_CHECK_HEADERS([dwarf.h libdwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h libdwarf.h])])
 dnl Ways we can get libdwarf includes and libs:
@@ -60,6 +77,23 @@ AC_ARG_WITH([libdwarf-libs],
             ],
             [ac_libdwarf_libs="${LIBDWARF_LIB_DIR:+-L${LIBDWARF_LIB_DIR}} -ldwarf"])
 
+# When backing with libdw, the headers and library we need are elfutils'
+# <dwarf.h> / <elfutils/libdw.h> and -ldw, which live in the system include and
+# library directories -- NOT the (possibly vendored) libdwarf locations that
+# LIBDWARF_INCLUDE_DIR / LIBDWARF_LIB_DIR may point at (e.g. via contrib/env.sh,
+# which sets them to the bundled libdwarf prefix). So unless the user explicitly
+# passed --with-libdwarf-includes / --with-libdwarf-libs, default them to the
+# system elfutils location. This makes '--with-dwarf-backend=libdw' sufficient on
+# its own, even with contrib/env.sh sourced.
+if test "x$DWARFPP_USE_LIBDW" = x1; then
+        if test -z "$with_libdwarf_includes"; then
+                ac_libdwarf_includes=/usr/include
+        fi
+        if test -z "$with_libdwarf_libs"; then
+                ac_libdwarf_libs="-ldw"
+        fi
+fi
+
 # we check for dwarf.h mainly to ensure we got a single directory as $ac_libdwarf_includes,
 # otherwise strange things happen when multiple filenames get subst'd into makefile commands....
 AC_CHECK_HEADERS([${ac_libdwarf_includes}/dwarf.h], [], [AC_MSG_FAILURE([required headers: dwarf.h (looked in $ac_libdwarf_includes)])])
@@ -68,16 +102,26 @@ AC_SUBST([libdwarf_includes], [$ac_libdwarf_includes])
 AX_BOOST_BASE
 
 AC_CHECK_HEADER([boost/iostreams/filtering_stream.hpp], [], [AC_MSG_FAILURE([boost::iostreams is required])])
-AC_HAVE_LIBRARY(boost_iostreams, [], [AC_MSG_FAILURE([boost::iostreams is required])])
+AC_CHECK_LIB([boost_iostreams],[main],[],[AC_MSG_FAILURE([boost::iostreams is required])],[])ac_cv_lib_boost_iostreams=ac_cv_lib_boost_iostreams_main
+
 AC_CHECK_HEADER([boost/regex/concepts.hpp], [], [AC_MSG_FAILURE([boost::regex is required])])
-AC_HAVE_LIBRARY(boost_regex, [], [AC_MSG_FAILURE([boost::regex is required])])
+AC_CHECK_LIB([boost_regex],[main],[],[AC_MSG_FAILURE([boost::regex is required])],[])ac_cv_lib_boost_regex=ac_cv_lib_boost_regex_main
+
 AC_CHECK_HEADER([boost/serialization/traits.hpp], [], [AC_MSG_FAILURE([boost::serialization is required])])
-AC_HAVE_LIBRARY(boost_serialization, [], [AC_MSG_FAILURE([boost::serialization is required])])
+AC_CHECK_LIB([boost_serialization],[main],[],[AC_MSG_FAILURE([boost::serialization is required])],[])ac_cv_lib_boost_serialization=ac_cv_lib_boost_serialization_main
+
 AC_CHECK_HEADER([boost/system/api_config.hpp], [], [AC_MSG_FAILURE([boost::system is required])])
-AC_HAVE_LIBRARY(boost_system, [], [AC_MSG_FAILURE([boost::system is required])])
+AC_CHECK_LIB([boost_system],[main],[],[AC_MSG_FAILURE([boost::system is required])],[])ac_cv_lib_boost_system=ac_cv_lib_boost_system_main
+
 
 AC_CHECK_LIB(elf, [elf_begin], [], [AC_MSG_FAILURE([libelf is required])])
-AC_CHECK_TYPE(Dwarf_Frame_Op3, HAVE_DWARF_FRAME_OP3=1, HAVE_DWARF_FRAME_OP3=0, [#include "$ac_libdwarf_includes/libdwarf.h"])
+if test "x$DWARFPP_USE_LIBDW" = x1; then
+        # elfutils' libdw has no Dwarf_Frame_Op3; the shim defines its own.
+        HAVE_DWARF_FRAME_OP3=0
+        AC_CHECK_LIB(dw, [dwarf_begin], [], [AC_MSG_FAILURE([libdw (elfutils) is required for --with-dwarf-backend=libdw])])
+else
+        AC_CHECK_TYPE(Dwarf_Frame_Op3, HAVE_DWARF_FRAME_OP3=1, HAVE_DWARF_FRAME_OP3=0, [#include "$ac_libdwarf_includes/libdwarf.h"])
+fi
 AC_SUBST(HAVE_DWARF_FRAME_OP3)
 
 AC_LANG_PUSH([C])
@@ -104,4 +148,5 @@ PKG_PROG_PKG_CONFIG
 PKG_CHECK_MODULES([LIBCXXFILENO], [libcxxfileno])
 PKG_CHECK_MODULES([LIBSRK31CXX], [libsrk31cxx])
 
-AC_OUTPUT([Makefile libdwarfpp.pc config.mk include/dwarfpp/config.h])
+AC_CONFIG_FILES([Makefile libdwarfpp.pc config.mk include/dwarfpp/config.h])
+AC_OUTPUT

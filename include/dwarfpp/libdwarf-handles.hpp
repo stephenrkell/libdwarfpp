@@ -8,7 +8,13 @@
 #ifndef DWARFPP_PRIVATE_LIBDWARF_HANDLES_HPP_
 #define DWARFPP_PRIVATE_LIBDWARF_HANDLES_HPP_
 
-#include "dwarfpp/libdwarf.hpp"
+#include "config.h" /* our configure-generated header, for DWARFPP_USE_LIBDW */
+
+#if not defined(DWARFPP_USE_LIBDW) || DWARFPP_USE_LIBDW
+#error "include/dwarfpp/libdwarf-handles.hpp is for the libdwarf backend only"
+#endif
+
+#include "dwarfpp/dwarfbackend.hpp"
 #include "dwarfpp/abstract.hpp"
 
 #include <iostream>

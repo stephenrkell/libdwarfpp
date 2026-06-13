@@ -67,6 +67,22 @@ namespace dwarf
 					default: assert(false);
 				}
 			}
+			/* Like get_handle(), but typed as the concrete Die handle: returns the
+			 * Die* if this iterator is backed by one (a libdwarf/libdw handle, with
+			 * or without payload), or nullptr if it is an in-memory DIE. The hot
+			 * DIE-tree paths use this to avoid a dynamic_cast<Die*> across the
+			 * virtual abstract_die base -- the iterator already knows its own
+			 * representation, so no RTTI walk is needed. */
+			Die *get_handle_die() const
+			{
+				if (!is_real_die_position()) return &cur_handle;
+				switch (state)
+				{
+					case HANDLE_ONLY: return &cur_handle;
+					case WITH_PAYLOAD: return cur_payload->d.handle ? &cur_payload->d : nullptr;
+					default: assert(false); return nullptr;
+				}
+			}
 			root_die::ptr_type fast_deref() const
 			{ if (state == WITH_PAYLOAD) return cur_payload; else return nullptr; }
 		private:
@@ -297,7 +313,7 @@ namespace dwarf
 			// helper for raw names -> std::string names
 		private:
 			inline unique_ptr<const char, string_deleter> get_raw_name() const 
-			{ return dynamic_cast<Die&>(get_handle()).name_here(); } 
+			{ return (*get_handle_die()).name_here(); }
 			inline opt<string> get_name() const 
 			{ return /*opt<string>(string(get_raw_name().get())); */ get_handle().get_name(); }
 		public:
@@ -310,9 +326,9 @@ namespace dwarf
 				if (state == HANDLE_ONLY)
 				{
 					return encap::attribute_map(
-						AttributeList(dynamic_cast<Die&>(get_handle())),
-						dynamic_cast<Die&>(get_handle()), 
-						dynamic_cast<Die&>(get_handle()).get_constructing_root()
+						AttributeList((*get_handle_die())),
+						(*get_handle_die()),
+						(*get_handle_die()).get_constructing_root()
 					);
 				}
 				else
@@ -326,12 +342,12 @@ namespace dwarf
 				if (is_root_position()) return encap::attribute_value();
 				if (state == HANDLE_ONLY)
 				{
-					AttributeList l(dynamic_cast<Die&>(get_handle()));
+					AttributeList l((*get_handle_die()));
 					for (auto i = l.copied_list.begin(); i != l.copied_list.end(); ++i)
 					{
 						if (i->attr_here() == attr)
 						{
-							return encap::attribute_value(*i, dynamic_cast<Die&>(get_handle()), get_root());
+							return encap::attribute_value(*i, (*get_handle_die()), get_root());
 						}
 					}
 					return encap::attribute_value();
@@ -349,10 +365,10 @@ namespace dwarf
 			bool has_attribute_here(Dwarf_Half attr) const { return has_attr_here(attr); }
 			
 			AttributeList::handle_type attributes_here()
-			{ return AttributeList::try_construct(dynamic_cast<Die&>(get_handle())); }
+			{ return AttributeList::try_construct((*get_handle_die())); }
 			AttributeList::handle_type attrs_here() { return attributes_here(); }
-			AttributeList::handle_type attributes_here() const 
-			{ return AttributeList::try_construct(dynamic_cast<Die&>(get_handle())); }
+			AttributeList::handle_type attributes_here() const
+			{ return AttributeList::try_construct((*get_handle_die())); }
 			AttributeList::handle_type attrs_here() const { return attributes_here(); }
 			
 			// want an iterators-style interface?

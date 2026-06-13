@@ -6,9 +6,10 @@ include $(root)/config.mk
 cases := $(filter-out makefile oprofile_data,$(shell cd $(root)/tests && find -mindepth 1 -maxdepth 1 -type d -name '[a-z]*' -print | while read f; do basename $$f ; done ))
 $(info cases is $(cases))
 
-CXXFLAGS += -I$(root)/include -O0 -fPIC -g -std=c++14
+TEST_DWARF_VERSION ?= 4
+CXXFLAGS += -I$(root)/include -O0 -fPIC -g -gdwarf-$(TEST_DWARF_VERSION) -std=c++14
 LDFLAGS += -L$(root)/lib -Wl,-rpath,$(root)/lib
-LDLIBS += -ldwarfpp -lelf $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lboost_system -lboost_regex -lboost_filesystem -lz
+LDLIBS += -ldwarfpp -lelf $(LIBSRK31CXX_LIBS) $(LIBCXXFILENO_LIBS) -lboost_system -lboost_regex -lboost_filesystem -lz -lzstd
 
 .PHONY: default
 default: all
@@ -25,21 +26,32 @@ $(info depfiles we're maybe-including: $(patsubst %,.%.d,$(cases)))
 grandchildren: LDFLAGS += -pthread -static
 visible-named: LDFLAGS += -pthread -static
 
+# HACK: binutils >= 2.44 changed readelf -wF to show .eh_frame_hdr when present,
+# instead of the CIE/FDE table from .eh_frame. Link these tests without
+# .eh_frame_hdr so that readelf -wF still shows the expected .eh_frame output.
+fde-decode: LDFLAGS += -Wl,--no-eh-frame-hdr
+fde-print: LDFLAGS += -Wl,--no-eh-frame-hdr
+
 # declare the dep, to ensure we don't test a stale binary
 grandchildren: $(root)/lib/libdwarfpp.a
 visible-named: $(root)/lib/libdwarfpp.a
 
 # HACK: manually link these with libdwarf for now, because unlike the .so,
-# the .a does not include it. And we must append -lelf and -lz... sigh.
-grandchildren: LDLIBS += $(LIBDWARF_LIBS) -lelf -lz
-visible-named: LDLIBS += $(LIBDWARF_LIBS) -lelf -lz
+# the .a does not include it. And we must append -lelf, -lz and -lzstd
+# (newer libelf.a's elf_compress.o references ZSTD)... sigh.
+grandchildren: LDLIBS += $(LIBDWARF_LIBS) -lelf -lz -lzstd
+visible-named: LDLIBS += $(LIBDWARF_LIBS) -lelf -lz -lzstd
 
 # test case build recipes call back to us using $(MAKE) -f ../Makefile
 # ... here we allow each case to define an include.mk for extra rules
 -include include.mk
 
+# EXCLUDE_CASES is a space-separated list of cases to skip (e.g. from CI)
+EXCLUDE_CASES ?=
+run_cases := $(filter-out $(EXCLUDE_CASES),$(cases))
+
 .PHONY: all
-all: $(foreach c,$(cases),run-$(c))
+all: $(foreach c,$(run_cases),run-$(c))
 
 # quick hack for a status report
 .PHONY: report

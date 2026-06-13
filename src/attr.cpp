@@ -333,6 +333,15 @@ namespace dwarf
 				case spec::interp::constant:
 					if (orig_form == DW_FORM_sdata) goto as_if_signed;
 					else if (orig_form == DW_FORM_udata) goto as_if_unsigned; // NOTE: there is no FORM_udata{1,2,4,9}
+#if defined(DWARFPP_USE_LIBDW) && DWARFPP_USE_LIBDW
+					/* DWARF5: the value is carried in the abbrev; libdw's
+					 * dwarf_form{u,s}data return it transparently. */
+					else if (orig_form == DW_FORM_implicit_const)
+					{
+						if (cls & spec::interp::SIGNED) goto as_if_signed;
+						else goto as_if_unsigned;
+					}
+#endif
 					else  if (orig_form == DW_FORM_data1
 					 || orig_form == DW_FORM_data2
 					 || orig_form == DW_FORM_data4
