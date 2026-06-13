@@ -10,6 +10,7 @@ using namespace dwarf;
 int main(int argc, char **argv)
 {
 	assert(argc > 1);
+	std::ios_base::sync_with_stdio(false);
 	std::ifstream in(argv[1]);
 	core::root_die root(fileno(in));
 	cout << root;

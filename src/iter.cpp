@@ -34,10 +34,11 @@ namespace dwarf
 			}
 			else
 			{
-				for (unsigned u = 0; u < indent_level; ++u) s << "\t";
+				if (indent_level) s << std::string(indent_level, '\t');
+				opt<string> name = name_here();
 				s << "DIE, offset 0x" << std::hex << offset_here() << std::dec
 					<< ", tag " << spec_here().tag_lookup(tag_here());
-				if (name_here()) s << ", name \"" << *name_here() << "\""; 
+				if (name) s << ", name \"" << *name << "\"";
 				else s << ", no name";
 			}
 		}
@@ -45,21 +46,16 @@ namespace dwarf
 		{
 			if (!is_real_die_position())
 			{
-				s << "(no DIE)" << endl;
+				s << "(no DIE)\n";
 			}
 			else
 			{
-				for (unsigned u = 0; u < indent_level; ++u) s << "\t";
+				if (indent_level) s << std::string(indent_level, '\t');
 				s << "DIE, offset 0x" << std::hex << offset_here() << std::dec
 					<< ", tag " << spec_here().tag_lookup(tag_here())
-					<< ", attributes: ";
-				//srk31::indenting_ostream is(s);
-				//is.inc_level();
-				s << endl;
+					<< ", attributes: \n";
 				auto m = copy_attrs();
 				m.print(s, indent_level + 1);
-				//is << endl << copy_attrs();
-				//is.dec_level();
 			}
 		}
 		std::ostream& operator<<(std::ostream& s, const iterator_base& i)

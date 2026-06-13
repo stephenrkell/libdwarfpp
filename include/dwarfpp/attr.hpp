@@ -189,12 +189,14 @@ namespace dwarf
 			
 			void print_raw(std::ostream& s) const;
 			void print_as(std::ostream& s, int cls) const;
-			friend std::ostream& operator<<(std::ostream& s, const attribute_value v);
+			friend std::ostream& operator<<(std::ostream& s, const attribute_value& v);
 			friend std::ostream& operator<<(std::ostream& s, std::pair<const Dwarf_Half, attribute_value>&);
 			//friend std::ostream& operator<<(std::ostream& o, const dwarf::encap::die& d);
 			// copy constructor
 			attribute_value(const attribute_value& av);
-			
+			attribute_value(attribute_value&& av) noexcept;
+			attribute_value& operator=(attribute_value&& av) noexcept;
+
 			virtual ~attribute_value();
 		}; // end class attribute_value
 		
@@ -230,7 +232,7 @@ namespace dwarf
 			virtual
 			std::pair<iterator,bool> insert(value_type&& val) // was template <class P> ... (P&& val)
 			{
-				return this->base::insert(val);
+				return this->base::insert(std::move(val));
 			}
 			virtual
 			iterator insert(const_iterator position, const value_type& val)
@@ -248,7 +250,7 @@ namespace dwarf
 		Dwarf_Addr operator-(Dwarf_Addr arg, attribute_value::address a);
 		Dwarf_Addr operator-(attribute_value::address a, Dwarf_Addr arg);
 
-		std::ostream& operator<<(std::ostream& s, const attribute_value v);
+		std::ostream& operator<<(std::ostream& s, const attribute_value& v);
 		std::ostream& operator<<(std::ostream& s, std::pair<const Dwarf_Half, attribute_value>& v);
 		std::ostream& operator<<(std::ostream& s, const attribute_value::address& a);
 	}
