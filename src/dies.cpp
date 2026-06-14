@@ -2011,7 +2011,18 @@ namespace dwarf
 		}
 		opt<uint32_t> type_die::summary_code() const
 		{
-			if (this->cached_summary_code) return this->cached_summary_code;
+			/* Use the root-level, offset-keyed summary-code cache. We cannot rely
+			 * on the per-DIE 'cached_summary_code' field for memoisation here:
+			 * non-CU DIEs are not "sticky", so two iterators to the same type DIE
+			 * may be backed by distinct (transient) payload objects, and a value
+			 * cached on one would be invisible to the other. The root cache is
+			 * keyed by DWARF offset, so it is shared by all views of a type and
+			 * also persists across calls. */
+			auto& summary_cache = get_root().type_summary_code_cache;
+			{
+				auto found = summary_cache.find(get_offset());
+				if (found != summary_cache.end()) return found->second;
+			}
 			//return this->summary_code_using_walk_type();
 			// return this->combined_summary_code_using_iterators<uint32_t>();
 			
@@ -2144,14 +2155,58 @@ namespace dwarf
 			 * in an executable or preloaded library
 			 * will trump an actual alias-of-summarised-full-definition symbol in the meta-obj.
 			 */
-			auto computed = this->containment_summary_code<uint32_t>(
-				/* Pass ourselves as the recursive call, to take advantage of caching. */
-				[](iterator_df<type_die> arg) -> opt<uint32_t> {
-					return summary_code_for_type(arg);
+			{
+				std::vector<iterator_df<type_die> > worklist;
+				/* offsets currently being computed (cycle detection) */
+				std::set<Dwarf_Off> in_progress;
+				iterator_df<type_die> self = find_self();
+				worklist.push_back(self);
+				while (!worklist.empty())
+				{
+					iterator_df<type_die> cur = worklist.back();
+					if (!cur) { worklist.pop_back(); continue; }
+					Dwarf_Off cur_off = cur.offset_here();
+					if (summary_cache.find(cur_off) != summary_cache.end())
+					{ worklist.pop_back(); continue; }
+					std::vector<iterator_df<type_die> > missing;
+					std::function<opt<uint32_t>(iterator_df<type_die>)> rec =
+					[&missing, &in_progress, &summary_cache](iterator_df<type_die> arg)
+					 -> opt<uint32_t> {
+						if (!arg) return opt<uint32_t>(0);
+						/* already computed (possibly to the empty/no-code result) */
+						auto found = summary_cache.find(arg.offset_here());
+						if (found != summary_cache.end()) return found->second;
+						/* cyclic dependency: break it (no code) */
+						if (in_progress.find(arg.offset_here()) != in_progress.end())
+							return opt<uint32_t>();
+						missing.push_back(arg);
+						return opt<uint32_t>(0); /* placeholder; result discarded */
+					};
+					in_progress.insert(cur_off);
+					opt<uint32_t> computed = cur->containment_summary_code<uint32_t>(rec);
+					if (missing.empty())
+					{
+						summary_cache[cur_off] = computed;
+						cur->cached_summary_code = computed; /* best-effort per-DIE */
+						in_progress.erase(cur_off);
+						worklist.pop_back();
+					}
+					else
+					{
+						/* leave cur on the stack (still in progress); compute the
+						 * missing constituents first, then retry cur */
+						for (auto i = missing.rbegin(); i != missing.rend(); ++i)
+							worklist.push_back(*i);
+					}
 				}
-			);
-			this->cached_summary_code = computed;
-			return computed;
+			}
+			{
+				auto found = summary_cache.find(get_offset());
+				opt<uint32_t> result = (found != summary_cache.end())
+					? found->second : opt<uint32_t>();
+				this->cached_summary_code = result;
+				return result;
+			}
 		}
 		
 		/* reverse-engineering helper. */
@@ -2685,7 +2740,171 @@ namespace dwarf
 				return opt<type_scc_t>(**this->opt_cached_scc);
 			} else return opt<type_scc_t>();
 		}
-		type_die::equal_result_t type_die::equal(iterator_df<type_die> t, 
+		/* equal() only ever recurses into a *deep* comparison
+		 * when the two types share a summary code (otherwise the summary-code
+		 * shortcut returns UNEQUAL immediately). And the equivalence-class cache
+		 * gives an O(1) answer for any pair *both of whose operands are already
+		 * classified*, because the cache maintains the invariant that equal types
+		 * share a class. Therefore, if every constituent type has already been
+		 * classified before we compare a type, each comparison recurses at most
+		 * one level
+		 *
+		 * So, at the outermost equal() call we first "prime" the cache: we walk
+		 * the equality-relevant constituents of both operands with an explicit,
+		 * heap-allocated worklist and classify each constituent before its parents. 
+		 * 
+		 * This bounds the depth of the actual comparison by the heap
+		 */
+
+		/* The constituent types that may_equal() recurses into, for each kind of
+		 * type. This must be a superset of the edges followed by the may_equal
+		 * overrides (extra edges are harmless; missing ones would reintroduce
+		 * deep recursion). */
+		static std::vector<iterator_df<type_die> >
+		equality_relevant_child_types(const iterator_df<type_die>& t)
+		{
+			std::vector<iterator_df<type_die> > children;
+			if (!t) return children;
+			if (t.is_a<with_data_members_die>())
+			{
+				auto members = t.children().subseq_of<member_die>();
+				for (auto i = members.first; i != members.second; ++i)
+					children.push_back(i->find_or_create_type_handling_bitfields());
+			}
+			else if (t.is_a<type_describing_subprogram_die>())
+			{
+				children.push_back(t.as_a<type_describing_subprogram_die>()->get_return_type());
+				auto fps = t.children().subseq_of<formal_parameter_die>();
+				for (auto i = fps.first; i != fps.second; ++i)
+					children.push_back(i->get_type());
+			}
+			else if (t.is_a<array_type_die>())
+			{
+				children.push_back(t.as_a<array_type_die>()->get_type());
+				auto subrs = t.children().subseq_of<subrange_type_die>();
+				for (auto i = subrs.first; i != subrs.second; ++i)
+					children.push_back(i->get_type());
+			}
+			else if (t.is_a<subrange_type_die>())
+				children.push_back(t.as_a<subrange_type_die>()->get_type());
+			else if (t.is_a<enumeration_type_die>())
+				children.push_back(t.as_a<enumeration_type_die>()->get_type());
+			else if (t.is_a<type_chain_die>()) /* typedef, pointer, reference,
+			    * qualified, ptr_to_member, set, file, ... -- all compare get_type() */
+				children.push_back(t.as_a<type_chain_die>()->get_type());
+			/* base_type, string_type, unspecified_type: no relevant children */
+			return children;
+		}
+
+		/* Ensure 'x' is placed in an equivalence class (i.e. has a cached
+		 * equality result against the existing types of its summary code). Called
+		 * in post-order, so x's constituents are already classified and the
+		 * comparison below stays shallow. */
+		static void ensure_equality_classified(iterator_df<type_die> x)
+		{
+			if (!x) return;
+			auto& root = x.root();
+			Dwarf_Off off = x.offset_here();
+			if (root.equivalence_class_of.find(off) != root.equivalence_class_of.end())
+				return; // already classified
+			opt<uint32_t> sc = x->summary_code();
+			auto range = root.equivalence_classes_by_summary_code.equal_range(sc);
+			if (range.first != range.second)
+			{
+				/* Compare against an existing representative of this summary code.
+				 * equal()'s own caching will classify x correctly (testing all
+				 * representatives in the bucket and merging or creating as needed).
+				 * This is shallow because x's and the rep's constituents are
+				 * already classified. */
+				Dwarf_Off rep_off = *(range.first->second)->begin();
+				iterator_df<type_die> rep = root.pos(rep_off).as_a<type_die>();
+				if (rep && rep.offset_here() != off)
+					x->equal(rep, set< pair< iterator_df<type_die>, iterator_df<type_die> > >());
+			}
+			/* If x is still unclassified (it was the first type of its summary
+			 * code, or could not be classified above), create a fresh singleton
+			 * class for it. Safe: we only reach here with an empty bucket or after
+			 * equal() declined to classify, so x cannot be equal to an existing
+			 * (already-classified) representative. */
+			if (root.equivalence_class_of.find(off) == root.equivalence_class_of.end())
+			{
+				root.equivalence_classes.emplace_back(set<Dwarf_Off>());
+				auto it = std::prev(root.equivalence_classes.end());
+				it->insert(off);
+				root.equivalence_classes_by_summary_code.insert(make_pair(sc, it));
+				root.equivalence_class_of.insert(make_pair(off, it));
+			}
+		}
+
+		/* Prime the equality cache for a top-level comparison of 'a' and 'b' by
+		 * classifying all their equality-relevant constituents bottom-up, using a
+		 * heap-allocated worklist rather than the C++ call stack. */
+		static void prime_equality_classes(iterator_df<type_die> a, iterator_df<type_die> b)
+		{
+			iterator_df<type_die> starts[2] = { a, b };
+			for (auto& start : starts)
+			{
+				if (!start) continue;
+				auto& root = start.root();
+				/* If 'start' is already classified, its constituents were
+				 * classified when it was, so there is nothing to do. */
+				if (root.equivalence_class_of.find(start.offset_here())
+					!= root.equivalence_class_of.end()) continue;
+				std::vector< pair<iterator_df<type_die>, bool> > stack; // (node, expanded?)
+				std::set<Dwarf_Off> seen;
+				stack.push_back(make_pair(start, false));
+				seen.insert(start.offset_here());
+				while (!stack.empty())
+				{
+					/* take a copy of the top; pushing children may reallocate */
+					iterator_df<type_die> node = stack.back().first;
+					bool expanded = stack.back().second;
+					if (!expanded)
+					{
+						stack.back().second = true;
+						auto kids = equality_relevant_child_types(node);
+						/* Push children so that the acyclic, by-value "deepening"
+						 * edges are processed *before* the pointer/reference edges
+						 * that create cycles. Cycles in a C/C++ type graph always
+						 * pass through an address_holding (pointer/reference) type;
+						 * a by-value containment skeleton is acyclic. If we
+						 * classified a pointer type before the by-value subtree it
+						 * eventually points back into, classifying it would trigger
+						 * a full-depth equal() on an as-yet-unclassified target.
+						 * Pushing pointer children first (so they end up at the
+						 * bottom of the stack and are processed last) gives a clean
+						 * post-order on the acyclic skeleton; the deferred pointer
+						 * comparisons are then shallow (their targets' by-value
+						 * descendants are cached, and the back-edge itself is cut
+						 * off by equal()'s 'assuming_equal' cycle-breaking). */
+						auto push_kid = [&](const iterator_df<type_die>& k) {
+							if (!k) return;
+							if (&k.root() != &root) return; // same-root only
+							Dwarf_Off koff = k.offset_here();
+							if (seen.find(koff) != seen.end()) return;
+							seen.insert(koff);
+							stack.push_back(make_pair(k, false));
+						};
+						// first the back-edge (pointer/reference) children...
+						for (auto& k : kids)
+							if (k && k->get_concrete_type().is_a<address_holding_type_die>())
+								push_kid(k);
+						// ...then the by-value children, which thus sit on top and
+						// are processed (and classified) first
+						for (auto& k : kids)
+							if (!(k && k->get_concrete_type().is_a<address_holding_type_die>()))
+								push_kid(k);
+					}
+					else
+					{
+						stack.pop_back();
+						ensure_equality_classified(node);
+					}
+				}
+			}
+		}
+
+		type_die::equal_result_t type_die::equal(iterator_df<type_die> t,
 			const set< pair< iterator_df<type_die>, iterator_df<type_die> > >& assuming_equal,
 			opt<string&> reason_for_caller /* = opt<string&>() */
 			) const
@@ -2730,6 +2949,20 @@ namespace dwarf
 			 || assuming_equal.find(make_pair(t, self)) != assuming_equal.end())
 			{
 				return EQUAL_BY_ASSUMPTION;
+			}
+			/* Depth-bounding: at the outermost equal() call, prime the equality
+			 * cache by classifying both operands' constituents bottom-up (see the
+			 * long comment above prime_equality_classes). This keeps the recursion
+			 * below shallow. We must do this before the cache check so the cache is
+			 * warm. Nested (recursive) equal() calls -- including those made by
+			 * priming itself -- skip this and run the normal, now-shallow logic. */
+			static thread_local unsigned equal_depth = 0;
+			struct depth_guard {
+				unsigned& d; depth_guard(unsigned& d) : d(d) { ++d; } ~depth_guard() { --d; }
+			} the_depth_guard(equal_depth);
+			if (equal_depth == 1 && t && &t.root() == &self.root())
+			{
+				prime_equality_classes(self, t);
 			}
 			debug_expensive(5, << "type_die::equal called non-trivially on "
 				<< self << " and " << t << " assuming " << assuming_equal.size()
