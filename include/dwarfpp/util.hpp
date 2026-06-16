@@ -25,6 +25,11 @@ namespace dwarf
 		}
 		#define debug_expensive(lvl, args...) \
 			((debug_level >= (lvl)) ? (debug(lvl) args) : (debug(lvl)))
+#ifdef DEBUG_ASSERTIONS
+		#define debug_assert(...) assert(__VA_ARGS__)
+#else
+		#define debug_assert(...) ((void)0)
+#endif
 	}
 }
 

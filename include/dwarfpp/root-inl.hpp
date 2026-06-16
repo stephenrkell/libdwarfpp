@@ -352,6 +352,7 @@ namespace dwarf
 			
 			/* I think we want bf traversal with a smart subtree-skipping test. */
 			iterator_bf<typename Iter::DerefType> pos = begin();
+			assert(pos.maybe_depth());
 			// debug(2) << "Searching for offset " << std::hex << off << std::dec << endl;
 			// debug(2) << "Beginning search at 0x" << std::hex << pos.offset_here() << std::dec << endl;
 			while (pos != iterator_base::END && pos.offset_here() != off)
@@ -363,6 +364,7 @@ namespace dwarf
 				iterator_bf<typename Iter::DerefType> next_pos = pos; 
 				assert(((void)pos.offset_here(), true));
 				next_pos.increment();
+				assert(next_pos.maybe_depth());
 				assert(((void)pos.offset_here(), true));
 				// debug(2) << ", next_pos is ";
 				// if (next_pos != iterator_base::END) {
@@ -397,6 +399,7 @@ namespace dwarf
 						iterator_bf<typename Iter::DerefType> new_pos 
 						 = static_cast<iterator_base>(pos); 
 						new_pos.increment();
+						assert(new_pos.maybe_depth());
 						if (new_pos != iterator_base::END) {
 							//  previously I had the following slow code: 
 							// //do { pos.increment(); } while (pos.offset_here() > off); 
@@ -418,6 +421,7 @@ namespace dwarf
 						// debug(2) << "Subtree between pos and next_pos cannot possibly contain target..." << endl;
 						/* We can't possibly want that subtree. */
 						pos.increment_skipping_subtree();
+						assert(pos.maybe_depth());
 						continue;
 					}
 				}
@@ -425,6 +429,7 @@ namespace dwarf
 				{ 
 					// next is END, or is at a different (lower) depth than pos
 					pos.increment(); 
+					assert(pos.maybe_depth());
 					continue; 
 				}
 				assert(false); // i.e. the above cases must cover everything

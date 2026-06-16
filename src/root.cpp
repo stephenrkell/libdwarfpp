@@ -220,13 +220,13 @@ namespace dwarf
 			assert(&it.get_root() == this);
 			if (it.tag_here() == DW_TAG_compile_unit) 
 			{
-				assert(it.get_depth() == 1);
+				debug_assert(it.get_depth() == 1);
 				return it.get_root().begin();
 			}
 			else if (it.offset_here() == 0UL) return iterator_base::END;
 			else
 			{
-				assert(it.get_depth() > 0);
+				debug_assert(it.get_depth() > 0);
 				auto found = parent_of.find(it.offset_here());
 				if (found == parent_of.end()) 
 				{
@@ -256,7 +256,7 @@ namespace dwarf
 				//	assert(false);
 				//}
 				// just use pos()
-				return pos(found->second, it.depth() - 1, opt<Dwarf_Off>());
+				return pos(found->second, it.maybe_depth() ? opt<unsigned short>(it.depth() - 1) : opt<unsigned short>(), opt<Dwarf_Off>());
 			}
 		}
 		
@@ -342,10 +342,16 @@ namespace dwarf
 		bool 
 		root_die::move_to_first_child(iterator_base& it)
 		{
+#ifdef DEBUG_ASSERTIONS
 			unsigned start_depth = it.get_depth();
+#endif
 			auto maybe_child = first_child(it); 
 			if (maybe_child != iterator_base::END) 
-			{ it = std::move(maybe_child); assert(it.depth() == start_depth + 1); return true; }
+			{
+				it = std::move(maybe_child);
+				debug_assert(it.depth() == start_depth + 1);
+				return true;
+			}
 			else return false;
 		}
 		iterator_base
@@ -542,7 +548,7 @@ namespace dwarf
 				if (found_live != live_dies.end())
 				{
 					assert(found_live->second->get_offset() == found_cached_sibling->second);
-					return iterator_base(static_cast<abstract_die&&>(*found_live->second), it.depth(), *this);
+					return iterator_base(static_cast<abstract_die&&>(*found_live->second), it.maybe_depth(), *this);
 				} // else fall through
 			}
 			
@@ -572,7 +578,7 @@ namespace dwarf
 			// shared parent cache logic
 			if (maybe_handle)
 			{
-				auto new_it = iterator_base(Die(std::move(maybe_handle)), it.get_depth(), *this);
+				auto new_it = iterator_base(Die(std::move(maybe_handle)), it.maybe_depth(), *this);
 				// install in parent cache
 				parent_of[new_it.offset_here()] = common_parent_offset;
 				// ditto for sibling cache -- but check we agree with what's already there
@@ -587,13 +593,17 @@ namespace dwarf
 		root_die::move_to_next_sibling(iterator_base& it)
 		{
 			// Dwarf_Off start_off = it.offset_here();
-			unsigned start_depth = it.depth();
+#ifdef DEBUG_ASSERTIONS
+			unsigned start_depth = it.depth(); // it.depth is very expensive
+#endif
 			auto maybe_sibling = next_sibling(it); 
 			if (maybe_sibling != iterator_base::END) 
 			{
 				//debug(2) << "Think we found a later sibling of 0x" << std::hex << start_off
 				//	<< " at 0x" << std::hex << maybe_sibling.offset_here() << std::dec << endl;
-				it = std::move(maybe_sibling); assert(it.depth() == start_depth); return true; 
+				it = std::move(maybe_sibling);
+				debug_assert(it.depth() == start_depth);
+				return true; 
 			}
 			else return false;
 		}
