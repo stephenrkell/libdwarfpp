@@ -4592,11 +4592,17 @@ namespace dwarf
 			{
 				// if they have fewer, we're unequal
 				if (i_theirs == their_fps.second) return UNEQUAL;
-				auto their_type = i_theirs->get_type();
-				auto our_type = i_fp->get_type();
-				assert(!!their_type);
-				assert(!!our_type);
-				equal_result_t sub_result = their_type->equal(our_type, assuming_equal, reason);
+				/* Use find_type(), not get_type(): a formal parameter of a
+				 * concrete or inlined instance frequently carries its type only
+				 * on a DW_AT_abstract_origin , so get_type() is absent. 
+				 * find_type() resolves that. 
+				 * */
+				auto their_type = i_theirs->find_type();
+				auto our_type = i_fp->find_type();
+				if (!our_type != !their_type) { ret = UNEQUAL; break; } // presence differs
+				equal_result_t sub_result = (!our_type && !their_type)
+					? EQUAL /* both void/absent -> this position matches */
+					: their_type->equal(our_type, assuming_equal, reason);
 				/* How does a member result affect whether we are EQUAL or EQUAL_BY_ASSUMPTION?
 				 * See comment for with_data_members_die above. But this case is simpler
 				 * because we never add an assumption (CHECK: can we really not get recursion

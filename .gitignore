@@ -70,6 +70,8 @@ tests/resolve/resolve
 tests/siblings-core/siblings-core
 tests/timed-dump-core/timed-dump-core
 tests/type-equality/type-equality
+tests/type-equality/test.os
+tests/type-deep-recursion/deep2.os
 tests/type-iterators/type-iterators
 tests/type-scc/type-scc
 tests/visible-named/visible-named
